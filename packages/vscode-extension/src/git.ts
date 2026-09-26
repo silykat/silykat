@@ -21,6 +21,26 @@ export async function commitExists(cwd: string, sha: string): Promise<boolean> {
   return (await git(['cat-file', '-e', `${sha}^{commit}`], cwd)) !== null;
 }
 
+/**
+ * Where a file went if git saw it renamed or moved: in uncommitted changes (staged or not), then
+ * in recent history. Follows successive renames. Paths are relative to the repository root, `/`-separated.
+ */
+export async function findRename(repoRoot: string, path: string): Promise<string | null> {
+  const [uncommitted, history] = await Promise.all([
+    git(['diff', '-M', '--name-status', 'HEAD'], repoRoot),
+    git(['log', '-M', '--diff-filter=R', '--name-status', '--format=', '-n', '500'], repoRoot),
+  ]);
+  // Newest first: uncommitted renames, then the log (which lists the most recent commits first).
+  const renames = new Map<string, string>();
+  for (const line of `${uncommitted ?? ''}\n${history ?? ''}`.split('\n')) {
+    const [status, from, to] = line.split('\t');
+    if (status?.startsWith('R') && from && to && !renames.has(from)) renames.set(from, to);
+  }
+  let current = path;
+  for (let hops = 0; hops < 20 && renames.has(current); hops++) current = renames.get(current)!;
+  return current === path ? null : current;
+}
+
 export async function gitUserName(cwd: string): Promise<string | null> {
   const name = await git(['config', 'user.name'], cwd);
   return name || null;

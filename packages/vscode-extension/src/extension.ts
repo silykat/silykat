@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { AgentRepliesUi, type Notifier } from './agentReplies';
-import { ReviewController, type ConfirmHandler } from './controller';
+import { ReviewController, type ChooseHandler, type ConfirmHandler } from './controller';
 import { simulateAgentReply, type SimulateArgs } from './dev/simulateAgentReply';
 import { createLog } from './log';
 import type { LrComment } from './render';
@@ -12,6 +12,9 @@ export interface LocalReviewApi {
   listThreads: ReviewController['listThreads'];
   /** Tests only: answer confirmation dialogs without showing them. */
   setConfirmHandler(handler: ConfirmHandler | undefined): void;
+  /** Tests only: pick among offered actions without showing them. */
+  setChooseHandler(handler: ChooseHandler | undefined): void;
+  reveal: ReviewController['reveal'];
   /** Tests only: answer the review summary prompt without showing it (`undefined` = Esc). */
   setSummaryPrompt(prompt: SummaryPrompt | undefined): void;
   /** Tests only: the review status bar text, `undefined` when hidden. */
@@ -78,6 +81,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
   );
 
   const defaultConfirm = review.confirm;
+  const defaultChoose = review.choose;
   const defaultSummaryPrompt = reviewUi.promptSummary;
   const defaultNotifier = agentReplies.notify;
   await review.reload();
@@ -90,6 +94,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
     setConfirmHandler: (handler) => {
       review.confirm = handler ?? defaultConfirm;
     },
+    setChooseHandler: (handler) => {
+      review.choose = handler ?? defaultChoose;
+    },
+    reveal: (threadId) => review.reveal(threadId),
     setSummaryPrompt: (prompt) => {
       reviewUi.promptSummary = prompt ?? defaultSummaryPrompt;
     },

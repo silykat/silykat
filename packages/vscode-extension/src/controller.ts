@@ -1,6 +1,6 @@
-import { readFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import { userInfo } from 'node:os';
-import { basename, isAbsolute, join } from 'node:path';
+import { basename, isAbsolute, join, sep } from 'node:path';
 import * as vscode from 'vscode';
 import {
   buildAnchorContext,
@@ -12,7 +12,7 @@ import {
   type ReviewState,
   type ThreadState,
 } from '@local-review/core';
-import { commitExists, ensureExcluded, gitUserName, resolveCommit } from './git';
+import { commitExists, ensureExcluded, findRename, gitUserName, resolveCommit } from './git';
 import { anchorRef, isIndexRef, parseGitQuery, versionTag } from './gitUri';
 import type { Log } from './log';
 import { toLineRange, toZeroBasedLines } from './range';
@@ -39,6 +39,12 @@ export type ConfirmHandler = (message: string, detail: string, action: string) =
 
 const modalConfirm: ConfirmHandler = async (message, detail, action) =>
   (await vscode.window.showWarningMessage(message, { modal: true, detail }, action)) === action;
+
+/** Asks the user to pick one of a few actions (or none). Replaceable in tests. */
+export type ChooseHandler = (message: string, actions: string[]) => Promise<string | undefined>;
+
+const warningChoice: ChooseHandler = (message, actions) =>
+  Promise.resolve(vscode.window.showWarningMessage(message, ...actions));
 
 interface Managed {
   state: ThreadState;
@@ -92,6 +98,7 @@ export class ReviewController implements vscode.Disposable {
   readonly onDidReceiveAgentReply = this.agentReplied.event;
   private watchers: vscode.Disposable[] = [];
   confirm: ConfirmHandler = modalConfirm;
+  choose: ChooseHandler = warningChoice;
   private ctx: RenderContext;
 
   constructor(
@@ -271,15 +278,106 @@ export class ReviewController implements vscode.Disposable {
   }
 
   /** Opens a thread's file, scrolls to it and expands it. */
-  async reveal(threadId: string): Promise<void> {
-    const m = this.managed.get(threadId);
-    if (!m) return;
+  /**
+   * Opens a thread's file, scrolls to it and expands it. When the file no longer exists (and was not
+   * renamed), offers to resolve or delete the thread instead: there is nothing to open.
+   */
+  async reveal(threadId: string): Promise<'shown' | 'missing' | 'unknown'> {
+    let m = this.managed.get(threadId);
+    if (!m) return 'unknown';
+    if (m.state.anchor.source === 'worktree' && !(await exists(this.fsPathOf(m)))) {
+      await this.followRename(m.root, threadId);
+      m = this.managed.get(threadId);
+      if (!m) return 'unknown';
+      if (!(await exists(this.fsPathOf(m)))) {
+        await this.offerToClose(m);
+        return 'missing';
+      }
+    }
     const editor = await vscode.window.showTextDocument(this.threadUri(m.root, m.state.anchor), { preview: false });
     if (m.thread.range) {
       editor.revealRange(m.thread.range, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
       editor.selection = new vscode.Selection(m.thread.range.start, m.thread.range.start);
     }
     m.thread.collapsibleState = vscode.CommentThreadCollapsibleState.Expanded;
+    return 'shown';
+  }
+
+  /** A thread whose file was deleted can still be closed. */
+  private async offerToClose(m: Managed): Promise<void> {
+    const choice = await this.choose(
+      `Local Review: the file of this thread no longer exists (${m.state.anchor.path}).`,
+      m.state.readOnly ? [] : ['Resolve', 'Delete Thread'],
+    );
+    try {
+      if (choice === 'Resolve') {
+        const state = await m.root.store.setStatus(m.state.id, 'resolved', 'user');
+        this.adopt(m.root, state, m.thread);
+      } else if (choice === 'Delete Thread') {
+        await m.root.store.deleteThread(m.state.id, 'user');
+        this.forget(m.state.id);
+      }
+    } catch (err) {
+      this.log.error('Failed to close the thread of a deleted file', err);
+    }
+  }
+
+  /**
+   * The file of a thread is gone: if git saw it renamed or moved, the thread follows it (and finds
+   * its code there when it can). Returns whether the thread moved.
+   */
+  private async followRename(root: Root, threadId: string): Promise<boolean> {
+    const m = this.managed.get(threadId);
+    if (!m || !root.isGit || m.state.anchor.source !== 'worktree' || m.state.readOnly) return false;
+    const newPath = await findRename(root.path, m.state.anchor.path);
+    if (!newPath) return false;
+    let text: string;
+    try {
+      text = await readFile(join(root.path, ...newPath.split('/')), 'utf8');
+    } catch {
+      return false;
+    }
+    const anchor = m.state.anchor;
+    const found = anchor.range ? reanchor(anchor, text) : null;
+    const located = found && found.kind !== 'lost';
+    await this.moveThread(root, threadId, {
+      ...anchor,
+      path: newPath,
+      ...(located ? buildAnchorContext(text, found.range) : {}),
+    });
+    if (anchor.range && !located) this.setOutdated(threadId, true);
+    this.log.info(`${anchor.path} was renamed to ${newPath}: thread ${threadId} follows it`);
+    return true;
+  }
+
+  /** Records a thread's new file and shows it there (a thread's URI cannot change in place). */
+  private async moveThread(root: Root, threadId: string, anchor: Anchor): Promise<void> {
+    try {
+      const state = await root.store.updateAnchor(threadId, anchor, 'user');
+      this.forget(threadId);
+      this.render(root, state);
+    } catch (err) {
+      this.log.error(`Failed to move thread ${threadId} to ${anchor.path}`, err);
+    }
+  }
+
+  /** Files or folders renamed in VS Code (Explorer, refactorings): their threads follow. */
+  private async onFilesRenamed(e: vscode.FileRenameEvent): Promise<void> {
+    for (const { oldUri, newUri } of e.files) {
+      if (oldUri.scheme !== 'file' || newUri.scheme !== 'file') continue;
+      for (const m of [...this.managed.values()]) {
+        if (m.state.anchor.source !== 'worktree') continue;
+        const current = this.fsPathOf(m);
+        const moved =
+          current === oldUri.fsPath
+            ? newUri.fsPath
+            : current.startsWith(oldUri.fsPath + sep)
+              ? newUri.fsPath + current.slice(oldUri.fsPath.length)
+              : undefined;
+        if (!moved || this.roots.forFile(moved) !== m.root) continue;
+        await this.moveThread(m.root, m.state.id, { ...m.state.anchor, path: Roots.anchorPath(m.root, moved) });
+      }
+    }
   }
 
   /** A review journal changed on disk (e.g. submitted from another window). */
@@ -516,6 +614,7 @@ export class ReviewController implements vscode.Disposable {
       }),
       vscode.workspace.onDidOpenTextDocument((doc) => void this.onDocumentOpened(doc)),
       vscode.workspace.onDidCloseTextDocument((doc) => void this.onDocumentClosed(doc)),
+      vscode.workspace.onDidRenameFiles((e) => void this.onFilesRenamed(e)),
     );
   }
 
@@ -654,7 +753,7 @@ export class ReviewController implements vscode.Disposable {
 
   private async reanchorFromDisk(root: Root, threadId: string): Promise<void> {
     const m = this.managed.get(threadId);
-    if (!m || m.state.anchor.source !== 'worktree' || !m.state.anchor.range) return;
+    if (!m || m.state.anchor.source !== 'worktree') return;
     const open = vscode.workspace.textDocuments.find((d) => d.uri.fsPath === this.fsPathOf(m));
     if (open?.isDirty) return; // positions are tracked live until the next save
     let text: string;
@@ -663,10 +762,11 @@ export class ReviewController implements vscode.Disposable {
       // around with stale content for a while.
       text = await readFile(this.fsPathOf(m), 'utf8');
     } catch {
-      this.setOutdated(threadId, true); // the file itself is gone
+      // The file itself is gone: renamed or moved (follow it), or deleted (outdated).
+      if (!(await this.followRename(root, threadId))) this.setOutdated(threadId, true);
       return;
     }
-    await this.reanchorFromText(root, threadId, text);
+    if (m.state.anchor.range) await this.reanchorFromText(root, threadId, text);
   }
 
   private async reanchorFromText(root: Root, threadId: string, text: string): Promise<void> {
@@ -921,7 +1021,9 @@ export class ReviewController implements vscode.Disposable {
     if (previous && previous.thread !== thread) previous.thread.dispose();
     const outdated = this.outdated.has(state.id);
     const current = this.currentRange(state);
-    if (outdated) {
+    if (outdated && !state.anchor.range) {
+      // A file comment stays a file comment: it has no line to lose.
+    } else if (outdated) {
       // Shown on line 1, never on lines that are not its code. Not `undefined` (file level):
       // VS Code drops `undefined` when it sends a thread update to the editor, which then keeps
       // the old range and stretches it as the file changes.
@@ -980,4 +1082,13 @@ function latestActive(reviews: readonly ReviewState[]): ReviewState | null {
   const active = reviews.filter((r) => r.state === 'active');
   active.sort((a, b) => b.startedAt.localeCompare(a.startedAt) || b.id.localeCompare(a.id));
   return active[0] ?? null;
+}
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
