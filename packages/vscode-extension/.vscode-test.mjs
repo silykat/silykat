@@ -16,6 +16,7 @@ export default defineConfig({
   files: 'out/test/integration/**/*.test.js',
   workspaceFolder: workspace,
   version: 'stable',
-  launchArgs: ['--disable-extensions'],
+  // A short user data dir: macOS caps socket paths at ~104 chars, and VS Code puts one in there.
+  launchArgs: ['--disable-extensions', '--user-data-dir', mkdtempSync(join(tmpdir(), 'lr-ud-'))],
   mocha: { ui: 'bdd', timeout: 20000 },
 });

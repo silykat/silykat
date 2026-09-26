@@ -4,7 +4,7 @@ Skills & VSCode extension for local code review.
 
 A GitHub-style code review between you and your AI coding agent, running 100% locally. It is LLM-agnostic: Claude Code is the first supported agent.
 
-- **VS Code extension** (`packages/extension`): select lines in a file or a diff and comment on them, either as a direct comment or as part of a review.
+- **VS Code extension** (`packages/vscode-extension`): select lines in a file or a diff and comment on them, either as a direct comment or as part of a review.
 - **Agent integration** (coming soon): the agent reads the comments, updates the code and replies in the threads. It starts with a Claude Code skill, built on an agent-neutral CLI.
 
 Comments are stored in `.local-review/` at the root of the reviewed project. That folder is automatically excluded from git through `.git/info/exclude`. No data ever leaves your machine.
@@ -57,10 +57,10 @@ npm run install-ext        # build the .vsix and install it into VS Code
 
 After `install-ext`, run **Developer: Reload Window** in VS Code.
 
-| Package              | Purpose                                                       |
-| -------------------- | ------------------------------------------------------------- |
-| `packages/core`      | Data model, JSONL journal, storage. No dependency on `vscode` |
-| `packages/extension` | VS Code extension                                             |
+| Package                     | Purpose                                                       |
+| --------------------------- | ------------------------------------------------------------- |
+| `packages/core`             | Data model, JSONL journal, storage. No dependency on `vscode` |
+| `packages/vscode-extension` | VS Code extension                                             |
 
 ## License
 

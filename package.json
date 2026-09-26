@@ -3,15 +3,15 @@
   "private": true,
   "workspaces": [
     "packages/core",
-    "packages/extension"
+    "packages/vscode-extension"
   ],
   "scripts": {
-    "build": "npm run build -w packages/extension",
+    "build": "npm run build -w packages/vscode-extension",
     "typecheck": "npm run typecheck --workspaces",
     "test": "npm run test --workspaces",
-    "test:integration": "npm run test:integration -w packages/extension",
-    "package": "npm run package -w packages/extension",
-    "install-ext": "npm run package && code --install-extension packages/extension/dist/local-review.vsix --force",
+    "test:integration": "npm run test:integration -w packages/vscode-extension",
+    "package": "npm run package -w packages/vscode-extension",
+    "install-ext": "npm run package && code --install-extension packages/vscode-extension/dist/local-review.vsix --force",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
