@@ -15,6 +15,12 @@ export interface AnchorSide {
   source: 'worktree' | 'git';
   ref: string | null;
   sha: string | null;
+  /**
+   * File of this side of the diff, relative to the store root (absolute when outside it).
+   * Set on diff sides, which may be another file than the thread's (e.g. "Compare Selected");
+   * missing on older anchors, where both sides are the thread's own file.
+   */
+  path?: string;
 }
 
 export interface DiffInfo {

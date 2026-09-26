@@ -108,10 +108,11 @@ describe('Comment in the diff of changes (Source Control)', () => {
     const t = managed(id);
     assert.equal(t.state.anchor.source, 'worktree');
     assert.equal(t.state.anchor.snippet, 'const v5 = 500;');
+    const rel = file.path.split('/').pop();
     assert.deepEqual(t.state.anchor.diff, {
       side: 'head',
-      base: { source: 'git', ref: '~', sha: null },
-      head: { source: 'worktree', ref: null, sha: null },
+      base: { source: 'git', ref: '~', sha: null, path: rel },
+      head: { source: 'worktree', ref: null, sha: null, path: rel },
     });
     assert.equal(t.uris[0], file.toString(), 'the thread lives on the file itself');
     assert.equal(t.thread.label, 'Waiting for Claude');

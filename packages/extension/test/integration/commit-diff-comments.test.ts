@@ -103,10 +103,11 @@ describe('Comment in the diff between two commits (Timeline)', () => {
     assert.equal(managed(before).state.anchor.snippet, 'const v3 = 3;');
     assert.equal(managed(after).state.anchor.sha, c2);
     assert.equal(managed(after).state.anchor.snippet, 'const v3 = 300;');
+    const rel = file.path.split('/').pop();
     assert.deepEqual(managed(after).state.anchor.diff, {
       side: 'head',
-      base: { source: 'git', ref: `${c2}^`, sha: c1 },
-      head: { source: 'git', ref: c2, sha: c2 },
+      base: { source: 'git', ref: `${c2}^`, sha: c1, path: rel },
+      head: { source: 'git', ref: c2, sha: c2, path: rel },
     });
     assert.equal(managed(before).thread.label, `${c1.slice(0, 7)} · Waiting for Claude`);
     assert.ok(managed(before).uris.includes(diff.original.toString()));

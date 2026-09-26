@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { userInfo } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, isAbsolute, join } from 'node:path';
 import * as vscode from 'vscode';
 import {
   buildAnchorContext,
@@ -308,18 +308,21 @@ export class ReviewController implements vscode.Disposable {
         return false;
       }
     }
-    const fsPath = join(m.root.path, ...m.state.anchor.path.split('/'));
+    const fileOf = (side: AnchorSide) => {
+      const path = side.path ?? m.state.anchor.path;
+      return isAbsolute(path) ? path : join(m.root.path, ...path.split('/'));
+    };
     const uriOf = (side: AnchorSide) =>
       side.source === 'worktree'
-        ? vscode.Uri.file(fsPath)
-        : gitUri(fsPath, side.ref === '~' ? '~' : (side.sha ?? 'HEAD'));
+        ? vscode.Uri.file(fileOf(side))
+        : gitUri(fileOf(side), side.ref === '~' ? '~' : (side.sha ?? 'HEAD'));
     const name = (side: AnchorSide) => versionTag(side) ?? 'Working Tree';
-    const file = basename(fsPath);
+    const [left, right] = [basename(fileOf(diff.base)), basename(fileOf(diff.head))];
     await vscode.commands.executeCommand(
       'vscode.diff',
       uriOf(diff.base),
       uriOf(diff.head),
-      `${file} (${name(diff.base)}) ↔ ${file} (${name(diff.head)})`,
+      `${left} (${name(diff.base)}) ↔ ${right} (${name(diff.head)})`,
     );
     return true;
   }
@@ -753,7 +756,7 @@ export class ReviewController implements vscode.Disposable {
     if (!fsPath || !root) return 'this file is not part of any workspace folder.';
     const side = await this.sideOf(uri);
     if (!side) return 'this version of the file cannot be resolved in git.';
-    return { root, base: { path: Roots.anchorPath(root, fsPath), ...side, diff: await this.diffInfoFor(uri) } };
+    return { root, base: { path: Roots.anchorPath(root, fsPath), ...side, diff: await this.diffInfoFor(uri, root) } };
   }
 
   /** Which version a document shows. `null` when a git ref cannot be resolved. */
@@ -767,18 +770,30 @@ export class ReviewController implements vscode.Disposable {
     return sha ? { source: 'git', ref: anchorRef(parsed.ref), sha } : null;
   }
 
-  /** The diff a document is a side of, if it is shown in one. */
-  private async diffInfoFor(uri: vscode.Uri): Promise<DiffInfo | undefined> {
+  /** The diff a document is a side of, if it is shown in one. Side paths are relative to `root`. */
+  private async diffInfoFor(uri: vscode.Uri, root: Root): Promise<DiffInfo | undefined> {
     const key = uri.toString();
     for (const tab of vscode.window.tabGroups.all.flatMap((g) => g.tabs)) {
       const input = tab.input;
       if (!(input instanceof vscode.TabInputTextDiff)) continue;
       const side = input.original.toString() === key ? 'base' : input.modified.toString() === key ? 'head' : undefined;
       if (!side) continue;
-      const [base, head] = await Promise.all([this.sideOf(input.original), this.sideOf(input.modified)]);
+      const [base, head] = await Promise.all([
+        this.diffSideOf(input.original, root),
+        this.diffSideOf(input.modified, root),
+      ]);
       if (base && head) return { side, base, head };
     }
     return undefined;
+  }
+
+  /** A side of a diff: its version and its file (both sides may be different files). */
+  private async diffSideOf(uri: vscode.Uri, root: Root): Promise<AnchorSide | null> {
+    const side = await this.sideOf(uri);
+    const fsPath = this.commentedFile(uri);
+    if (!side || !fsPath) return null;
+    const inRoot = this.roots.forFile(fsPath) === root;
+    return { ...side, path: inRoot ? Roots.anchorPath(root, fsPath) : fsPath };
   }
 
   /** Canonical instance and aliases of a thread. */
