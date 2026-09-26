@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyChanges, shiftSpan, type TextChange } from '../../src/tracking';
+import { applyChanges, REMOVED, shiftSpan, type TextChange } from '../../src/tracking';
 
 const SPAN = { start: 19, end: 21 }; // lines 20-22 in 1-based terms
 const insert = (line: number, character: number, text: string): TextChange => ({
@@ -40,12 +40,22 @@ describe('shiftSpan', () => {
     expect(shiftSpan(SPAN, insert(21, 10, '\nmore'))).toEqual({ start: 19, end: 22 });
   });
 
-  it('shrinks with lines deleted inside, down to a single line (AC 4)', () => {
+  it('shrinks with some of its lines deleted, down to a single line (AC 4)', () => {
     expect(shiftSpan(SPAN, remove(20, 21))).toEqual({ start: 19, end: 20 });
-    expect(shiftSpan(SPAN, { startLine: 18, startCharacter: 0, endLine: 23, endCharacter: 0, text: '' })).toEqual({
-      start: 18,
-      end: 18,
-    });
+    expect(shiftSpan(SPAN, remove(19, 21))).toEqual({ start: 19, end: 19 }); // first two of three lines
+    expect(shiftSpan(SPAN, { startLine: 19, startCharacter: 0, endLine: 21, endCharacter: 5, text: '' })).toEqual({
+      start: 19,
+      end: 19,
+    }); // ends inside the last line: its tail is still there
+  });
+
+  it('is removed when all its lines are deleted or replaced (US-07)', () => {
+    expect(shiftSpan({ start: 19, end: 19 }, remove(19, 20))).toBe(REMOVED); // delete the line (Cmd+Shift+K)
+    expect(shiftSpan(SPAN, remove(19, 22))).toBe(REMOVED);
+    expect(shiftSpan(SPAN, { startLine: 18, startCharacter: 4, endLine: 23, endCharacter: 2, text: '' })).toBe(REMOVED);
+    expect(shiftSpan(SPAN, { startLine: 19, startCharacter: 0, endLine: 22, endCharacter: 0, text: 'other\ncode\n' })).toBe(
+      REMOVED,
+    ); // pasted over
   });
 
   it('follows a deletion that starts above and ends inside', () => {
@@ -54,6 +64,10 @@ describe('shiftSpan', () => {
 });
 
 describe('applyChanges', () => {
+  it('stays removed whatever comes after', () => {
+    expect(applyChanges(SPAN, [remove(19, 22), insert(0, 0, 'a\n')])).toBe(REMOVED);
+  });
+
   it('applies several changes of one edit, whatever their order', () => {
     const changes = [insert(0, 0, 'a\n'), insert(40, 0, 'z\n'), insert(10, 0, 'b\nc\n')];
     expect(applyChanges(SPAN, changes)).toEqual({ start: 22, end: 24 });

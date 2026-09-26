@@ -8,7 +8,7 @@ import type { Log } from './log';
 import { toLineRange, toZeroBasedLines } from './range';
 import { applyThreadState, awaitsUser, bodyText, LrComment, threadRange, type RenderContext } from './render';
 import { Roots, type Root } from './roots';
-import { applyChanges } from './tracking';
+import { applyChanges, REMOVED } from './tracking';
 import { watchThreads } from './watcher';
 
 export const CONTROLLER_ID = 'local-review';
@@ -294,6 +294,18 @@ export class ReviewController implements vscode.Disposable {
       if (this.outdated.has(m.state.id)) continue; // no position to track until its code is found again
       const { start, end } = toZeroBasedLines(this.currentRange(m.state)!);
       const next = applyChanges({ start, end }, changes);
+      if (next === REMOVED) {
+        // All its lines were deleted or replaced: outdated, never re-attached to the code around.
+        this.liveRanges.delete(m.state.id);
+        this.setOutdated(m.state.id, true);
+        continue;
+      }
+      if (isBlank(e.document, next.start, next.end) && m.state.anchor.snippet.trim() !== '') {
+        // Its text was cleared (select + Backspace leaves blank lines): the code is gone too.
+        this.liveRanges.delete(m.state.id);
+        this.setOutdated(m.state.id, true);
+        continue;
+      }
       if (next.start === start && next.end === end) continue;
       this.liveRanges.set(m.state.id, { startLine: next.start + 1, endLine: next.end + 1 });
       m.thread.range = new vscode.Range(next.start, 0, next.end, 0);
@@ -307,9 +319,27 @@ export class ReviewController implements vscode.Disposable {
       key,
       setTimeout(() => {
         this.settleTimers.delete(key);
-        if (!e.document.isDirty && !e.document.isClosed) void this.resyncWithDisk(e.document);
+        if (e.document.isClosed) return;
+        if (!e.document.isDirty) void this.resyncWithDisk(e.document);
+        else this.recoverOutdated(e.document);
       }, SETTLE_MS),
     );
+  }
+
+  /**
+   * While the user edits, an outdated thread whose code is back in the document (undo, paste,
+   * a formatter rewriting the block the same way) attaches again right away. The position is
+   * recorded on the next save, like any tracked position.
+   */
+  private recoverOutdated(doc: vscode.TextDocument): void {
+    const text = doc.getText();
+    for (const m of this.trackedThreadsOf(doc.uri)) {
+      if (!this.outdated.has(m.state.id)) continue;
+      const result = reanchor(m.state.anchor, text);
+      if (!result || result.kind === 'lost') continue;
+      this.liveRanges.set(m.state.id, result.range);
+      this.setOutdated(m.state.id, false);
+    }
   }
 
   private cancelSettle(doc: vscode.TextDocument): void {
@@ -532,4 +562,11 @@ export class ReviewController implements vscode.Disposable {
 
 function sameRange(a: LineRange | null, b: LineRange | null): boolean {
   return a?.startLine === b?.startLine && a?.endLine === b?.endLine;
+}
+
+function isBlank(doc: vscode.TextDocument, start: number, end: number): boolean {
+  for (let line = start; line <= Math.min(end, doc.lineCount - 1); line++) {
+    if (!doc.lineAt(line).isEmptyOrWhitespace) return false;
+  }
+  return true;
 }

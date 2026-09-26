@@ -22,10 +22,21 @@ function countNewlines(text: string): number {
   return n;
 }
 
-/** Applies one change to a span. */
-export function shiftSpan(span: LineSpan, c: TextChange): LineSpan {
+/** The thread's lines were all deleted or replaced as whole lines: its code is gone from the document. */
+export const REMOVED = 'removed';
+export type Tracked = LineSpan | typeof REMOVED;
+
+/**
+ * Applies one change to a span. Returns `REMOVED` when the change takes every line of the span
+ * (from the start of its first line to past its last line): the commented code is gone.
+ */
+export function shiftSpan(span: LineSpan, c: TextChange): Tracked {
   const added = countNewlines(c.text);
   const delta = added - (c.endLine - c.startLine);
+
+  const fromBeforeFirstLine = c.startLine < span.start || (c.startLine === span.start && c.startCharacter === 0);
+  const pastLastLine = c.endLine > span.end;
+  if (fromBeforeFirstLine && pastLastLine) return REMOVED;
 
   // Entirely above the span, or ending at column 0 of its first line (e.g. lines inserted
   // right above): the span's own text is untouched and simply moves.
@@ -42,7 +53,12 @@ export function shiftSpan(span: LineSpan, c: TextChange): LineSpan {
 }
 
 /** Applies all changes of one edit. They refer to the same original document, so apply bottom-up. */
-export function applyChanges(span: LineSpan, changes: readonly TextChange[]): LineSpan {
+export function applyChanges(span: LineSpan, changes: readonly TextChange[]): Tracked {
   const sorted = [...changes].sort((a, b) => b.startLine - a.startLine || b.startCharacter - a.startCharacter);
-  return sorted.reduce(shiftSpan, span);
+  let current: Tracked = span;
+  for (const c of sorted) {
+    if (current === REMOVED) return REMOVED;
+    current = shiftSpan(current, c);
+  }
+  return current;
 }

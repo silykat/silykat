@@ -146,6 +146,60 @@ describe('US-07 — a comment becomes outdated when its code disappears', () => 
     assert.ok(!text(t.thread.comments[0]!).includes('no longer in the file'));
   });
 
+  it('is outdated when its line is deleted in the editor, and stays so after saving (PM scenario)', async () => {
+    const path = join(ws, `us07-${++n}.ts`);
+    writeFileSync(path, FILE.join('\n') + '\n');
+    const uri = vscode.Uri.file(path);
+    const doc = await vscode.workspace.openTextDocument(uri);
+    await vscode.window.showTextDocument(doc);
+    const created = api.controller.createCommentThread(uri, new vscode.Range(13, 0, 13, 5), []); // "return null;"
+    await vscode.commands.executeCommand('localReview.submitComment', { thread: created, text: 'Throw here' });
+    const id = api.listThreads().find((t) => t.thread === created)!.id;
+
+    const e = new vscode.WorkspaceEdit();
+    e.delete(uri, new vscode.Range(13, 0, 14, 0)); // what Cmd+Shift+K does
+    await vscode.workspace.applyEdit(e);
+    assert.equal(managed(id).outdated, true, 'outdated as soon as the line is gone');
+    assert.deepEqual([managed(id).thread.range!.start.line, managed(id).thread.range!.end.line], [0, 0]);
+
+    await doc.save();
+    await new Promise((r) => setTimeout(r, 700));
+    assert.equal(managed(id).outdated, true);
+    assert.deepEqual(anchorUpdates(id), [], 'never re-attached to the code around');
+    assert.equal(managed(id).state.anchor.snippet, '    return null;');
+  });
+
+  it('attaches again when the deleted code comes back before saving (undo)', async () => {
+    const { id, doc } = await threadOnIfBlock();
+    const uri = doc.uri;
+    const del = new vscode.WorkspaceEdit();
+    del.delete(uri, new vscode.Range(12, 0, 15, 0));
+    await vscode.workspace.applyEdit(del);
+    assert.equal(managed(id).outdated, true);
+
+    await vscode.commands.executeCommand('undo');
+    await waitFor('the thread to attach again', () => (managed(id).outdated ? undefined : true), 2000);
+    assert.equal(managed(id).thread.range!.start.line, 12);
+    assert.equal(managed(id).thread.label, 'Waiting for Claude');
+  });
+
+  it('is outdated when the text of its lines is cleared, leaving blank lines', async () => {
+    const { id } = await threadOnIfBlock();
+    const editor = vscode.window.activeTextEditor!;
+    await editor.edit((b) => b.replace(new vscode.Range(12, 0, 14, 3), '')); // select the text, Backspace
+    assert.equal(managed(id).outdated, true);
+  });
+
+  it('is outdated when other code is pasted over its lines', async () => {
+    const { id, doc } = await threadOnIfBlock();
+    // Like a paste over the selected lines. Through the editor on purpose: a workspace edit would be
+    // reduced by VS Code to the smallest change (the common trailing newline is left out).
+    const editor = vscode.window.activeTextEditor!;
+    await editor.edit((b) => b.replace(new vscode.Range(12, 0, 15, 0), 'const x = 1;\nconst y = 2;\n'));
+    await new Promise((r) => setTimeout(r, 700));
+    assert.equal(managed(id).outdated, true);
+  });
+
   it('is outdated after a restart when its code or its file is gone', async () => {
     const a = await threadOnIfBlock();
     const b = await threadOnIfBlock();
