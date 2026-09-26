@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { CommentState, ThreadState } from '@local-review/core';
+import { threadContextValue } from './contextValue';
 import { toZeroBasedLines } from './range';
 
 /** Name shown for the agent until the user plugs in and names their own (D22, D23). */
@@ -66,7 +67,7 @@ export function threadRange(state: ThreadState): vscode.Range | undefined {
 export function applyThreadState(thread: vscode.CommentThread, state: ThreadState, ctx: RenderContext): void {
   thread.comments = state.comments.map((c) => toVsComment(c, ctx));
   thread.label = threadLabel(state);
-  thread.contextValue = ['lr', state.status, state.readOnly ? 'readonly' : ''].filter(Boolean).join(' ');
+  thread.contextValue = threadContextValue(state);
   thread.canReply = state.readOnly ? false : { name: ctx.userName };
   thread.state =
     state.status === 'resolved' ? vscode.CommentThreadState.Resolved : vscode.CommentThreadState.Unresolved;

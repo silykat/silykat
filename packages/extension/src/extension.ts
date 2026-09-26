@@ -23,6 +23,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
       review.submitNewComment(reply),
     ),
     vscode.commands.registerCommand('localReview.reply', (reply: vscode.CommentReply) => review.reply(reply)),
+    vscode.commands.registerCommand('localReview.resolveThread', (thread: vscode.CommentThread) =>
+      review.setThreadStatus(thread, 'resolved'),
+    ),
+    vscode.commands.registerCommand('localReview.reopenThread', (thread: vscode.CommentThread) =>
+      review.setThreadStatus(thread, 'open'),
+    ),
     vscode.commands.registerCommand('localReview.cancelNewThread', (reply: vscode.CommentReply) =>
       review.cancelNewThread(reply),
     ),

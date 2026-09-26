@@ -114,6 +114,25 @@ export class ReviewController implements vscode.Disposable {
     }
   }
 
+  /** "Resolve" / "Reopen" from the thread header. Only the user resolves (D06). */
+  async setThreadStatus(thread: vscode.CommentThread, status: 'resolved' | 'open'): Promise<void> {
+    const threadId = this.byThread.get(thread);
+    const managed = threadId ? this.managed.get(threadId) : undefined;
+    if (!threadId || !managed) return;
+
+    try {
+      const state = await managed.root.store.setStatus(threadId, status, 'user');
+      this.adopt(managed.root, state, thread);
+      thread.collapsibleState =
+        status === 'resolved'
+          ? vscode.CommentThreadCollapsibleState.Collapsed
+          : vscode.CommentThreadCollapsibleState.Expanded;
+    } catch (err) {
+      this.log.error(`Failed to set thread status to ${status}`, err);
+      void vscode.window.showErrorMessage(`Local Review: the thread could not be updated (${String(err)}).`);
+    }
+  }
+
   /** Re-reads one journal after it changed on disk, whoever wrote it. */
   async refreshThread(root: Root, threadId: string): Promise<void> {
     let state: ThreadState | null;

@@ -25,6 +25,8 @@ The agent's replies appear live in the thread, signed with the agent's name, wit
 
 Reply in the thread with **Reply** (or `Cmd+Enter`). Replying to a question, or to a thread the agent marked as addressed, hands the thread back to the agent: it shows **Waiting for Claude** again.
 
+Only you can close a thread: **Resolve** (✓ in the thread header) marks it resolved and collapses it, and **Reopen** hands it back to the agent. The Comments panel can filter resolved threads out. Replying in a resolved thread reopens it.
+
 Until the first agent integration ships, **Local Review (dev): Simulate Agent Reply** writes a reply as the agent from a separate process, through the same path a real integration will use.
 
 ## Development

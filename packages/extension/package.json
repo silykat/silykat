@@ -43,6 +43,16 @@
         "title": "Cancel"
       },
       {
+        "command": "localReview.resolveThread",
+        "title": "Resolve",
+        "icon": "$(check)"
+      },
+      {
+        "command": "localReview.reopenThread",
+        "title": "Reopen",
+        "icon": "$(issue-reopened)"
+      },
+      {
         "command": "localReview.dev.simulateAgentReply",
         "title": "Simulate Agent Reply",
         "category": "Local Review (dev)"
@@ -64,6 +74,14 @@
         },
         {
           "command": "localReview.reply",
+          "when": "false"
+        },
+        {
+          "command": "localReview.resolveThread",
+          "when": "false"
+        },
+        {
+          "command": "localReview.reopenThread",
           "when": "false"
         }
       ],
@@ -89,6 +107,18 @@
           "command": "localReview.cancelNewThread",
           "when": "commentController == local-review && commentThreadIsEmpty",
           "group": "inline@2"
+        }
+      ],
+      "comments/commentThread/title": [
+        {
+          "command": "localReview.resolveThread",
+          "when": "commentController == local-review && commentThread =~ /^lr (open|needs-info|addressed)$/",
+          "group": "inline@1"
+        },
+        {
+          "command": "localReview.reopenThread",
+          "when": "commentController == local-review && commentThread =~ /^lr resolved$/",
+          "group": "inline@1"
         }
       ]
     },
