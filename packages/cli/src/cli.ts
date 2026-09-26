@@ -4,6 +4,7 @@ import { parseArgs } from 'node:util';
 import {
   agentView,
   findStoreRoot,
+  findStoresBelow,
   localReviewHome,
   SessionRegistry,
   Store,
@@ -103,9 +104,14 @@ function parse(
 const str = (v: string | boolean | undefined): string | undefined => (typeof v === 'string' ? v : undefined);
 
 function openStore(root: string | undefined, io: Io): Store {
-  const dir = root ? resolve(io.cwd, root) : findStoreRoot(io.cwd);
-  if (!dir) throw new Error(`no .local-review/ found from ${io.cwd} (nothing has been commented yet?)`);
-  return new Store(dir);
+  const dir = root ? resolve(io.cwd, root) : findStoreRoot(io.cwd, io.env);
+  if (dir) return new Store(dir);
+  const below = findStoresBelow(io.cwd, 3, io.env);
+  const hint =
+    below.length > 0
+      ? `Stores below this folder:\n${below.map((b) => `  ${b}`).join('\n')}\nRun the command in one of them, or pass --root <dir>.`
+      : 'Nothing has been commented in this folder or above yet.';
+  throw new Error(`no Local Review store in ${io.cwd} or above. ${hint}`);
 }
 
 /** Every thread an agent can see, located in the current files. */

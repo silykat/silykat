@@ -552,48 +552,14 @@ function contextScore(anchor, lines, start, n) {
 
 // ../core/src/agentView.ts
 var import_node_fs = require("node:fs");
-var import_node_path2 = require("node:path");
-function agentView(thread) {
-  if (thread.deleted) return null;
-  const comments = thread.comments.filter((c) => !c.isDraft);
-  if (comments.length === 0) return null;
-  const last = comments[comments.length - 1];
-  const open = thread.status !== "resolved";
-  return {
-    thread,
-    comments,
-    needsAgent: open && last.author === "user",
-    waitsForUser: open && last.author === "agent"
-  };
-}
-function findStoreRoot(fromDir) {
-  let dir = (0, import_node_path2.resolve)(fromDir);
-  for (; ; ) {
-    if ((0, import_node_fs.existsSync)((0, import_node_path2.join)(dir, STORE_DIR))) return dir;
-    const parent = (0, import_node_path2.dirname)(dir);
-    if (parent === dir) return null;
-    dir = parent;
-  }
-}
-
-// ../core/src/anchorVersion.ts
-function isIndexRef(ref) {
-  return ref === "~" || ref === "";
-}
-function versionTag(anchor) {
-  if (anchor.source !== "git") return void 0;
-  if (anchor.ref === null || isIndexRef(anchor.ref)) return "Index";
-  const short = anchor.sha?.slice(0, 7);
-  if (anchor.ref === "HEAD") return short ? `HEAD ${short}` : "HEAD";
-  return short ?? anchor.ref;
-}
+var import_node_path3 = require("node:path");
 
 // ../core/src/sessions.ts
 var import_promises2 = require("node:fs/promises");
 var import_node_os = require("node:os");
-var import_node_path3 = require("node:path");
+var import_node_path2 = require("node:path");
 function localReviewHome(env = process.env) {
-  return env.LOCAL_REVIEW_HOME?.trim() || (0, import_node_path3.join)((0, import_node_os.homedir)(), ".local-review");
+  return env.LOCAL_REVIEW_HOME?.trim() || (0, import_node_path2.join)((0, import_node_os.homedir)(), ".local-review");
 }
 var SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/;
 function isProcessAlive(pid) {
@@ -607,13 +573,13 @@ function isProcessAlive(pid) {
 var SessionRegistry = class {
   constructor(home = localReviewHome(), isAlive = isProcessAlive) {
     this.isAlive = isAlive;
-    this.dir = (0, import_node_path3.join)(home, "sessions");
+    this.dir = (0, import_node_path2.join)(home, "sessions");
   }
   isAlive;
   dir;
   file(id, ext) {
     if (!SESSION_ID.test(id)) throw new Error(`Invalid session id: ${id}`);
-    return (0, import_node_path3.join)(this.dir, ext === "json" ? `${id}.json` : `${id}.touched.jsonl`);
+    return (0, import_node_path2.join)(this.dir, ext === "json" ? `${id}.json` : `${id}.touched.jsonl`);
   }
   /** Registers (or refreshes) a session. Written atomically: readers never see half a file. */
   async register(record) {
@@ -646,7 +612,7 @@ var SessionRegistry = class {
     }
     const sessions2 = [];
     for (const name of names.sort()) {
-      const record = await readRecord((0, import_node_path3.join)(this.dir, name));
+      const record = await readRecord((0, import_node_path2.join)(this.dir, name));
       if (!record || !SESSION_ID.test(record.id)) continue;
       if (record.pid !== null && !this.isAlive(record.pid)) {
         await this.unregister(record.id).catch(() => void 0);
@@ -694,6 +660,75 @@ async function readRecord(file) {
   } catch {
     return null;
   }
+}
+
+// ../core/src/agentView.ts
+function agentView(thread) {
+  if (thread.deleted) return null;
+  const comments = thread.comments.filter((c) => !c.isDraft);
+  if (comments.length === 0) return null;
+  const last = comments[comments.length - 1];
+  const open = thread.status !== "resolved";
+  return {
+    thread,
+    comments,
+    needsAgent: open && last.author === "user",
+    waitsForUser: open && last.author === "agent"
+  };
+}
+function isStoreRoot(dir, env = process.env) {
+  const store = (0, import_node_path3.join)(dir, STORE_DIR);
+  if (!(0, import_node_fs.existsSync)((0, import_node_path3.join)(store, "schema-version")) && !(0, import_node_fs.existsSync)((0, import_node_path3.join)(store, "threads"))) return false;
+  return realpath(store) !== realpath(localReviewHome(env));
+}
+function findStoreRoot(fromDir, env = process.env) {
+  let dir = (0, import_node_path3.resolve)(fromDir);
+  for (; ; ) {
+    if (isStoreRoot(dir, env)) return dir;
+    const parent = (0, import_node_path3.dirname)(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+var SKIPPED = /* @__PURE__ */ new Set(["node_modules", ".git", "dist", "out", ".vscode-test", STORE_DIR]);
+function findStoresBelow(dir, maxDepth = 3, env = process.env) {
+  const found = [];
+  const walk = (current, depth) => {
+    if (depth > maxDepth || found.length >= 20) return;
+    let entries;
+    try {
+      entries = (0, import_node_fs.readdirSync)(current, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory() || SKIPPED.has(entry.name)) continue;
+      const child = (0, import_node_path3.join)(current, entry.name);
+      if (isStoreRoot(child, env)) found.push(child);
+      walk(child, depth + 1);
+    }
+  };
+  walk((0, import_node_path3.resolve)(dir), 1);
+  return found.sort();
+}
+function realpath(path) {
+  try {
+    return (0, import_node_fs.realpathSync)(path);
+  } catch {
+    return (0, import_node_path3.resolve)(path);
+  }
+}
+
+// ../core/src/anchorVersion.ts
+function isIndexRef(ref) {
+  return ref === "~" || ref === "";
+}
+function versionTag(anchor) {
+  if (anchor.source !== "git") return void 0;
+  if (anchor.ref === null || isIndexRef(anchor.ref)) return "Index";
+  const short = anchor.sha?.slice(0, 7);
+  if (anchor.ref === "HEAD") return short ? `HEAD ${short}` : "HEAD";
+  return short ?? anchor.ref;
 }
 
 // src/digest.ts
@@ -849,9 +884,13 @@ function parse(rest, options) {
 }
 var str = (v) => typeof v === "string" ? v : void 0;
 function openStore(root, io) {
-  const dir = root ? (0, import_node_path5.resolve)(io.cwd, root) : findStoreRoot(io.cwd);
-  if (!dir) throw new Error(`no .local-review/ found from ${io.cwd} (nothing has been commented yet?)`);
-  return new Store(dir);
+  const dir = root ? (0, import_node_path5.resolve)(io.cwd, root) : findStoreRoot(io.cwd, io.env);
+  if (dir) return new Store(dir);
+  const below = findStoresBelow(io.cwd, 3, io.env);
+  const hint = below.length > 0 ? `Stores below this folder:
+${below.map((b) => `  ${b}`).join("\n")}
+Run the command in one of them, or pass --root <dir>.` : "Nothing has been commented in this folder or above yet.";
+  throw new Error(`no Local Review store in ${io.cwd} or above. ${hint}`);
 }
 async function visibleThreads(store) {
   const { threads } = await store.loadAll();

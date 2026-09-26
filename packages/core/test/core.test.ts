@@ -7,6 +7,7 @@ import {
   foldThread,
   agentView,
   findStoreRoot,
+  findStoresBelow,
   parseJournal,
   reanchor,
   serializeEvents,
@@ -803,5 +804,34 @@ describe('agent view', () => {
     await mkdir(join(root, 'src', 'deep'), { recursive: true });
     expect(findStoreRoot(join(root, 'src', 'deep'))).toBe(root);
     expect(findStoreRoot(tmpdir())).toBeNull();
+  });
+
+  it('never takes the per-machine folder (~/.local-review, sessions only) for a store', async () => {
+    // A home holding the session registry, a project below it without any store.
+    const home = join(root, 'home');
+    const machine = join(home, '.local-review');
+    await mkdir(join(machine, 'sessions'), { recursive: true });
+    await mkdir(join(home, 'projects', 'app'), { recursive: true });
+    const env = { LOCAL_REVIEW_HOME: machine };
+    expect(findStoreRoot(join(home, 'projects', 'app'), env)).toBeNull();
+
+    // Even if it happened to hold threads: it is still the machine folder.
+    await mkdir(join(machine, 'threads'));
+    expect(findStoreRoot(join(home, 'projects', 'app'), env)).toBeNull();
+  });
+
+  it('does not take an empty .local-review folder for a store', async () => {
+    await mkdir(join(root, 'other', '.local-review'), { recursive: true });
+    expect(findStoreRoot(join(root, 'other'), { LOCAL_REVIEW_HOME: join(root, 'nowhere') })).toBeNull();
+  });
+
+  it('finds the stores below a parent folder', async () => {
+    const parent = join(root, 'parent');
+    for (const repo of ['a', 'b/nested']) {
+      await new Store(join(parent, repo)).createThread(anchor(), { author: 'user', body: 'q', reviewId: null });
+    }
+    await mkdir(join(parent, 'node_modules', 'x', '.local-review', 'threads'), { recursive: true });
+    const env = { LOCAL_REVIEW_HOME: join(root, 'nowhere') };
+    expect(findStoresBelow(parent, 3, env)).toEqual([join(parent, 'a'), join(parent, 'b', 'nested')]);
   });
 });

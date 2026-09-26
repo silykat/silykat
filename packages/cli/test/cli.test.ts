@@ -145,7 +145,7 @@ describe('lr list', () => {
     expect((await lr(['status'], { cwd: join(root, 'src') })).out).toContain('1 thread waiting for you');
     const none = await lr(['list'], { cwd: tmpdir() });
     expect(none.code).toBe(EXIT.ERROR);
-    expect(none.err).toContain('no .local-review/ found');
+    expect(none.err).toContain('no Local Review store in');
   });
 });
 
@@ -263,5 +263,30 @@ describe('lr sessions', () => {
       EXIT.ERROR,
     );
     expect((await lr(['session', 'fly', '--id', 'x'], { env })).code).toBe(EXIT.ERROR);
+  });
+});
+
+describe('lr from a folder without a store', () => {
+  it('says so, instead of taking the per-machine folder for an empty store', async () => {
+    // ~/.local-review holds the session registry, not comments.
+    const home = join(root, 'home');
+    await mkdir(join(home, '.local-review', 'sessions'), { recursive: true });
+    await mkdir(join(home, 'work'), { recursive: true });
+    const env = { LOCAL_REVIEW_HOME: join(home, '.local-review') };
+    const r = await lr(['status'], { cwd: join(home, 'work'), env });
+    expect(r.code).toBe(EXIT.ERROR);
+    expect(r.err).toContain('no Local Review store in');
+    expect(r.out).toBe('');
+  });
+
+  it('lists the stores below, e.g. the repositories of a parent folder', async () => {
+    const repo = join(root, 'parent', 'repo');
+    await new Store(repo).createThread(anchorOn(3, 3), { author: 'user', body: 'in the repo', reviewId: null });
+    const env = { LOCAL_REVIEW_HOME: join(root, 'nowhere') };
+    const r = await lr(['status'], { cwd: join(root, 'parent'), env });
+    expect(r.code).toBe(EXIT.ERROR);
+    expect(r.err).toContain('Stores below this folder');
+    expect(r.err).toContain(repo);
+    expect((await lr(['status', '--root', repo], { env })).out).toContain('1 thread waiting for you');
   });
 });
