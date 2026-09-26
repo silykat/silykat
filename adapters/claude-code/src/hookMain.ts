@@ -1,5 +1,5 @@
 import { localReviewHome, SessionRegistry } from '@local-review/core';
-import { findClaudePid, gitBranch, handleHook, type HookInput } from './hook';
+import { commandLine, findClaudePid, gitBranch, handleHook, type HookInput } from './hook';
 
 // Entry point of the plugin's hooks. It must never get in Claude's way: whatever happens, it
 // prints nothing (SessionStart output would be added to Claude's context) and exits 0.
@@ -10,6 +10,7 @@ async function main(): Promise<void> {
   await handleHook(input, {
     registry: new SessionRegistry(localReviewHome()),
     claudePid: () => findClaudePid(),
+    commandLine,
     gitBranch,
     now: () => new Date(),
   });

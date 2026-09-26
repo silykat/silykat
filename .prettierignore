@@ -9,3 +9,4 @@ package-lock.json
 # Generated bundles, committed so that the plugin installs from git
 adapters/claude-code/plugin/bin/
 adapters/claude-code/plugin/hooks/*.js
+adapters/claude-code/plugin/channel/

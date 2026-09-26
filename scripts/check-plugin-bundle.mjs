@@ -1,4 +1,4 @@
-// The Claude Code plugin is installed from git, so its bundles (lr, the hooks' script) are
+// The Claude Code plugin is installed from git, so its bundles (lr, the hooks' script, the channel server) are
 // committed. This check rebuilds them elsewhere and fails when the committed ones are out of date.
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -13,7 +13,7 @@ try {
     cwd: repo,
     stdio: 'ignore',
   });
-  const stale = ['bin/lr', 'hooks/local-review-hook.js'].filter((file) => {
+  const stale = ['bin/lr', 'hooks/local-review-hook.js', 'channel/local-review-channel.js'].filter((file) => {
     try {
       return !readFileSync(join(fresh, file)).equals(readFileSync(join(plugin, file)));
     } catch {

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SessionRegistry } from '@local-review/core';
+import { LAUNCH_WITH_CHANNEL } from '../src/channelFlag';
 import { findClaudePid, handleHook, type HookDeps } from '../src/hook';
 
 let home: string;
@@ -15,6 +16,7 @@ beforeEach(async () => {
   deps = {
     registry,
     claudePid: async () => 4242,
+    commandLine: async () => 'claude',
     gitBranch: async () => 'feature-x',
     now: () => new Date('2026-09-26T10:00:00.000Z'),
   };
@@ -34,9 +36,20 @@ describe('Claude Code hooks', () => {
         branch: 'feature-x',
         pid: 4242,
         startedAt: '2026-09-26T10:00:00.000Z',
+        push: false,
+        pushCommand: LAUNCH_WITH_CHANNEL,
         touched: [],
       },
     ]);
+  });
+
+  it('records whether the session was launched with the channel', async () => {
+    deps.commandLine = async () => LAUNCH_WITH_CHANNEL;
+    await handleHook({ hook_event_name: 'SessionStart', session_id: 's1', cwd: '/repo' }, deps);
+    expect(await registry.list()).toMatchObject([{ push: true, pushCommand: null }]);
+    deps.claudePid = async () => null; // unknown process: unknown
+    await handleHook({ hook_event_name: 'SessionStart', session_id: 's1', cwd: '/repo' }, deps);
+    expect(await registry.list()).toMatchObject([{ push: null }]);
   });
 
   it('records the files Claude writes, and only those', async () => {

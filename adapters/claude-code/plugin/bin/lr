@@ -577,9 +577,9 @@ var SessionRegistry = class {
   }
   isAlive;
   dir;
-  file(id, ext) {
+  file(id, kind) {
     if (!SESSION_ID.test(id)) throw new Error(`Invalid session id: ${id}`);
-    return (0, import_node_path2.join)(this.dir, ext === "json" ? `${id}.json` : `${id}.touched.jsonl`);
+    return (0, import_node_path2.join)(this.dir, kind === "json" ? `${id}.json` : `${id}.${kind}.jsonl`);
   }
   /** Registers (or refreshes) a session. Written atomically: readers never see half a file. */
   async register(record) {
@@ -592,6 +592,7 @@ var SessionRegistry = class {
   async unregister(id) {
     await (0, import_promises2.rm)(this.file(id, "json"), { force: true });
     await (0, import_promises2.rm)(this.file(id, "touched"), { force: true });
+    await (0, import_promises2.rm)(this.file(id, "inbox"), { force: true });
   }
   /** Records that a session wrote a file. Appended, so concurrent hooks never lose an entry. */
   async touch(id, absolutePath) {
@@ -600,6 +601,39 @@ var SessionRegistry = class {
       this.file(id, "touched"),
       JSON.stringify({ path: absolutePath, at: (/* @__PURE__ */ new Date()).toISOString() }) + "\n"
     );
+  }
+  /** Hands threads to a session. Appended to its inbox, which its agent's adapter watches. */
+  async deliver(id, delivery) {
+    await (0, import_promises2.mkdir)(this.dir, { recursive: true });
+    await (0, import_promises2.appendFile)(this.file(id, "inbox"), JSON.stringify(delivery) + "\n");
+  }
+  /**
+   * Deliveries appended to a session's inbox since `cursor` (none: from the start), and the cursor
+   * to read from next time. A line still being written is left for next time.
+   */
+  async readInbox(id, cursor) {
+    let handle;
+    try {
+      handle = await (0, import_promises2.open)(this.file(id, "inbox"), "r");
+    } catch (err) {
+      if (err.code === "ENOENT") return { deliveries: [], cursor: { file: 0, offset: 0 } };
+      throw err;
+    }
+    try {
+      const { ino, size } = await handle.stat();
+      const from = cursor && cursor.file === ino && cursor.offset <= size ? cursor.offset : 0;
+      const buffer = Buffer.alloc(size - from);
+      await handle.read(buffer, 0, buffer.length, from);
+      const end = buffer.lastIndexOf(10) + 1;
+      const deliveries = [];
+      for (const line of buffer.subarray(0, end).toString("utf8").split("\n")) {
+        const delivery = parseDelivery(line);
+        if (delivery) deliveries.push(delivery);
+      }
+      return { deliveries, cursor: { file: ino, offset: from + end } };
+    } finally {
+      await handle.close();
+    }
   }
   /** Running sessions. Sessions whose process is gone (e.g. after a crash) are removed on the way. */
   async list() {
@@ -655,7 +689,27 @@ async function readRecord(file) {
       cwd: raw.cwd,
       branch: typeof raw.branch === "string" ? raw.branch : null,
       pid: typeof raw.pid === "number" ? raw.pid : null,
-      startedAt: typeof raw.startedAt === "string" ? raw.startedAt : ""
+      startedAt: typeof raw.startedAt === "string" ? raw.startedAt : "",
+      push: typeof raw.push === "boolean" ? raw.push : null,
+      pushCommand: typeof raw.pushCommand === "string" ? raw.pushCommand : null
+    };
+  } catch {
+    return null;
+  }
+}
+function parseDelivery(line) {
+  if (line.trim() === "") return null;
+  try {
+    const raw = JSON.parse(line);
+    if (typeof raw.id !== "string" || typeof raw.root !== "string" || !Array.isArray(raw.threadIds)) return null;
+    const kind = raw.kind === "review" || raw.kind === "reply" ? raw.kind : "comment";
+    return {
+      id: raw.id,
+      at: typeof raw.at === "string" ? raw.at : "",
+      root: raw.root,
+      kind,
+      threadIds: raw.threadIds.filter((t) => typeof t === "string"),
+      ...typeof raw.reviewId === "string" ? { reviewId: raw.reviewId } : {}
     };
   } catch {
     return null;
@@ -668,12 +722,12 @@ function agentView(thread) {
   const comments = thread.comments.filter((c) => !c.isDraft);
   if (comments.length === 0) return null;
   const last = comments[comments.length - 1];
-  const open = thread.status !== "resolved";
+  const open2 = thread.status !== "resolved";
   return {
     thread,
     comments,
-    needsAgent: open && last.author === "user",
-    waitsForUser: open && last.author === "agent"
+    needsAgent: open2 && last.author === "user",
+    waitsForUser: open2 && last.author === "agent"
   };
 }
 function isStoreRoot(dir, env = process.env) {
@@ -826,6 +880,7 @@ Usage:
 Sessions (used by agent integrations to register themselves):
   lr sessions [--format md|json]          Running agent sessions on this machine
   lr session register --id <id> --agent <name> --cwd <dir> [--branch <b>] [--pid <n>]
+                     [--push yes|no] [--push-command <command>]
   lr session unregister --id <id>
   lr session touch --id <id> <file>       The session wrote this file
 
@@ -1001,7 +1056,9 @@ async function sessions(rest, io) {
     io.out("No agent session is running.");
     return EXIT.OK;
   }
-  io.out(list2.map((x) => `${x.agent} \xB7 ${x.branch ?? "no branch"} \xB7 ${x.cwd} (${x.id})`).join("\n"));
+  io.out(
+    list2.map((x) => `${x.agent} \xB7 ${x.branch ?? "no branch"} \xB7 ${x.cwd} (${x.id})${x.push === false ? " \xB7 no push" : ""}`).join("\n")
+  );
   return EXIT.OK;
 }
 async function session(rest, io) {
@@ -1011,7 +1068,9 @@ async function session(rest, io) {
     agent: { type: "string" },
     cwd: { type: "string" },
     branch: { type: "string" },
-    pid: { type: "string" }
+    pid: { type: "string" },
+    push: { type: "string" },
+    "push-command": { type: "string" }
   });
   const id = str(values.id);
   if (!id) throw new UsageError("missing --id <session id>");
@@ -1020,13 +1079,17 @@ async function session(rest, io) {
     case "register": {
       const pid = str(values.pid) === void 0 ? null : Number(str(values.pid));
       if (pid !== null && !Number.isInteger(pid)) throw new UsageError("--pid must be a process id");
+      const push = str(values.push);
+      if (push !== void 0 && push !== "yes" && push !== "no") throw new UsageError('--push must be "yes" or "no"');
       await registry.register({
         id,
         agent: requireAgent(str(values.agent), io),
         cwd: (0, import_node_path5.resolve)(io.cwd, str(values.cwd) ?? "."),
         branch: str(values.branch) ?? null,
         pid,
-        startedAt: (/* @__PURE__ */ new Date()).toISOString()
+        startedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        push: push === void 0 ? null : push === "yes",
+        pushCommand: str(values["push-command"]) ?? null
       });
       io.out(`Session ${id} registered.`);
       return EXIT.OK;

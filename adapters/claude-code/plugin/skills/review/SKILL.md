@@ -1,6 +1,6 @@
 ---
 name: review
-description: Address the user's Local Review comments, i.e. the code review threads they left in VS Code with the Local Review extension. Read the threads with `lr`, change the code, and reply in each thread. Use when the user asks you to handle, address, fix or answer their review comments, or says their review is ready.
+description: Address the user's Local Review comments, i.e. the code review threads they left in VS Code with the Local Review extension. Read the threads with `lr`, change the code, and reply in each thread. Use when the user asks you to handle, address, fix or answer their review comments, says their review is ready, or when a Local Review channel message says they published comments.
 allowed-tools: Bash(lr:*)
 ---
 
@@ -9,6 +9,8 @@ allowed-tools: Bash(lr:*)
 The user reviews your code in VS Code and leaves comments in threads, like on a GitHub pull request. You answer in those threads with the `lr` command (it is on your PATH). Each reply shows up live in their editor.
 
 ## 1. See what is waiting
+
+**Started by a Local Review channel message** (`<channel source="…local-review…" store="<folder>">`): the user just published comments in that folder, and expects you to handle them without being asked. Add `--root <folder>` to every `lr` command below. When you were busy with another task, finish or pause it at a sensible point first, then handle the comments, then go back to it.
 
 Run `lr status`. If no thread waits for you, tell the user and stop.
 
