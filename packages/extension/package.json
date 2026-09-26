@@ -31,6 +31,11 @@
         "category": "Local Review"
       },
       {
+        "command": "localReview.commentFile",
+        "title": "Comment on File",
+        "category": "Local Review"
+      },
+      {
         "command": "localReview.submitComment",
         "title": "Comment"
       },
@@ -220,6 +225,10 @@
         {
           "command": "localReview.openOriginalDiff",
           "when": "false"
+        },
+        {
+          "command": "localReview.commentFile",
+          "when": "resourceScheme == file || resourceScheme == git"
         }
       ],
       "editor/context": [
@@ -320,6 +329,13 @@
           "command": "localReview.cancelEdit",
           "when": "commentController == local-review && comment == author-user",
           "group": "inline@2"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "localReview.commentFile",
+          "when": "resourceScheme == file || resourceScheme == git",
+          "group": "localReview@1"
         }
       ]
     },

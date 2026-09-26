@@ -153,11 +153,6 @@ export class ReviewController implements vscode.Disposable {
     const text = reply.text.trim();
     if (text === '' || this.byThread.has(thread)) return;
 
-    if (!thread.range) {
-      void vscode.window.showWarningMessage('Local Review: file-level comments are not supported yet.');
-      return;
-    }
-
     try {
       const target = await this.anchorBaseFor(thread.uri);
       if (typeof target === 'string') {
@@ -166,10 +161,10 @@ export class ReviewController implements vscode.Disposable {
       }
       const { root, base } = target;
       const doc = await vscode.workspace.openTextDocument(thread.uri);
-      const anchor: Anchor = {
-        ...base,
-        ...buildAnchorContext(doc.getText(), toLineRange(thread.range.start, thread.range.end)),
-      };
+      // No range: a comment on the whole file.
+      const anchor: Anchor = thread.range
+        ? { ...base, ...buildAnchorContext(doc.getText(), toLineRange(thread.range.start, thread.range.end)) }
+        : { ...base, range: null, snippet: '', contextBefore: [], contextAfter: [] };
       const reviewId = opts.draft ? (await this.ensureReview(root)).id : null;
       const state = await root.store.createThread(anchor, { author: 'user', body: text, reviewId });
       if (this.threadUri(root, state.anchor).toString() === thread.uri.toString()) {
@@ -772,10 +767,10 @@ export class ReviewController implements vscode.Disposable {
     this.watchers = [];
   }
 
-  private commentingRanges(doc: vscode.TextDocument): vscode.Range[] {
+  private commentingRanges(doc: vscode.TextDocument): vscode.CommentingRanges {
     const fsPath = this.commentedFile(doc.uri);
-    if (!fsPath || !this.roots.isCommentable(fsPath)) return [];
-    return [new vscode.Range(0, 0, Math.max(0, doc.lineCount - 1), 0)];
+    if (!fsPath || !this.roots.isCommentable(fsPath)) return { enableFileComments: false, ranges: [] };
+    return { enableFileComments: true, ranges: [new vscode.Range(0, 0, Math.max(0, doc.lineCount - 1), 0)] };
   }
 
   /** The workspace file a document shows: itself, or the file of a git version. */
@@ -909,7 +904,9 @@ export class ReviewController implements vscode.Disposable {
 
   private render(root: Root, state: ThreadState): void {
     const uri = this.threadUri(root, state.anchor);
-    const range = threadRange(state) ?? new vscode.Range(0, 0, 0, 0);
+    // A file comment is created without a range. The API allows it at creation (unlike setting
+    // `range = undefined` later, which never reaches the editor), though its typing says otherwise.
+    const range = threadRange(state) ?? (undefined as unknown as vscode.Range);
     const thread = this.controller.createCommentThread(uri, range, []);
     thread.collapsibleState =
       state.status === 'resolved'

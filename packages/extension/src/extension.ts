@@ -36,6 +36,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
       // The native command opens a new thread on the current selection through our controller.
       vscode.commands.executeCommand('workbench.action.addComment'),
     ),
+    vscode.commands.registerCommand('localReview.commentFile', async (uri?: vscode.Uri) => {
+      // From a tab's context menu, `uri` is that tab's file: bring it to the front first.
+      if (uri instanceof vscode.Uri) await vscode.window.showTextDocument(uri, { preview: false });
+      // The native command opens a new file-level thread (no line) through our controller.
+      await vscode.commands.executeCommand('workbench.action.addComment', { fileComment: true });
+    }),
     vscode.commands.registerCommand('localReview.submitComment', (reply: vscode.CommentReply) =>
       review.submitNewComment(reply),
     ),

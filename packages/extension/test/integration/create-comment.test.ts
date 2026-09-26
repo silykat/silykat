@@ -125,6 +125,6 @@ describe('Direct comment on lines', () => {
       doc,
       new vscode.CancellationTokenSource().token,
     );
-    assert.deepEqual(ranges, []);
+    assert.deepEqual(ranges, { enableFileComments: false, ranges: [] });
   });
 });

@@ -13,6 +13,8 @@ Comments are stored in `.local-review/` at the root of the reviewed project. Tha
 
 Select lines, then use **Local Review: Comment on Selection** from the editor context menu, or press **`Ctrl+Cmd+C`** (`Ctrl+Alt+C` on Windows/Linux).
 
+To comment on a whole file rather than on lines, right-click its tab → **Comment on File** (or the command palette): the thread has no line, shows at the top of the file, and works like any other thread.
+
 The shortcut can be changed in `settings.json`:
 
 ```jsonc
