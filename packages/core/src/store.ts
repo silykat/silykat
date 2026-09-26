@@ -109,6 +109,14 @@ export class Store {
     return this.appendAndReload(threadId, [event]);
   }
 
+  /** Records where the thread's code now is (after the file changed). */
+  async updateAnchor(threadId: string, anchor: Anchor, by: Author, agent?: string): Promise<ThreadState> {
+    const who = actor(by, agent);
+    await this.writableThread(threadId);
+    const event: ThreadEvent = { v: SCHEMA_VERSION, type: 'anchor.updated', at: new Date().toISOString(), ...who, anchor };
+    return this.appendAndReload(threadId, [event]);
+  }
+
   /** Edits a comment. Only its author can edit it. */
   async editComment(threadId: string, commentId: string, body: string, by: Author, agent?: string): Promise<ThreadState> {
     const text = body.trim();

@@ -29,6 +29,8 @@ Only you can close a thread: **Resolve** (✓ in the thread header) marks it res
 
 You can **Edit** or **Delete** your own comments (the agent's are read-only), and **Delete Thread** from its header. Deleting asks for confirmation; deleting the last comment deletes the thread. Deleted threads disappear from VS Code, but the history stays in the journal.
 
+Threads follow the code: when lines are added or removed above a thread, or inside it, the thread moves with them. The new position is recorded when you save the file, and dropped if you close it without saving. When the file changes outside the editor (another tool, `git stash`, or while VS Code was closed), the thread finds its code again.
+
 Until the first agent integration ships, **Local Review (dev): Simulate Agent Reply** writes a reply as the agent from a separate process, through the same path a real integration will use.
 
 ## Development

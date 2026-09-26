@@ -4,3 +4,4 @@ export * from './anchorContext';
 export * from './events';
 export * from './fold';
 export * from './store';
+export * from './reanchor';

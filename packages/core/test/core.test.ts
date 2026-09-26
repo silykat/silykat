@@ -6,6 +6,7 @@ import {
   buildAnchorContext,
   foldThread,
   parseJournal,
+  reanchor,
   serializeEvents,
   Store,
   ulid,
@@ -463,5 +464,65 @@ describe('Store — edit and delete (US-05)', () => {
     await expect(store.addComment(t.id, { author: 'agent', agent: 'Claude', body: 'late', reviewId: null })).rejects.toThrow(
       /not found/,
     );
+  });
+});
+
+describe('reanchor (US-06)', () => {
+  const file = (lines: string[]) => lines.join('\n') + '\n';
+  const BASE = ['import x', '', 'function a() {', '  return null;', '}', '', 'function b() {', '  return 1;', '}'];
+  const at = (startLine: number, endLine: number, text = file(BASE)) => ({
+    path: 'a.ts',
+    source: 'worktree' as const,
+    ref: null,
+    sha: null,
+    ...buildAnchorContext(text, { startLine, endLine }),
+  });
+
+  it('keeps an anchor whose code did not move', () => {
+    expect(reanchor(at(3, 5), file(BASE))).toEqual({ kind: 'exact', range: { startLine: 3, endLine: 5 } });
+  });
+
+  it('follows code moved by lines inserted above', () => {
+    const moved = file(['// header', '// more', ...BASE]);
+    expect(reanchor(at(3, 5), moved)).toEqual({ kind: 'moved', range: { startLine: 5, endLine: 7 } });
+  });
+
+  it('picks the closest occurrence, then the best context', () => {
+    // "}" appears twice; the anchor is on the first one (line 5)
+    expect(reanchor(at(5, 5), file(['x', ...BASE]))).toEqual({ kind: 'moved', range: { startLine: 6, endLine: 6 } });
+    // two identical lines at the same distance from the stored position: the surrounding lines decide
+    const dup = ['a', 'SAME', 'c', 'SAME', 'e'];
+    const onFirst = { ...at(2, 2, file(dup)), range: { startLine: 3, endLine: 3 } }; // context of line 2, stored on line 3
+    expect(reanchor(onFirst, file(dup))).toEqual({ kind: 'moved', range: { startLine: 2, endLine: 2 } });
+    const onSecond = { ...at(4, 4, file(dup)), range: { startLine: 3, endLine: 3 } }; // context of line 4
+    expect(reanchor(onSecond, file(dup))).toEqual({ kind: 'moved', range: { startLine: 4, endLine: 4 } });
+  });
+
+  it('reports lost code', () => {
+    expect(reanchor(at(3, 5), file(['completely', 'different']))).toEqual({ kind: 'lost' });
+  });
+
+  it('ignores file-level anchors', () => {
+    expect(reanchor({ ...at(1, 1), range: null }, file(BASE))).toBeNull();
+  });
+});
+
+describe('Store.updateAnchor (US-06)', () => {
+  let root: string;
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'lr-core-'));
+  });
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it('records the new position', async () => {
+    const store = new Store(root);
+    const t = await store.createThread(anchor(), { author: 'user', body: 'x', reviewId: null });
+    const moved = { ...t.anchor, ...buildAnchorContext(FILE, { startLine: 15, endLine: 17 }) };
+    const s = await store.updateAnchor(t.id, moved, 'user');
+    expect(s.anchor.range).toEqual({ startLine: 15, endLine: 17 });
+    expect(s.anchor.snippet).toBe('line 15\nline 16\nline 17');
+    expect((await store.loadThread(t.id)).state!.anchor.range).toEqual({ startLine: 15, endLine: 17 });
   });
 });

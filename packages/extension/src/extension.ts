@@ -43,6 +43,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
     vscode.commands.registerCommand('localReview.dev.simulateAgentReply', (args?: SimulateArgs) =>
       simulateAgentReply(review, context.extensionUri, args),
     ),
+    review.trackDocuments(),
     vscode.workspace.onDidChangeWorkspaceFolders(() => review.reload()),
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('localReview.userName')) void review.reload();

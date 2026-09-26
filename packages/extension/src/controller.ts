@@ -1,14 +1,20 @@
+import { readFile } from 'node:fs/promises';
 import { userInfo } from 'node:os';
+import { join } from 'node:path';
 import * as vscode from 'vscode';
-import { buildAnchorContext, type Anchor, type ThreadState } from '@local-review/core';
+import { buildAnchorContext, reanchor, type Anchor, type LineRange, type ThreadState } from '@local-review/core';
 import { ensureExcluded, gitUserName } from './git';
 import type { Log } from './log';
-import { toLineRange } from './range';
+import { toLineRange, toZeroBasedLines } from './range';
 import { applyThreadState, awaitsUser, bodyText, LrComment, threadRange, type RenderContext } from './render';
 import { Roots, type Root } from './roots';
+import { applyChanges } from './tracking';
 import { watchThreads } from './watcher';
 
 export const CONTROLLER_ID = 'local-review';
+
+/** Delay after a document change before trusting its dirty flag. */
+const SETTLE_MS = 300;
 
 /** Asks the user to confirm a destructive action. Replaceable in tests. */
 export type ConfirmHandler = (message: string, detail: string, action: string) => Promise<boolean>;
@@ -29,6 +35,9 @@ export class ReviewController implements vscode.Disposable {
   private readonly managed = new Map<string, Managed>();
   private readonly byThread = new WeakMap<vscode.CommentThread, string>();
   private readonly excludedRoots = new Set<string>();
+  /** Positions of threads in documents with unsaved edits; persisted on save (US-06). */
+  private readonly liveRanges = new Map<string, LineRange>();
+  private readonly settleTimers = new Map<string, NodeJS.Timeout>();
   private watchers: vscode.Disposable[] = [];
   confirm: ConfirmHandler = modalConfirm;
   private ctx: RenderContext;
@@ -52,6 +61,7 @@ export class ReviewController implements vscode.Disposable {
   async reload(): Promise<void> {
     for (const m of this.managed.values()) m.thread.dispose();
     this.managed.clear();
+    this.liveRanges.clear();
     this.disposeWatchers();
 
     const folders = (vscode.workspace.workspaceFolders ?? []).filter((f) => f.uri.scheme === 'file');
@@ -65,6 +75,8 @@ export class ReviewController implements vscode.Disposable {
         warnings.forEach((w) => this.log.warn(`${root.path}: ${w}`));
         threads.forEach((state) => this.render(root, state));
         this.log.info(`${root.path}: ${threads.length} thread(s) loaded`);
+        // Files may have changed while VS Code was closed: find the code again.
+        await Promise.all(threads.map((state) => this.reanchorFromDisk(root, state.id)));
       } catch (err) {
         this.log.error(`${root.path}: failed to load threads`, err);
       }
@@ -251,12 +263,141 @@ export class ReviewController implements vscode.Disposable {
     if (!this.byThread.has(thread)) thread.dispose();
   }
 
+  /** Keeps thread positions in sync with document edits (US-06). */
+  trackDocuments(): vscode.Disposable {
+    return vscode.Disposable.from(
+      vscode.workspace.onDidChangeTextDocument((e) => this.onDocumentChanged(e)),
+      vscode.workspace.onDidSaveTextDocument((doc) => void this.persistPositions(doc)),
+      vscode.workspace.onDidOpenTextDocument((doc) => void this.onDocumentOpened(doc)),
+      vscode.workspace.onDidCloseTextDocument((doc) => void this.onDocumentClosed(doc)),
+    );
+  }
+
+  /** Moves the threads of an edited document. Unsaved positions stay in memory until the file is saved. */
+  private onDocumentChanged(e: vscode.TextDocumentChangeEvent): void {
+    if (e.contentChanges.length === 0) return;
+    const changes = e.contentChanges.map((c) => ({
+      startLine: c.range.start.line,
+      startCharacter: c.range.start.character,
+      endLine: c.range.end.line,
+      endCharacter: c.range.end.character,
+      text: c.text,
+    }));
+    for (const m of this.trackedThreadsOf(e.document.uri)) {
+      const { start, end } = toZeroBasedLines(this.currentRange(m.state)!);
+      const next = applyChanges({ start, end }, changes);
+      if (next.start === start && next.end === end) continue;
+      this.liveRanges.set(m.state.id, { startLine: next.start + 1, endLine: next.end + 1 });
+      m.thread.range = new vscode.Range(next.start, 0, next.end, 0);
+    }
+    // A document that is still clean once the change has settled matches the file on disk
+    // (reloaded after another tool changed it, or reverted): its positions can be recorded.
+    // The dirty flag is only reliable after a moment: right after the first edit of a clean
+    // document, it still says "clean".
+    const key = e.document.uri.toString();
+    clearTimeout(this.settleTimers.get(key));
+    this.settleTimers.set(
+      key,
+      setTimeout(() => {
+        this.settleTimers.delete(key);
+        if (!e.document.isDirty && !e.document.isClosed) void this.persistPositions(e.document);
+      }, SETTLE_MS),
+    );
+  }
+
+  private async onDocumentOpened(doc: vscode.TextDocument): Promise<void> {
+    if (doc.uri.scheme !== 'file' || doc.isDirty) return;
+    for (const m of this.trackedThreadsOf(doc.uri)) {
+      if (!this.liveRanges.has(m.state.id)) await this.reanchorFromText(m.root, m.state.id, doc.getText());
+    }
+  }
+
+  /** Closing without saving drops unsaved positions: back to what matches the file on disk. */
+  private async onDocumentClosed(doc: vscode.TextDocument): Promise<void> {
+    for (const m of this.trackedThreadsOf(doc.uri)) {
+      if (!this.liveRanges.delete(m.state.id)) continue;
+      const range = threadRange(m.state);
+      if (range) m.thread.range = range;
+      await this.reanchorFromDisk(m.root, m.state.id);
+    }
+  }
+
+  /** Writes the positions (and code snippets) that changed since the thread's anchor was recorded. */
+  private async persistPositions(doc: vscode.TextDocument): Promise<void> {
+    const text = doc.getText();
+    for (const m of this.trackedThreadsOf(doc.uri)) {
+      const range = this.currentRange(m.state)!;
+      const context = buildAnchorContext(text, range);
+      const unchanged = sameRange(context.range, m.state.anchor.range) && context.snippet === m.state.anchor.snippet;
+      if (unchanged) {
+        this.liveRanges.delete(m.state.id);
+        continue;
+      }
+      await this.writeAnchor(m.root, m.state.id, { ...m.state.anchor, ...context }, range);
+    }
+  }
+
+  private async reanchorFromDisk(root: Root, threadId: string): Promise<void> {
+    const m = this.managed.get(threadId);
+    if (!m || m.state.anchor.source !== 'worktree' || !m.state.anchor.range) return;
+    const open = vscode.workspace.textDocuments.find((d) => d.uri.fsPath === this.fsPathOf(m));
+    if (open?.isDirty) return; // positions are tracked live until the next save
+    let text: string;
+    try {
+      text = open ? open.getText() : await readFile(this.fsPathOf(m), 'utf8');
+    } catch {
+      return; // file gone: handled with outdated threads (US-07)
+    }
+    await this.reanchorFromText(root, threadId, text);
+  }
+
+  private async reanchorFromText(root: Root, threadId: string, text: string): Promise<void> {
+    const m = this.managed.get(threadId);
+    if (!m || m.state.readOnly) return;
+    const result = reanchor(m.state.anchor, text);
+    if (result?.kind !== 'moved') {
+      if (result?.kind === 'lost') this.log.info(`${m.state.anchor.path}: code of thread ${threadId} not found`);
+      return;
+    }
+    await this.writeAnchor(root, threadId, { ...m.state.anchor, ...buildAnchorContext(text, result.range) });
+  }
+
+  /** Persists a new anchor. `live` is the in-memory position it was computed from, if any. */
+  private async writeAnchor(root: Root, threadId: string, anchor: Anchor, live?: LineRange): Promise<void> {
+    try {
+      const state = await root.store.updateAnchor(threadId, anchor, 'user');
+      // Keep a newer unsaved position if the user kept typing meanwhile.
+      if (!live || sameRange(this.liveRanges.get(threadId) ?? null, live)) this.liveRanges.delete(threadId);
+      const m = this.managed.get(threadId);
+      if (m) this.adopt(root, state, m.thread);
+    } catch (err) {
+      this.log.error(`Failed to record the new position of thread ${threadId}`, err);
+    }
+  }
+
+  /** Worktree threads with a line range, shown on this document. */
+  private trackedThreadsOf(uri: vscode.Uri): Managed[] {
+    if (uri.scheme !== 'file') return [];
+    return [...this.managed.values()].filter(
+      (m) => m.state.anchor.source === 'worktree' && m.state.anchor.range && this.fsPathOf(m) === uri.fsPath,
+    );
+  }
+
+  private fsPathOf(m: Managed): string {
+    return join(m.root.path, ...m.state.anchor.path.split('/'));
+  }
+
+  private currentRange(state: ThreadState): LineRange | null {
+    return this.liveRanges.get(state.id) ?? state.anchor.range;
+  }
+
   /** Snapshot for tests and diagnostics. */
   listThreads(): { id: string; rootPath: string; state: ThreadState; thread: vscode.CommentThread }[] {
     return [...this.managed.entries()].map(([id, m]) => ({ id, rootPath: m.root.path, state: m.state, thread: m.thread }));
   }
 
   dispose(): void {
+    this.settleTimers.forEach(clearTimeout);
     this.disposeWatchers();
     this.controller.dispose();
   }
@@ -264,6 +405,7 @@ export class ReviewController implements vscode.Disposable {
   private forget(threadId: string): void {
     this.managed.get(threadId)?.thread.dispose();
     this.managed.delete(threadId);
+    this.liveRanges.delete(threadId);
   }
 
   private disposeWatchers(): void {
@@ -291,8 +433,11 @@ export class ReviewController implements vscode.Disposable {
     // The watcher may have rendered this thread before its creator adopted it: keep a single instance.
     const previous = this.managed.get(state.id);
     if (previous && previous.thread !== thread) previous.thread.dispose();
-    const range = threadRange(state);
-    if (range) thread.range = range;
+    const current = this.currentRange(state);
+    if (current) {
+      const { start, end } = toZeroBasedLines(current);
+      thread.range = new vscode.Range(start, 0, end, 0);
+    }
     applyThreadState(thread, state, this.ctx);
     this.managed.set(state.id, { state, root, thread });
     this.byThread.set(thread, state.id);
@@ -321,4 +466,8 @@ export class ReviewController implements vscode.Disposable {
       return 'Me';
     }
   }
+}
+
+function sameRange(a: LineRange | null, b: LineRange | null): boolean {
+  return a?.startLine === b?.startLine && a?.endLine === b?.endLine;
 }
