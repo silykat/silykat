@@ -9,6 +9,18 @@ A GitHub-style code review between you and Claude Code, running 100% locally:
 
 Comments are stored in `.local-review/` at the root of the reviewed project. That folder is automatically excluded from git through `.git/info/exclude`. No data ever leaves your machine.
 
+## Usage
+
+Select lines, then use **Local Review: Comment on Selection** from the editor context menu, or press **`Ctrl+Cmd+C`** (`Ctrl+Alt+C` on Windows/Linux).
+
+The shortcut can be changed in `settings.json`:
+
+```jsonc
+"localReview.commentShortcut": "ctrl+cmd+c" // or "ctrl+alt+c", "cmd+alt+m", "none"
+```
+
+For any other key combination, set it to `"none"` and bind the `localReview.commentSelection` command in `keybindings.json`.
+
 ## Development
 
 Requirements: Node ≥ 20 and the `code` command on your PATH.

@@ -82,13 +82,50 @@
           "default": "",
           "description": "Name shown on your comments. When empty: `git config user.name`, otherwise your OS user name."
         },
+        "localReview.commentShortcut": {
+          "type": "string",
+          "enum": [
+            "ctrl+cmd+c",
+            "ctrl+alt+c",
+            "cmd+alt+m",
+            "none"
+          ],
+          "enumDescriptions": [
+            "Ctrl+Cmd+C on macOS, Ctrl+Alt+C on Windows/Linux.",
+            "Ctrl+Alt+C (Ctrl+Option+C on macOS).",
+            "Cmd+Alt+M on macOS (may clash with \"Minimize All\"), Ctrl+Alt+M on Windows/Linux.",
+            "No shortcut from Local Review. Bind `localReview.commentSelection` yourself in keybindings.json."
+          ],
+          "default": "ctrl+cmd+c",
+          "markdownDescription": "Keyboard shortcut for **Local Review: Comment on Selection**. For any other key combination, pick `none` and bind the `localReview.commentSelection` command in `keybindings.json` (*Preferences: Open Keyboard Shortcuts*)."
+        },
         "localReview.excludeFromGit": {
           "type": "boolean",
           "default": true,
           "description": "Add `.local-review/` to the local git exclude file (`.git/info/exclude`) on the first comment. Never modifies `.gitignore`."
         }
       }
-    }
+    },
+    "keybindings": [
+      {
+        "command": "localReview.commentSelection",
+        "key": "ctrl+alt+c",
+        "mac": "ctrl+cmd+c",
+        "when": "editorTextFocus && resourceScheme == file && config.localReview.commentShortcut == 'ctrl+cmd+c'"
+      },
+      {
+        "command": "localReview.commentSelection",
+        "key": "ctrl+alt+c",
+        "mac": "ctrl+alt+c",
+        "when": "editorTextFocus && resourceScheme == file && config.localReview.commentShortcut == 'ctrl+alt+c'"
+      },
+      {
+        "command": "localReview.commentSelection",
+        "key": "ctrl+alt+m",
+        "mac": "cmd+alt+m",
+        "when": "editorTextFocus && resourceScheme == file && config.localReview.commentShortcut == 'cmd+alt+m'"
+      }
+    ]
   },
   "scripts": {
     "build": "node esbuild.mjs",
