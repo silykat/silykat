@@ -1,0 +1,22 @@
+{
+  "name": "local-review-monorepo",
+  "private": true,
+  "workspaces": [
+    "packages/core",
+    "packages/extension"
+  ],
+  "scripts": {
+    "build": "npm run build -w packages/extension",
+    "typecheck": "npm run typecheck --workspaces",
+    "test": "npm run test --workspaces",
+    "test:integration": "npm run test:integration -w packages/extension",
+    "package": "npm run package -w packages/extension",
+    "install-ext": "npm run package && code --install-extension packages/extension/dist/local-review.vsix --force"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.2"
+  }
+}

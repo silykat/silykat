@@ -1,0 +1,108 @@
+{
+  "name": "local-review",
+  "displayName": "Local Review",
+  "description": "Code review locale façon GitHub, entre vous et Claude Code. 100 % local.",
+  "version": "0.1.0",
+  "publisher": "local",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lbenamer/local-review"
+  },
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "localReview.commentSelection",
+        "title": "Commenter la sélection",
+        "category": "Local Review"
+      },
+      {
+        "command": "localReview.submitComment",
+        "title": "Commenter"
+      },
+      {
+        "command": "localReview.cancelNewThread",
+        "title": "Annuler"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "localReview.commentSelection",
+          "when": "resourceScheme == file"
+        },
+        {
+          "command": "localReview.submitComment",
+          "when": "false"
+        },
+        {
+          "command": "localReview.cancelNewThread",
+          "when": "false"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "localReview.commentSelection",
+          "when": "resourceScheme == file",
+          "group": "localReview@1"
+        }
+      ],
+      "comments/commentThread/context": [
+        {
+          "command": "localReview.submitComment",
+          "when": "commentController == local-review && commentThreadIsEmpty && !commentIsEmpty",
+          "group": "inline@1"
+        },
+        {
+          "command": "localReview.cancelNewThread",
+          "when": "commentController == local-review && commentThreadIsEmpty",
+          "group": "inline@2"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Local Review",
+      "properties": {
+        "localReview.userName": {
+          "type": "string",
+          "default": "",
+          "description": "Nom affiché sur vos commentaires. Vide : `git config user.name`, sinon le nom d'utilisateur du système."
+        },
+        "localReview.excludeFromGit": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ajoute `.local-review/` à l'exclude local de git (`.git/info/exclude`) au premier commentaire. Ne modifie jamais `.gitignore`."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run",
+    "test:integration": "node esbuild.mjs --tests && vscode-test",
+    "package": "node esbuild.mjs --production && node scripts/check-local-only.mjs && vsce package --no-dependencies --skip-license -o dist/local-review.vsix"
+  },
+  "devDependencies": {
+    "@local-review/core": "0.1.0",
+    "@types/mocha": "^10.0.10",
+    "@types/vscode": "~1.100.0",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^4.0.0"
+  }
+}
