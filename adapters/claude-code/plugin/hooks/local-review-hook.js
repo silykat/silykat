@@ -99,31 +99,30 @@ var SessionRegistry = class {
         await this.unregister(record.id).catch(() => void 0);
         continue;
       }
-      sessions.push({ ...record, touched: await this.readTouched(record.id) });
+      const writtenAt = await this.readTouched(record.id);
+      sessions.push({ ...record, touched: Object.keys(writtenAt), writtenAt });
     }
     return sessions;
   }
+  /** The files a session wrote, each once with its last write, ordered by it (most recent last). */
   async readTouched(id) {
     let text;
     try {
       text = await (0, import_promises.readFile)(this.file(id, "touched"), "utf8");
     } catch {
-      return [];
+      return {};
     }
-    const paths = [];
+    const order = /* @__PURE__ */ new Map();
     for (const line of text.split("\n")) {
       try {
-        const { path } = JSON.parse(line);
-        if (typeof path === "string") paths.push(path);
+        const { path, at } = JSON.parse(line);
+        if (typeof path !== "string") continue;
+        order.delete(path);
+        order.set(path, typeof at === "string" ? at : "");
       } catch {
       }
     }
-    const order = /* @__PURE__ */ new Map();
-    for (const p of paths) {
-      order.delete(p);
-      order.set(p, true);
-    }
-    return [...order.keys()];
+    return Object.fromEntries(order);
   }
 };
 async function readRecord(file) {

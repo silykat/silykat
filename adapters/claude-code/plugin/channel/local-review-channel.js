@@ -102,31 +102,30 @@ var SessionRegistry = class {
         await this.unregister(record.id).catch(() => void 0);
         continue;
       }
-      sessions.push({ ...record, touched: await this.readTouched(record.id) });
+      const writtenAt = await this.readTouched(record.id);
+      sessions.push({ ...record, touched: Object.keys(writtenAt), writtenAt });
     }
     return sessions;
   }
+  /** The files a session wrote, each once with its last write, ordered by it (most recent last). */
   async readTouched(id) {
     let text;
     try {
       text = await (0, import_promises.readFile)(this.file(id, "touched"), "utf8");
     } catch {
-      return [];
+      return {};
     }
-    const paths = [];
+    const order = /* @__PURE__ */ new Map();
     for (const line of text.split("\n")) {
       try {
-        const { path } = JSON.parse(line);
-        if (typeof path === "string") paths.push(path);
+        const { path, at } = JSON.parse(line);
+        if (typeof path !== "string") continue;
+        order.delete(path);
+        order.set(path, typeof at === "string" ? at : "");
       } catch {
       }
     }
-    const order = /* @__PURE__ */ new Map();
-    for (const p of paths) {
-      order.delete(p);
-      order.set(p, true);
-    }
-    return [...order.keys()];
+    return Object.fromEntries(order);
   }
 };
 async function readRecord(file) {
@@ -171,9 +170,10 @@ var BATCH_MS = 1500;
 var SUPPORTED_PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 var INSTRUCTIONS = [
   "Local Review is the local code review tool the user works with in VS Code.",
-  'When the user publishes comments there, they arrive as <channel source="...local-review..." store="<folder>">.',
+  'When the user publishes comments there, they arrive as <channel source="...local-review..." store="<folder>" threads="<ids>">.',
   "Process them right away, without waiting to be asked: follow the local-review review skill",
-  "(/local-review:review), passing `--root <folder>` (the store attribute) to every `lr` command.",
+  "(/local-review:review), passing `--root <folder>` (the store attribute) to every `lr` command, and listing only",
+  "those threads (`lr list --root <folder> --thread <id> --thread <id>\u2026`): others may be for another session.",
   "Answer in the threads with `lr reply`; nothing needs to be sent back through the channel."
 ].join(" ");
 var LocalReviewChannel = class {
@@ -253,7 +253,10 @@ var LocalReviewChannel = class {
       this.deps.send({
         jsonrpc: "2.0",
         method: "notifications/claude/channel",
-        params: { content: describe(root, deliveries), meta: { store: root } }
+        params: {
+          content: describe(root, deliveries),
+          meta: { store: root, threads: threadIds(deliveries).join(" ") }
+        }
       });
     }
   }
@@ -263,15 +266,17 @@ var LocalReviewChannel = class {
   }
 };
 function describe(root, deliveries) {
-  const threads = new Set(deliveries.flatMap((d) => d.threadIds)).size;
+  const ids = threadIds(deliveries);
+  const threads = ids.length;
   const reviews = deliveries.filter((d) => d.kind === "review").length;
   const comments = deliveries.filter((d) => d.kind === "comment").length;
   const replies = deliveries.filter((d) => d.kind === "reply").length;
   const what = [count(reviews, "review"), count(comments, "new comment"), count(replies, "reply", "replies")].filter(
     (s) => s !== ""
   );
-  return `The user published ${joinList(what)} in Local Review (${count(threads, "thread")}), in ${root}. Process them now with the local-review review skill, running every lr command with --root ${JSON.stringify(root)}.`;
+  return `The user published ${joinList(what)} in Local Review (${count(threads, "thread")}), in ${root}. Process them now with the local-review review skill, running every lr command with --root ${JSON.stringify(root)}, and listing only these threads: lr list --root ${JSON.stringify(root)} ${ids.map((id) => `--thread ${id}`).join(" ")}`;
 }
+var threadIds = (deliveries) => [...new Set(deliveries.flatMap((d) => d.threadIds))];
 var count = (n, one, many = `${one}s`) => n === 0 ? "" : n === 1 && one === "review" ? "a review" : `${n} ${n === 1 ? one : many}`;
 var joinList = (parts) => parts.length <= 1 ? parts[0] ?? "" : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
 
@@ -310,7 +315,7 @@ async function main() {
     claudePid: await findClaudePid(process.ppid),
     send: (message) => process.stdout.write(JSON.stringify(message) + "\n"),
     now: () => Date.now(),
-    version: "0.3.0"
+    version: "0.4.0"
   });
   const lines = (0, import_node_readline.createInterface)({ input: process.stdin });
   lines.on("line", (line) => {

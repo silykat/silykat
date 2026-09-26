@@ -10,7 +10,7 @@ The user reviews your code in VS Code and leaves comments in threads, like on a 
 
 ## 1. See what is waiting
 
-**Started by a Local Review channel message** (`<channel source="…local-review…" store="<folder>">`): the user just published comments in that folder, and expects you to handle them without being asked. Add `--root <folder>` to every `lr` command below. When you were busy with another task, finish or pause it at a sensible point first, then handle the comments, then go back to it.
+**Started by a Local Review channel message** (`<channel source="…local-review…" store="<folder>" threads="<ids>">`): the user just published comments in that folder, and expects you to handle them without being asked. Add `--root <folder>` to every `lr` command below, and list only the threads of the message (`lr list --root <folder> --thread <id> --thread <id>…`): the other threads waiting in that folder may be for another session. When you were busy with another task, finish or pause it at a sensible point first, then handle the comments, then go back to it.
 
 Run `lr status`. If no thread waits for you, tell the user and stop.
 

@@ -30,9 +30,10 @@ const SUPPORTED_PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 
 export const INSTRUCTIONS = [
   'Local Review is the local code review tool the user works with in VS Code.',
-  'When the user publishes comments there, they arrive as <channel source="...local-review..." store="<folder>">.',
+  'When the user publishes comments there, they arrive as <channel source="...local-review..." store="<folder>" threads="<ids>">.',
   'Process them right away, without waiting to be asked: follow the local-review review skill',
-  '(/local-review:review), passing `--root <folder>` (the store attribute) to every `lr` command.',
+  '(/local-review:review), passing `--root <folder>` (the store attribute) to every `lr` command, and listing only',
+  'those threads (`lr list --root <folder> --thread <id> --thread <id>…`): others may be for another session.',
   'Answer in the threads with `lr reply`; nothing needs to be sent back through the channel.',
 ].join(' ');
 
@@ -119,7 +120,10 @@ export class LocalReviewChannel {
       this.deps.send({
         jsonrpc: '2.0',
         method: 'notifications/claude/channel',
-        params: { content: describe(root, deliveries), meta: { store: root } },
+        params: {
+          content: describe(root, deliveries),
+          meta: { store: root, threads: threadIds(deliveries).join(' ') },
+        },
       });
     }
   }
@@ -132,7 +136,8 @@ export class LocalReviewChannel {
 
 /** What Claude reads, e.g. "The user published a review (3 threads) in Local Review, in /repo. …" */
 export function describe(root: string, deliveries: Delivery[]): string {
-  const threads = new Set(deliveries.flatMap((d) => d.threadIds)).size;
+  const ids = threadIds(deliveries);
+  const threads = ids.length;
   const reviews = deliveries.filter((d) => d.kind === 'review').length;
   const comments = deliveries.filter((d) => d.kind === 'comment').length;
   const replies = deliveries.filter((d) => d.kind === 'reply').length;
@@ -141,9 +146,13 @@ export function describe(root: string, deliveries: Delivery[]): string {
   );
   return (
     `The user published ${joinList(what)} in Local Review (${count(threads, 'thread')}), in ${root}. ` +
-    `Process them now with the local-review review skill, running every lr command with --root ${JSON.stringify(root)}.`
+    `Process them now with the local-review review skill, running every lr command with --root ${JSON.stringify(root)}, ` +
+    `and listing only these threads: lr list --root ${JSON.stringify(root)} ${ids.map((id) => `--thread ${id}`).join(' ')}`
   );
 }
+
+/** The threads of some deliveries, each once. */
+export const threadIds = (deliveries: Delivery[]): string[] => [...new Set(deliveries.flatMap((d) => d.threadIds))];
 
 const count = (n: number, one: string, many = `${one}s`) =>
   n === 0 ? '' : n === 1 && one === 'review' ? 'a review' : `${n} ${n === 1 ? one : many}`;

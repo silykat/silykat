@@ -39,6 +39,7 @@ describe('Claude Code hooks', () => {
         push: false,
         pushCommand: LAUNCH_WITH_CHANNEL,
         touched: [],
+        writtenAt: {},
       },
     ]);
   });

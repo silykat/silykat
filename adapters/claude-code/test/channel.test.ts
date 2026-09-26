@@ -84,7 +84,8 @@ describe('The channel server', () => {
     await registry.register(session());
     await registry.register(session({ id: 'other', pid: 999 }));
     const c = channel();
-    await registry.deliver('s1', delivery());
+    const first = delivery();
+    await registry.deliver('s1', first);
     await registry.deliver('other', delivery());
     await c.poll();
     expect(pushed()).toEqual([]); // more may follow
@@ -97,8 +98,9 @@ describe('The channel server', () => {
       {
         content:
           'The user published a review and 1 new comment in Local Review (3 threads), in /repo. ' +
-          'Process them now with the local-review review skill, running every lr command with --root "/repo".',
-        meta: { store: '/repo' },
+          'Process them now with the local-review review skill, running every lr command with --root "/repo", ' +
+          `and listing only these threads: lr list --root "/repo" --thread ${first.threadIds[0]} --thread t_a --thread t_b`,
+        meta: { store: '/repo', threads: `${first.threadIds[0]} t_a t_b` },
       },
     ]);
     now += BATCH_MS;
@@ -114,7 +116,7 @@ describe('The channel server', () => {
     await c.poll();
     now += BATCH_MS;
     await c.poll();
-    expect(pushed().map((p) => (p as { meta: object }).meta)).toEqual([{ store: '/repo' }, { store: '/specs' }]);
+    expect(pushed().map((p) => (p as { meta: { store: string } }).meta.store)).toEqual(['/repo', '/specs']);
   });
 
   it('pushes nothing before Claude Code is ready, then what arrived meanwhile', async () => {
