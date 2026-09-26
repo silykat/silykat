@@ -15,8 +15,12 @@ const common = {
 
 await esbuild.build({
   ...common,
-  entryPoints: ['src/extension.ts'],
-  outfile: 'dist/extension.js',
+  entryPoints: {
+    extension: 'src/extension.ts',
+    // Spawned as a separate process by "Simulate Claude Reply".
+    'fake-claude': 'src/dev/fake-claude.ts',
+  },
+  outdir: 'dist',
   sourcemap: !production,
   minify: production,
 });

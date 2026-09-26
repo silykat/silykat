@@ -217,3 +217,72 @@ describe('Store', () => {
     expect(warnings).toHaveLength(2); // invalid line + no thread.created
   });
 });
+
+describe('Store — replies and statuses', () => {
+  let root: string;
+  let store: Store;
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'lr-core-'));
+    store = new Store(root);
+  });
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const newThread = () => store.createThread(anchor(), { author: 'user', body: 'Why null here?', reviewId: null });
+
+  it('adds a Claude reply and its status in a single write', async () => {
+    const t = await newThread();
+    const s = await store.addComment(t.id, { author: 'claude', body: 'Which error?', reviewId: null }, { status: 'needs-info' });
+    expect(s.comments.map((c) => [c.author, c.body])).toEqual([
+      ['user', 'Why null here?'],
+      ['claude', 'Which error?'],
+    ]);
+    expect(s.status).toBe('needs-info');
+    expect(s.lastAuthor).toBe('claude');
+
+    const lines = (await readFile(store.threadFile(t.id), 'utf8')).trimEnd().split('\n');
+    expect(lines.map((l) => JSON.parse(l).type)).toEqual(['thread.created', 'comment.added', 'comment.added', 'status.changed']);
+  });
+
+  it('adds a reply without changing the status', async () => {
+    const t = await newThread();
+    const s = await store.addComment(t.id, { author: 'claude', body: 'Noted.', reviewId: null });
+    expect(s.status).toBe('open');
+  });
+
+  it('sets a status on its own', async () => {
+    const t = await newThread();
+    expect((await store.setStatus(t.id, 'addressed', 'claude')).status).toBe('addressed');
+    expect((await store.loadThread(t.id)).state!.status).toBe('addressed');
+  });
+
+  it('never lets Claude resolve a thread', async () => {
+    const t = await newThread();
+    await expect(store.setStatus(t.id, 'resolved', 'claude')).rejects.toThrow(/Only the user/);
+    await expect(
+      store.addComment(t.id, { author: 'claude', body: 'done', reviewId: null }, { status: 'resolved' }),
+    ).rejects.toThrow(/Only the user/);
+    expect((await store.loadThread(t.id)).state!.comments).toHaveLength(1);
+  });
+
+  it('refuses to write to unknown, deleted or read-only threads', async () => {
+    await expect(
+      store.addComment('t_00000000000000000000000000', { author: 'claude', body: 'x', reviewId: null }),
+    ).rejects.toThrow(/not found/);
+
+    const t = await newThread();
+    await writeFile(store.threadFile(t.id), JSON.stringify({ v: 99, type: 'future' }) + '\n', { flag: 'a' });
+    await expect(store.addComment(t.id, { author: 'claude', body: 'x', reviewId: null })).rejects.toThrow(/read-only/);
+  });
+
+  it('rejects ids that could escape the store', async () => {
+    await expect(store.loadThread('../../etc/passwd')).rejects.toThrow(/Invalid thread id/);
+    expect(Store.threadIdOf('t_01J8XK0000000000000000000A.jsonl')).toBe('t_01J8XK0000000000000000000A');
+    expect(Store.threadIdOf('notes.txt')).toBeNull();
+  });
+
+  it('loadThread returns null for a missing thread', async () => {
+    expect(await store.loadThread('t_00000000000000000000000000')).toEqual({ state: null, warnings: [] });
+  });
+});

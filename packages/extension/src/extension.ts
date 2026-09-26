@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { ReviewController } from './controller';
+import { simulateClaudeReply, type SimulateArgs } from './dev/simulateClaudeReply';
 import { createLog } from './log';
 
 export interface LocalReviewApi {
@@ -10,7 +11,7 @@ export interface LocalReviewApi {
 
 export async function activate(context: vscode.ExtensionContext): Promise<LocalReviewApi> {
   const log = createLog();
-  const review = new ReviewController(log);
+  const review = new ReviewController(log, context.extensionUri);
   context.subscriptions.push(log, review);
 
   context.subscriptions.push(
@@ -23,6 +24,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
     ),
     vscode.commands.registerCommand('localReview.cancelNewThread', (reply: vscode.CommentReply) =>
       review.cancelNewThread(reply),
+    ),
+    vscode.commands.registerCommand('localReview.dev.simulateClaudeReply', (args?: SimulateArgs) =>
+      simulateClaudeReply(review, context.extensionUri, args),
     ),
     vscode.workspace.onDidChangeWorkspaceFolders(() => review.reload()),
     vscode.workspace.onDidChangeConfiguration((e) => {

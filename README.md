@@ -21,6 +21,10 @@ The shortcut can be changed in `settings.json`:
 
 For any other key combination, set it to `"none"` and bind the `localReview.commentSelection` command in `keybindings.json`.
 
+Claude's replies appear live in the thread, with a status label: **Waiting for Claude**, **💬 Claude replied**, **❓ Claude is waiting for your reply** or **✅ Addressed by Claude — please verify**.
+
+Until the Claude skill ships, **Local Review (dev): Simulate Claude Reply** writes a reply as Claude from a separate process, through the same path the skill will use.
+
 ## Development
 
 Requirements: Node ≥ 20 and the `code` command on your PATH.

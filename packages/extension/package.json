@@ -37,6 +37,11 @@
       {
         "command": "localReview.cancelNewThread",
         "title": "Cancel"
+      },
+      {
+        "command": "localReview.dev.simulateClaudeReply",
+        "title": "Simulate Claude Reply",
+        "category": "Local Review (dev)"
       }
     ],
     "menus": {
