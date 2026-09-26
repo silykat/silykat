@@ -839,6 +839,12 @@ export class ReviewController implements vscode.Disposable {
   }
 
   /** Snapshot for tests and diagnostics. */
+  /** Absolute path of a thread's file (the worktree file, also for a thread about a git version). */
+  threadFile(threadId: string): string | undefined {
+    const m = this.managed.get(threadId);
+    return m ? join(m.root.path, ...m.state.anchor.path.split('/')) : undefined;
+  }
+
   listThreads(): {
     id: string;
     /** Canonical URI first, then aliases. */

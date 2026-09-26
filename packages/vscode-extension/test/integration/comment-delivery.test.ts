@@ -24,6 +24,8 @@ describe('Published comments go to the agent session', () => {
   let registry: SessionRegistry;
   let warnings: string[];
   let click: string | undefined;
+  let asked: string[];
+  let pickId: string | undefined;
 
   const session = (over: Partial<SessionRecord> = {}): SessionRecord => ({
     id: 'claude-1',
@@ -59,19 +61,27 @@ describe('Published comments go to the agent session', () => {
       warnings.push(`${message} [${actions.join('|')}]`);
       return click;
     });
+    api.setSessionPicker(async (title, choices) => {
+      asked.push(`${title} [${choices.map((c) => c.session.id + (c.note ? ` (${c.note})` : '')).join(', ')}]`);
+      return pickId;
+    });
   });
 
   beforeEach(async () => {
     rmSync(registry.dir, { recursive: true, force: true });
+    rmSync(join(localReviewHome(), 'queue'), { recursive: true, force: true });
     rmSync(join(ws, '.local-review'), { recursive: true, force: true });
     await api.reload();
     warnings = [];
     click = undefined;
+    asked = [];
+    pickId = undefined;
   });
 
   after(() => {
     api.setSummaryPrompt(undefined);
     api.setDeliveryWarner(undefined);
+    api.setSessionPicker(undefined);
   });
 
   it('sends a direct comment right away', async () => {
@@ -113,22 +123,69 @@ describe('Published comments go to the agent session', () => {
     assert.match(d!.reviewId!, /^r_/);
   });
 
-  it('sends to the session of this folder that started last', async () => {
-    await registry.register(session({ id: 'older', startedAt: '2026-09-26T09:00:00.000Z' }));
-    await registry.register(session({ id: 'newer', startedAt: '2026-09-26T10:00:00.000Z' }));
-    await registry.register(
-      session({ id: 'elsewhere', cwd: '/some/other/project', startedAt: '2026-09-26T11:00:00.000Z' }),
-    );
+  it('sends to the session that wrote the file, without asking', async () => {
+    await registry.register(session({ id: 'writer', startedAt: '2026-09-26T09:00:00.000Z' }));
+    await registry.register(session({ id: 'other', startedAt: '2026-09-26T10:00:00.000Z' }));
+    await registry.touch('writer', uri.fsPath);
     await comment('Rename this', 1);
-    await delivered(1, 'newer');
-    assert.deepEqual(await inbox('older'), []);
-    assert.deepEqual(await inbox('elsewhere'), []);
+    await delivered(1, 'writer');
+    assert.deepEqual(await inbox('other'), []);
+    assert.deepEqual(asked, []);
   });
 
-  it('keeps the comment when no session runs', async () => {
+  it('sends a file written by a session working elsewhere (e.g. a spec) to that session', async () => {
+    await registry.register(session({ id: 'here' }));
+    await registry.register(session({ id: 'specs-writer', cwd: '/some/other/project' }));
+    await registry.touch('specs-writer', uri.fsPath);
+    await comment('Clarify this', 1);
+    await delivered(1, 'specs-writer');
+    assert.deepEqual(asked, []);
+  });
+
+  it('asks which session to use when several could be the one, proposing the last one used', async () => {
+    await registry.register(session({ id: 'older', startedAt: '2026-09-26T09:00:00.000Z' }));
+    await registry.register(session({ id: 'newer', startedAt: '2026-09-26T10:00:00.000Z' }));
+    await registry.register(session({ id: 'elsewhere', cwd: '/some/other/project' }));
+    pickId = 'older';
+    await comment('Rename this', 1);
+    await delivered(1, 'older');
+    assert.equal(asked.length, 1);
+    assert.match(asked[0]!, /several agent sessions work on .*\. Which one handles this comment\?/);
+    assert.match(asked[0]!, /\[newer \(proposed\), older, elsewhere \(works elsewhere\)\]$/);
+
+    pickId = undefined; // Esc: the comment waits
+    await comment('And this', 3);
+    await waitFor('the question', async () => (asked.length === 2 ? true : undefined));
+    assert.match(asked[1]!, /\[older \(proposed\), newer, elsewhere \(works elsewhere\)\]$/, 'the last one used');
+    assert.equal((await inbox('older')).length, 1);
+    await waitFor('the waiting count', async () =>
+      (await api.refreshSessions()).statusText?.endsWith(' · 1 waiting') ? true : undefined,
+    );
+
+    await api.flushDeliveries();
+    assert.equal(asked.length, 2, 'not asked again while the sessions are the same');
+    pickId = 'new-one'; // before it registers: the registry is also polled
+    await registry.register(session({ id: 'new-one', startedAt: '2026-09-26T11:00:00.000Z' }));
+    await api.flushDeliveries();
+    await delivered(1, 'new-one');
+    assert.equal(asked.length, 3);
+  });
+
+  it('keeps the comments waiting when no session runs, and sends them when one starts there', async () => {
+    await registry.register(session({ id: 'elsewhere', cwd: '/some/other/project' }));
     const id = await comment('Rename this', 1);
-    assert.ok(api.listThreads().some((t) => t.id === id));
-    assert.deepEqual(warnings, []);
+    await waitFor('the message', async () => (warnings.length > 0 ? true : undefined));
+    assert.match(
+      warnings[0]!,
+      /no agent session works on .*\. Your comments will go to the next one started there\. \[Send to a Session…\]/,
+    );
+    assert.equal((await api.refreshSessions()).statusText, '$(hubot) No agent session · 1 waiting');
+
+    await registry.register(session({ id: 'started' }));
+    await api.flushDeliveries();
+    const [d] = await delivered(1, 'started');
+    assert.deepEqual(d!.threadIds, [id]);
+    assert.equal((await api.refreshSessions()).statusText, '$(hubot) Claude · feature-x');
   });
 
   it("warns once when the session can't be notified, with the command to relaunch it", async () => {
