@@ -31,7 +31,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
   );
 
   await review.reload();
-  log.info('Local Review activé');
+  log.info('Local Review activated');
 
   return {
     controller: review.controller,

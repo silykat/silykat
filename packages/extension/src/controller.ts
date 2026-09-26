@@ -22,13 +22,13 @@ export class ReviewController implements vscode.Disposable {
   private readonly managed = new Map<string, Managed>();
   private readonly byThread = new WeakMap<vscode.CommentThread, string>();
   private readonly excludedRoots = new Set<string>();
-  private ctx: RenderContext = { userName: 'Moi' };
+  private ctx: RenderContext = { userName: 'Me' };
 
   constructor(private readonly log: Log) {
     this.controller = vscode.comments.createCommentController(CONTROLLER_ID, 'Local Review');
     this.controller.options = {
-      prompt: 'Commenter',
-      placeHolder: 'Votre commentaire (markdown accepté)…',
+      prompt: 'Comment',
+      placeHolder: 'Write a comment (Markdown supported)…',
     };
     this.controller.commentingRangeProvider = {
       provideCommentingRanges: (doc) => this.commentingRanges(doc),
@@ -49,14 +49,14 @@ export class ReviewController implements vscode.Disposable {
         const { threads, warnings } = await root.store.loadAll();
         warnings.forEach((w) => this.log.warn(`${root.path}: ${w}`));
         threads.forEach((state) => this.render(root, state));
-        this.log.info(`${root.path}: ${threads.length} fil(s) chargé(s)`);
+        this.log.info(`${root.path}: ${threads.length} thread(s) loaded`);
       } catch (err) {
         this.log.error(`${root.path}: chargement impossible`, err);
       }
     }
   }
 
-  /** Handler of the "Commenter" button under a new thread's input. */
+  /** Handler of the "Comment" button under a new thread's input. */
   async submitNewComment(reply: vscode.CommentReply): Promise<void> {
     const { thread } = reply;
     const text = reply.text.trim();
@@ -64,11 +64,11 @@ export class ReviewController implements vscode.Disposable {
 
     const root = this.roots.forFile(thread.uri.fsPath);
     if (thread.uri.scheme !== 'file' || !root) {
-      void vscode.window.showErrorMessage('Local Review : ce fichier ne fait partie d’aucun dossier du workspace.');
+      void vscode.window.showErrorMessage('Local Review: this file is not part of any workspace folder.');
       return;
     }
     if (!thread.range) {
-      void vscode.window.showWarningMessage('Local Review : les commentaires de fichier arrivent bientôt (US-15).');
+      void vscode.window.showWarningMessage('Local Review: file-level comments are not supported yet.');
       return;
     }
 
@@ -85,8 +85,8 @@ export class ReviewController implements vscode.Disposable {
       this.adopt(root, state, thread);
       await this.excludeFromGit(root);
     } catch (err) {
-      this.log.error('Échec de l’enregistrement du commentaire', err);
-      void vscode.window.showErrorMessage(`Local Review : le commentaire n’a pas pu être enregistré (${String(err)}).`);
+      this.log.error('Failed to save the comment', err);
+      void vscode.window.showErrorMessage(`Local Review: the comment could not be saved (${String(err)}).`);
     }
   }
 
@@ -132,10 +132,10 @@ export class ReviewController implements vscode.Disposable {
     if (!root.isGit || this.excludedRoots.has(root.path)) return;
     if (!vscode.workspace.getConfiguration('localReview').get<boolean>('excludeFromGit', true)) return;
     try {
-      if (await ensureExcluded(root.path)) this.log.info(`${root.path}: .local-review/ ajouté à .git/info/exclude`);
+      if (await ensureExcluded(root.path)) this.log.info(`${root.path}: added .local-review/ to .git/info/exclude`);
       this.excludedRoots.add(root.path);
     } catch (err) {
-      this.log.warn(`${root.path}: impossible de mettre à jour .git/info/exclude`, err);
+      this.log.warn(`${root.path}: could not update .git/info/exclude`, err);
     }
   }
 
@@ -148,7 +148,7 @@ export class ReviewController implements vscode.Disposable {
     try {
       return userInfo().username;
     } catch {
-      return 'Moi';
+      return 'Me';
     }
   }
 }

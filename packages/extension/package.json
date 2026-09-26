@@ -1,7 +1,7 @@
 {
   "name": "local-review",
   "displayName": "Local Review",
-  "description": "Code review locale façon GitHub, entre vous et Claude Code. 100 % local.",
+  "description": "GitHub-style code review between you and Claude Code, 100% local.",
   "version": "0.1.0",
   "publisher": "local",
   "private": true,
@@ -27,16 +27,16 @@
     "commands": [
       {
         "command": "localReview.commentSelection",
-        "title": "Commenter la sélection",
+        "title": "Comment on Selection",
         "category": "Local Review"
       },
       {
         "command": "localReview.submitComment",
-        "title": "Commenter"
+        "title": "Comment"
       },
       {
         "command": "localReview.cancelNewThread",
-        "title": "Annuler"
+        "title": "Cancel"
       }
     ],
     "menus": {
@@ -80,12 +80,12 @@
         "localReview.userName": {
           "type": "string",
           "default": "",
-          "description": "Nom affiché sur vos commentaires. Vide : `git config user.name`, sinon le nom d'utilisateur du système."
+          "description": "Name shown on your comments. When empty: `git config user.name`, otherwise your OS user name."
         },
         "localReview.excludeFromGit": {
           "type": "boolean",
           "default": true,
-          "description": "Ajoute `.local-review/` à l'exclude local de git (`.git/info/exclude`) au premier commentaire. Ne modifie jamais `.gitignore`."
+          "description": "Add `.local-review/` to the local git exclude file (`.git/info/exclude`) on the first comment. Never modifies `.gitignore`."
         }
       }
     }
