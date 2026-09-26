@@ -18,3 +18,14 @@ export function relevantSessions(sessions: readonly Session[], folders: readonly
       s.touched.some((file) => folders.some((f) => isWithin(file, f))),
   );
 }
+
+/**
+ * The session that should process threads published in the store at `root`: among the sessions
+ * that matter to it, the one that started last. `undefined` when no session matters to it.
+ */
+export function deliveryTarget(sessions: readonly Session[], root: string): Session | undefined {
+  return relevantSessions(sessions, [root]).reduce<Session | undefined>(
+    (best, s) => (best === undefined || s.startedAt > best.startedAt ? s : best),
+    undefined,
+  );
+}

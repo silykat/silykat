@@ -20,3 +20,4 @@ export function ulid(now: number = Date.now()): string {
 export const newThreadId = (): string => `t_${ulid()}`;
 export const newCommentId = (): string => `c_${ulid()}`;
 export const newReviewId = (): string => `r_${ulid()}`;
+export const newDeliveryId = (): string => `d_${ulid()}`;

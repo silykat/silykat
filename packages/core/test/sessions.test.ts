@@ -2,7 +2,7 @@ import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { localReviewHome, relevantSessions, SessionRegistry, type SessionRecord } from '../src/index';
+import { deliveryTarget, localReviewHome, relevantSessions, SessionRegistry, type SessionRecord } from '../src/index';
 
 let home: string;
 const alive = new Set<number>([1111, 2222]);
@@ -101,5 +101,70 @@ describe('relevantSessions', () => {
       'same',
       'specs-writer',
     ]);
+  });
+});
+
+describe('Session inboxes', () => {
+  const delivery = (id: string, threadIds = ['t_1']) => ({
+    id,
+    at: '2026-09-26T10:00:00.000Z',
+    root: '/repo/worktree-a',
+    kind: 'comment' as const,
+    threadIds,
+  });
+
+  it('reads the deliveries appended since the last read', async () => {
+    const r = registry();
+    expect((await r.readInbox('session-a')).deliveries).toEqual([]);
+    await r.deliver('session-a', delivery('d_1'));
+    const first = await r.readInbox('session-a');
+    expect(first.deliveries.map((d) => d.id)).toEqual(['d_1']);
+    await r.deliver('session-a', delivery('d_2', ['t_2', 't_3']));
+    await r.deliver('session-a', { ...delivery('d_3'), kind: 'review', reviewId: 'r_1' });
+    const next = await r.readInbox('session-a', first.cursor);
+    expect(next.deliveries).toEqual([
+      delivery('d_2', ['t_2', 't_3']),
+      { ...delivery('d_3'), kind: 'review', reviewId: 'r_1' },
+    ]);
+    expect(await r.readInbox('session-a', next.cursor)).toEqual({ deliveries: [], cursor: next.cursor });
+  });
+
+  it('leaves a line still being written for the next read, and skips corrupt lines', async () => {
+    const r = registry();
+    await r.deliver('session-a', delivery('d_1'));
+    const file = join(home, 'sessions', 'session-a.inbox.jsonl');
+    const { appendFile } = await import('node:fs/promises');
+    await appendFile(file, 'not json\n{"id":"d_2","root":"/r","threadIds":["t');
+    const read = await r.readInbox('session-a');
+    expect(read.deliveries.map((d) => d.id)).toEqual(['d_1']);
+    await appendFile(file, '_9"]}\n');
+    expect((await r.readInbox('session-a', read.cursor)).deliveries.map((d) => [d.id, d.threadIds])).toEqual([
+      ['d_2', ['t_9']],
+    ]);
+  });
+
+  it('is removed with its session, and read again from the start if it was', async () => {
+    const r = registry();
+    await r.register(record());
+    await r.deliver('session-a', delivery('d_1'));
+    const { cursor } = await r.readInbox('session-a');
+    await r.unregister('session-a');
+    expect(await readdir(join(home, 'sessions'))).toEqual([]);
+    await r.deliver('session-a', delivery('d_2'));
+    expect((await r.readInbox('session-a', cursor)).deliveries.map((d) => d.id)).toEqual(['d_2']);
+  });
+});
+
+describe('deliveryTarget', () => {
+  const session = (id: string, cwd: string, startedAt: string) => ({ ...record({ id, cwd, startedAt }), touched: [] });
+
+  it('picks the session of that folder that started last', () => {
+    const sessions = [
+      session('old', '/repo', '2026-09-26T09:00:00.000Z'),
+      session('new', '/repo/sub', '2026-09-26T11:00:00.000Z'),
+      session('other', '/elsewhere', '2026-09-26T12:00:00.000Z'),
+    ];
+    expect(deliveryTarget(sessions, '/repo')?.id).toBe('new');
+    expect(deliveryTarget(sessions, '/nowhere')).toBeUndefined();
   });
 });

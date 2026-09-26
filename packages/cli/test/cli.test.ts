@@ -263,6 +263,35 @@ describe('lr sessions', () => {
       EXIT.ERROR,
     );
     expect((await lr(['session', 'fly', '--id', 'x'], { env })).code).toBe(EXIT.ERROR);
+    expect((await lr(['session', 'register', '--id', 'x', '--agent', 'A', '--push', 'maybe'], { env })).code).toBe(
+      EXIT.ERROR,
+    );
+  });
+
+  it('records whether deliveries reach the agent on their own', async () => {
+    const env = { LOCAL_REVIEW_HOME: join(root, 'home') };
+    await lr(
+      [
+        'session',
+        'register',
+        '--id',
+        'p1',
+        '--agent',
+        'A',
+        '--cwd',
+        '.',
+        '--push',
+        'no',
+        '--push-command',
+        'Run a --live',
+      ],
+      { env },
+    );
+    expect(JSON.parse((await lr(['sessions', '--format', 'json'], { env })).out)).toMatchObject([
+      { id: 'p1', push: false, pushCommand: 'Run a --live' },
+    ]);
+    expect((await lr(['sessions'], { env })).out).toContain('· no push');
+    await lr(['session', 'unregister', '--id', 'p1'], { env });
   });
 });
 

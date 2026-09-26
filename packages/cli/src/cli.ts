@@ -39,6 +39,7 @@ Usage:
 Sessions (used by agent integrations to register themselves):
   lr sessions [--format md|json]          Running agent sessions on this machine
   lr session register --id <id> --agent <name> --cwd <dir> [--branch <b>] [--pid <n>]
+                     [--push yes|no] [--push-command <command>]
   lr session unregister --id <id>
   lr session touch --id <id> <file>       The session wrote this file
 
@@ -234,7 +235,11 @@ async function sessions(rest: string[], io: Io): Promise<number> {
     io.out('No agent session is running.');
     return EXIT.OK;
   }
-  io.out(list.map((x) => `${x.agent} · ${x.branch ?? 'no branch'} · ${x.cwd} (${x.id})`).join('\n'));
+  io.out(
+    list
+      .map((x) => `${x.agent} · ${x.branch ?? 'no branch'} · ${x.cwd} (${x.id})${x.push === false ? ' · no push' : ''}`)
+      .join('\n'),
+  );
   return EXIT.OK;
 }
 
@@ -246,6 +251,8 @@ async function session(rest: string[], io: Io): Promise<number> {
     cwd: { type: 'string' },
     branch: { type: 'string' },
     pid: { type: 'string' },
+    push: { type: 'string' },
+    'push-command': { type: 'string' },
   });
   const id = str(values.id);
   if (!id) throw new UsageError('missing --id <session id>');
@@ -254,6 +261,8 @@ async function session(rest: string[], io: Io): Promise<number> {
     case 'register': {
       const pid = str(values.pid) === undefined ? null : Number(str(values.pid));
       if (pid !== null && !Number.isInteger(pid)) throw new UsageError('--pid must be a process id');
+      const push = str(values.push);
+      if (push !== undefined && push !== 'yes' && push !== 'no') throw new UsageError('--push must be "yes" or "no"');
       await registry.register({
         id,
         agent: requireAgent(str(values.agent), io),
@@ -261,6 +270,8 @@ async function session(rest: string[], io: Io): Promise<number> {
         branch: str(values.branch) ?? null,
         pid,
         startedAt: new Date().toISOString(),
+        push: push === undefined ? null : push === 'yes',
+        pushCommand: str(values['push-command']) ?? null,
       });
       io.out(`Session ${id} registered.`);
       return EXIT.OK;
