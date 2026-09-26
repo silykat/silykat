@@ -16,7 +16,15 @@ import { commitExists, ensureExcluded, gitUserName, resolveCommit } from './git'
 import { anchorRef, isIndexRef, parseGitQuery, versionTag } from './gitUri';
 import type { Log } from './log';
 import { toLineRange, toZeroBasedLines } from './range';
-import { applyThreadState, awaitsUser, bodyText, LrComment, threadRange, type RenderContext } from './render';
+import {
+  applyThreadState,
+  awaitsUser,
+  bodyText,
+  DEFAULT_AGENT_NAME,
+  LrComment,
+  threadRange,
+  type RenderContext,
+} from './render';
 import { Roots, type Root } from './roots';
 import { applyChanges, REMOVED } from './tracking';
 import { watchStore } from './watcher';
@@ -37,6 +45,15 @@ interface Managed {
   root: Root;
   /** The canonical instance: on the file, or on the exact git version the thread is about. */
   thread: vscode.CommentThread;
+}
+
+/** A reply from the agent that arrived while VS Code was running. */
+export interface AgentReply {
+  threadId: string;
+  agentName: string;
+  path: string;
+  /** 1-based first line of the thread, `null` for outdated or file-level threads. */
+  line: number | null;
 }
 
 /** Where a new thread's anchor points, before its lines are known. */
@@ -70,6 +87,9 @@ export class ReviewController implements vscode.Disposable {
   private readonly changed = new vscode.EventEmitter<void>();
   /** Fires when threads, drafts or reviews change (e.g. for the status bar). */
   readonly onDidChange = this.changed.event;
+  private readonly agentReplied = new vscode.EventEmitter<AgentReply>();
+  /** Fires when an agent comments in a thread (written by another process, picked up by the watcher). */
+  readonly onDidReceiveAgentReply = this.agentReplied.event;
   private watchers: vscode.Disposable[] = [];
   confirm: ConfirmHandler = modalConfirm;
   private ctx: RenderContext;
@@ -231,6 +251,17 @@ export class ReviewController implements vscode.Disposable {
     this.updateReviewContext();
     await this.refreshRoot(root);
     return dropped;
+  }
+
+  /** Threads waiting for the user: the agent spoke last, and the thread is not resolved. */
+  awaitingUser(): { id: string; state: ThreadState; line: number | null }[] {
+    return [...this.managed.values()]
+      .filter((m) => m.state.lastAuthor === 'agent' && m.state.status !== 'resolved')
+      .map((m) => ({
+        id: m.state.id,
+        state: m.state,
+        line: this.outdated.has(m.state.id) ? null : (this.currentRange(m.state)?.startLine ?? null),
+      }));
   }
 
   /** Threads of a root holding at least one draft comment. */
@@ -458,7 +489,18 @@ export class ReviewController implements vscode.Disposable {
 
     const turnedToUser =
       awaitsUser(state) && (!awaitsUser(existing.state) || state.comments.length > existing.state.comments.length);
+    const known = new Set(existing.state.comments.map((c) => c.id));
+    const newFromAgent = state.comments.filter((c) => c.author === 'agent' && !known.has(c.id));
     this.adopt(root, state, existing.thread);
+    const last = newFromAgent[newFromAgent.length - 1];
+    if (last) {
+      this.agentReplied.fire({
+        threadId,
+        agentName: last.agentName ?? DEFAULT_AGENT_NAME,
+        path: state.anchor.path,
+        line: this.outdated.has(threadId) ? null : (this.currentRange(state)?.startLine ?? null),
+      });
+    }
     // Bring the thread to the user's attention when the agent hands the ball back.
     if (turnedToUser) existing.thread.collapsibleState = vscode.CommentThreadCollapsibleState.Expanded;
   }
@@ -709,6 +751,7 @@ export class ReviewController implements vscode.Disposable {
 
   dispose(): void {
     this.changed.dispose();
+    this.agentReplied.dispose();
     this.settleTimers.forEach(clearTimeout);
     this.disposeWatchers();
     this.controller.dispose();

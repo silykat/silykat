@@ -23,6 +23,8 @@ For any other key combination, set it to `"none"` and bind the `localReview.comm
 
 The agent's replies appear live in the thread, signed with the agent's name, with a status label: **Waiting for Claude**, **💬 Claude replied**, **❓ Claude is waiting for your reply** or **✅ Addressed by Claude — please verify**. Until an agent is plugged in, the default agent name is Claude.
 
+When the agent replies, a notification says where (**Open** takes you there); replies arriving together are announced once. The status bar counts the threads waiting for your reply (the agent spoke last and they are not resolved); click it to see them. Notifications can be turned off with `localReview.notifyOnAgentReply`.
+
 Reply in the thread with **Reply** (or `Cmd+Enter`). Replying to a question, or to a thread the agent marked as addressed, hands the thread back to the agent: it shows **Waiting for Claude** again.
 
 Only you can close a thread: **Resolve** (✓ in the thread header) marks it resolved and collapses it, and **Reopen** hands it back to the agent. The Comments panel can filter resolved threads out. Replying in a resolved thread reopens it.

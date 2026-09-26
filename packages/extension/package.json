@@ -65,6 +65,11 @@
         "category": "Local Review"
       },
       {
+        "command": "localReview.showAwaitingUser",
+        "title": "Threads Waiting for My Reply",
+        "category": "Local Review"
+      },
+      {
         "command": "localReview.reviewMenu",
         "title": "Review Menu",
         "category": "Local Review"
@@ -342,6 +347,11 @@
           ],
           "default": "ctrl+cmd+c",
           "markdownDescription": "Keyboard shortcut for **Local Review: Comment on Selection**. For any other key combination, pick `none` and bind the `localReview.commentSelection` command in `keybindings.json` (*Preferences: Open Keyboard Shortcuts*)."
+        },
+        "localReview.notifyOnAgentReply": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a notification when the agent replies in a thread. The status bar counter of threads waiting for your reply is always shown."
         },
         "localReview.excludeFromGit": {
           "type": "boolean",

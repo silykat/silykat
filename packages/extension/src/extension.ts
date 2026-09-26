@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { AgentRepliesUi, type Notifier } from './agentReplies';
 import { ReviewController, type ConfirmHandler } from './controller';
 import { simulateAgentReply, type SimulateArgs } from './dev/simulateAgentReply';
 import { createLog } from './log';
@@ -16,13 +17,19 @@ export interface LocalReviewApi {
   /** Tests only: the review status bar text, `undefined` when hidden. */
   reviewStatusText(): string | undefined;
   reviewsInProgress: ReviewController['reviewsInProgress'];
+  /** Tests only: capture agent reply notifications (return true to click their action). */
+  setNotifier(notifier: Notifier | undefined): void;
+  /** Tests only: the "waiting for your reply" status bar text, `undefined` when hidden. */
+  awaitingStatusText(): string | undefined;
+  awaitingUser: ReviewController['awaitingUser'];
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<LocalReviewApi> {
   const log = createLog();
   const review = new ReviewController(log, context.extensionUri);
   const reviewUi = new ReviewUi(review);
-  context.subscriptions.push(log, review, reviewUi);
+  const agentReplies = new AgentRepliesUi(review);
+  context.subscriptions.push(log, review, reviewUi, agentReplies);
 
   context.subscriptions.push(
     vscode.commands.registerCommand('localReview.commentSelection', () =>
@@ -66,6 +73,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
 
   const defaultConfirm = review.confirm;
   const defaultSummaryPrompt = reviewUi.promptSummary;
+  const defaultNotifier = agentReplies.notify;
   await review.reload();
   log.info('Local Review activated');
 
@@ -81,6 +89,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
     },
     reviewStatusText: () => reviewUi.statusText,
     reviewsInProgress: () => review.reviewsInProgress(),
+    setNotifier: (notifier) => {
+      agentReplies.notify = notifier ?? defaultNotifier;
+    },
+    awaitingStatusText: () => agentReplies.statusText,
+    awaitingUser: () => review.awaitingUser(),
   };
 }
 
