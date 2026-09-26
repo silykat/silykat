@@ -30,7 +30,9 @@ const USAGE = `lr — Local Review, for agents
 
 Usage:
   lr status                               How many threads wait for you
-  lr list [--all] [--format md|json]      Threads waiting for you (--all: every unresolved thread)
+  lr list [--all] [--thread <id>]… [--format md|json]
+                                          Threads waiting for you (--all: every unresolved thread;
+                                          --thread: only those threads)
   lr show <thread-id> [--format md|json]  One thread, in full
   lr reply <thread-id> --agent <name> (--body <markdown> | --body-file <path> | --body -)
            [--status addressed|needs-info]
@@ -88,11 +90,11 @@ export async function runCli(args: string[], io: Io): Promise<number> {
   }
 }
 
-type Values = Record<string, string | boolean | undefined>;
+type Values = Record<string, string | boolean | string[] | undefined>;
 
 function parse(
   rest: string[],
-  options: Record<string, { type: 'string' | 'boolean' }>,
+  options: Record<string, { type: 'string' | 'boolean'; multiple?: boolean }>,
 ): { values: Values; positionals: string[] } {
   try {
     const parsed = parseArgs({ args: rest, options: { root: { type: 'string' }, ...options }, allowPositionals: true });
@@ -102,7 +104,7 @@ function parse(
   }
 }
 
-const str = (v: string | boolean | undefined): string | undefined => (typeof v === 'string' ? v : undefined);
+const str = (v: Values[string]): string | undefined => (typeof v === 'string' ? v : undefined);
 
 function openStore(root: string | undefined, io: Io): Store {
   const dir = root ? resolve(io.cwd, root) : findStoreRoot(io.cwd, io.env);
@@ -145,10 +147,17 @@ async function status(rest: string[], io: Io): Promise<number> {
 }
 
 async function list(rest: string[], io: Io): Promise<number> {
-  const { values } = parse(rest, { all: { type: 'boolean' }, format: { type: 'string' } });
+  const { values } = parse(rest, {
+    all: { type: 'boolean' },
+    thread: { type: 'string', multiple: true },
+    format: { type: 'string' },
+  });
+  const only = Array.isArray(values.thread) ? new Set(values.thread) : undefined;
   const { located } = await visibleThreads(openStore(str(values.root), io));
-  const selected = located.filter((l) =>
-    values.all === true ? l.view.thread.status !== 'resolved' : l.view.needsAgent,
+  const selected = located.filter(
+    (l) =>
+      (only === undefined || only.has(l.view.thread.id)) &&
+      (values.all === true ? l.view.thread.status !== 'resolved' : l.view.needsAgent),
   );
   if (str(values.format) === 'json') {
     io.out(JSON.stringify(selected.map(toJson), null, 2));

@@ -2,7 +2,16 @@ import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { deliveryTarget, localReviewHome, relevantSessions, SessionRegistry, type SessionRecord } from '../src/index';
+import {
+  DeliveryQueue,
+  localReviewHome,
+  planDelivery,
+  relevantSessions,
+  routeThread,
+  SessionRegistry,
+  type Session,
+  type SessionRecord,
+} from '../src/index';
 
 let home: string;
 const alive = new Set<number>([1111, 2222]);
@@ -155,16 +164,86 @@ describe('Session inboxes', () => {
   });
 });
 
-describe('deliveryTarget', () => {
-  const session = (id: string, cwd: string, startedAt: string) => ({ ...record({ id, cwd, startedAt }), touched: [] });
+describe('Routing published threads', () => {
+  const at = (h: number) => `2026-09-26T${String(h).padStart(2, '0')}:00:00.000Z`;
+  const s = (id: string, cwd: string, startedAt = at(9), writes: Record<string, number> = {}): Session => ({
+    ...record({ id, cwd, startedAt }),
+    touched: Object.keys(writes),
+    writtenAt: Object.fromEntries(Object.entries(writes).map(([f, h]) => [f, at(h)])),
+  });
 
-  it('picks the session of that folder that started last', () => {
+  it('sends each worktree to its own session', () => {
+    const sessions = [s('A', '/wt/a'), s('B', '/wt/b')];
+    expect(routeThread(sessions, '/wt/a', '/wt/a/src/x.ts')).toEqual({ sure: true, session: sessions[0] });
+    expect(routeThread(sessions, '/wt/b', '/wt/b/src/x.ts')).toEqual({ sure: true, session: sessions[1] });
+  });
+
+  it('sends a spec to the session that wrote it, wherever that session works', () => {
+    const sessions = [s('A', '/wt/a', at(9), { '/specs/plan.md': 10 }), s('B', '/wt/b')];
+    expect(routeThread(sessions, '/specs', '/specs/plan.md')).toMatchObject({ sure: true, session: { id: 'A' } });
+  });
+
+  it('prefers the writer over a session working there, and the closest folder over a parent one', () => {
     const sessions = [
-      session('old', '/repo', '2026-09-26T09:00:00.000Z'),
-      session('new', '/repo/sub', '2026-09-26T11:00:00.000Z'),
-      session('other', '/elsewhere', '2026-09-26T12:00:00.000Z'),
+      s('parent', '/work'),
+      s('wt', '/work/wt-a'),
+      s('writer', '/elsewhere', at(9), { '/work/wt-a/w.ts': 9 }),
     ];
-    expect(deliveryTarget(sessions, '/repo')?.id).toBe('new');
-    expect(deliveryTarget(sessions, '/nowhere')).toBeUndefined();
+    expect(routeThread(sessions, '/work/wt-a', '/work/wt-a/w.ts')).toMatchObject({ session: { id: 'writer' } });
+    expect(routeThread(sessions, '/work/wt-a', '/work/wt-a/other.ts')).toMatchObject({
+      sure: true,
+      session: { id: 'wt' },
+    });
+  });
+
+  it('is in doubt when several sessions could be the one, and proposes the likeliest', () => {
+    const same = [s('early', '/repo', at(8)), s('late', '/repo', at(11))];
+    expect(routeThread(same, '/repo', '/repo/a.ts')).toMatchObject({ sure: false, proposed: { id: 'late' } });
+    const writers = [
+      s('first', '/repo', at(8), { '/repo/a.ts': 12 }),
+      s('second', '/repo', at(11), { '/repo/a.ts': 10 }),
+    ];
+    expect(routeThread(writers, '/repo', '/repo/a.ts')).toMatchObject({ sure: false, proposed: { id: 'first' } });
+  });
+
+  it('falls back on a session working below the store, and finds none elsewhere', () => {
+    expect(routeThread([s('sub', '/repo/pkg')], '/repo', '/repo/README.md')).toMatchObject({ sure: true });
+    expect(routeThread([s('other', '/other')], '/repo', '/repo/a.ts')).toBeNull();
+  });
+
+  it('plans a publication: sure threads by session, one question for the doubtful ones, the rest waits', () => {
+    const sessions = [s('A', '/repo', at(8), { '/repo/a.ts': 9 }), s('B', '/repo', at(10), { '/repo/b.ts': 9 })];
+    const plan = planDelivery(
+      [...sessions, s('C', '/repo/pkg', at(11))],
+      '/repo',
+      [
+        { id: 't_a', file: '/repo/a.ts' },
+        { id: 't_b', file: '/repo/b.ts' },
+        { id: 't_c', file: '/repo/c.ts' },
+      ],
+      'A',
+    );
+    expect([...plan.sure]).toEqual([
+      ['A', ['t_a']],
+      ['B', ['t_b']],
+    ]);
+    expect(plan.doubt).toMatchObject({ threadIds: ['t_c'], proposed: { id: 'A' } }); // the last one used
+    expect(plan.doubt!.candidates.map((c) => c.id)).toEqual(['A', 'B']);
+    expect(planDelivery([], '/repo', [{ id: 't_a', file: '/repo/a.ts' }]).waiting).toEqual(['t_a']);
+  });
+});
+
+describe('DeliveryQueue', () => {
+  it('keeps deliveries per folder until they are taken, once', async () => {
+    const q = new DeliveryQueue(home);
+    const d = (id: string, root: string) => ({ id, at: '', root, kind: 'comment' as const, threadIds: ['t_1'] });
+    expect(await q.take('/repo')).toEqual([]);
+    await q.add(d('d_1', '/repo'));
+    await q.add(d('d_2', '/repo'));
+    await q.add(d('d_3', '/specs'));
+    expect((await q.peek('/repo')).map((x) => x.id)).toEqual(['d_1', 'd_2']);
+    expect((await q.take('/repo')).map((x) => x.id)).toEqual(['d_1', 'd_2']);
+    expect(await q.take('/repo')).toEqual([]);
+    expect((await q.peek('/specs')).map((x) => x.id)).toEqual(['d_3']);
   });
 });

@@ -1,4 +1,5 @@
 import { appendFile, mkdir, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -48,6 +49,8 @@ export interface Delivery {
 /** A session, with the files it wrote (absolute paths, most recent last). */
 export interface Session extends SessionRecord {
   touched: string[];
+  /** When it last wrote each of those files (ISO dates). */
+  writtenAt?: Record<string, string>;
 }
 
 /** Local Review's per-machine folder: `$LOCAL_REVIEW_HOME`, or `~/.local-review`. */
@@ -162,35 +165,90 @@ export class SessionRegistry {
         await this.unregister(record.id).catch(() => undefined);
         continue;
       }
-      sessions.push({ ...record, touched: await this.readTouched(record.id) });
+      const writtenAt = await this.readTouched(record.id);
+      sessions.push({ ...record, touched: Object.keys(writtenAt), writtenAt });
     }
     return sessions;
   }
 
-  private async readTouched(id: string): Promise<string[]> {
+  /** The files a session wrote, each once with its last write, ordered by it (most recent last). */
+  private async readTouched(id: string): Promise<Record<string, string>> {
     let text: string;
     try {
       text = await readFile(this.file(id, 'touched'), 'utf8');
     } catch {
-      return [];
+      return {};
     }
-    const paths: string[] = [];
+    const order = new Map<string, string>();
     for (const line of text.split('\n')) {
       try {
-        const { path } = JSON.parse(line) as { path?: unknown };
-        if (typeof path === 'string') paths.push(path);
+        const { path, at } = JSON.parse(line) as { path?: unknown; at?: unknown };
+        if (typeof path !== 'string') continue;
+        order.delete(path);
+        order.set(path, typeof at === 'string' ? at : '');
       } catch {
         // an interrupted or corrupt line: skip it
       }
     }
-    // Each file once, ordered by its most recent write (most recent last).
-    const order = new Map<string, true>();
-    for (const p of paths) {
-      order.delete(p);
-      order.set(p, true);
-    }
-    return [...order.keys()];
+    return Object.fromEntries(order);
   }
+}
+
+/**
+ * Deliveries waiting for a session (`<home>/queue/`): published while no agent session worked on
+ * their folder. They go out when one starts there.
+ */
+export class DeliveryQueue {
+  readonly dir: string;
+
+  constructor(home: string = localReviewHome()) {
+    this.dir = join(home, 'queue');
+  }
+
+  private file(root: string): string {
+    return join(this.dir, `${createHash('sha256').update(root).digest('hex').slice(0, 24)}.jsonl`);
+  }
+
+  async add(delivery: Delivery): Promise<void> {
+    await mkdir(this.dir, { recursive: true });
+    await appendFile(this.file(delivery.root), JSON.stringify(delivery) + '\n');
+  }
+
+  /** What waits for the folder `root`, without taking it. */
+  async peek(root: string): Promise<Delivery[]> {
+    return readDeliveries(this.file(root));
+  }
+
+  /**
+   * Takes what waits for `root`, emptying its queue. Atomic: of several VS Code windows showing the
+   * same folder, only one gets each delivery.
+   */
+  async take(root: string): Promise<Delivery[]> {
+    const file = this.file(root);
+    const taken = `${file}.${process.pid}.${Date.now()}.taken`;
+    try {
+      await rename(file, taken);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw err;
+    }
+    const deliveries = await readDeliveries(taken);
+    await rm(taken, { force: true });
+    return deliveries;
+  }
+}
+
+async function readDeliveries(file: string): Promise<Delivery[]> {
+  let text: string;
+  try {
+    text = await readFile(file, 'utf8');
+  } catch {
+    return [];
+  }
+  return text
+    .split('\n')
+    .map(parseDelivery)
+    .filter((d): d is Delivery => d !== null);
 }
 
 async function readRecord(file: string): Promise<SessionRecord | null> {

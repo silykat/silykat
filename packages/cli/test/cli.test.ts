@@ -127,6 +127,18 @@ describe('lr list', () => {
     expect(out).toContain('src/find.ts (whole file)');
   });
 
+  it('lists only the threads asked for', async () => {
+    const a = await comment(anchorOn(1, 1), 'first');
+    const b = await comment(anchorOn(2, 2), 'second');
+    await comment(anchorOn(3, 3), 'third');
+    const { out } = await lr(['list', '--thread', a.id, '--thread', b.id, '--format', 'json']);
+    expect(
+      JSON.parse(out)
+        .map((t: { id: string }) => t.id)
+        .sort(),
+    ).toEqual([a.id, b.id].sort());
+  });
+
   it('outputs JSON for tools', async () => {
     const t = await comment(anchorOn(3, 3), 'json please');
     const { out } = await lr(['list', '--format', 'json']);
