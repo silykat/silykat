@@ -167,11 +167,11 @@ describe('US-06 — the comment follows the code when the file changes', () => {
     git('stash', '-q');
     await waitFor('VS Code to reload the stashed file', () => (doc.getText().startsWith('const v1 ') ? true : undefined), 5000);
     await new Promise((r) => setTimeout(r, 800));
-    // The edited code is gone from the file: nothing is recorded, and the thread is not thrown to
-    // line 1. It is outdated (US-07): shown at file level, off any line.
+    // The edited code is gone from the file: nothing is recorded, and the thread is not left on
+    // its old lines. It is outdated (US-07): shown on line 1 with the "Outdated" label.
     assert.equal(anchorUpdates(id).length, 1, 'no position recorded while the code is missing');
     assert.equal(managed(id).outdated, true);
-    assert.equal(managed(id).thread.range, undefined);
+    assert.deepEqual(lines0(id), [0, 0]);
     assert.deepEqual(managed(id).state.anchor, saved);
 
     git('stash', 'pop', '-q');

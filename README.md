@@ -31,7 +31,7 @@ You can **Edit** or **Delete** your own comments (the agent's are read-only), an
 
 Threads follow the code: when lines are added or removed above a thread, or inside it, the thread moves with them. The new position is recorded when you save the file, and dropped if you close it without saving. When the file changes outside the editor (another tool, `git stash`, or while VS Code was closed), the thread finds its code again.
 
-When a thread's code disappears (rewritten or deleted elsewhere, stashed away, or the file is gone), the thread is marked **⚠️ Outdated**, like on GitHub: it is shown at file level instead of on lines that are not its code, and quotes the original code. You can still reply, resolve or delete it. Whitespace-only changes (re-indentation, spacing) do not make a thread outdated, and it attaches again by itself if its code comes back (e.g. `git stash pop`).
+When a thread's code disappears (rewritten or deleted elsewhere, stashed away, or the file is gone), the thread is marked **⚠️ Outdated**, like on GitHub: it moves to line 1 instead of staying on lines that are not its code, and quotes the original code. You can still reply, resolve or delete it. Whitespace-only changes (re-indentation, spacing) do not make a thread outdated, and it attaches again by itself if its code comes back (e.g. `git stash pop`).
 
 Until the first agent integration ships, **Local Review (dev): Simulate Agent Reply** writes a reply as the agent from a separate process, through the same path a real integration will use.
 

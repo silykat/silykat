@@ -492,7 +492,10 @@ export class ReviewController implements vscode.Disposable {
     const outdated = this.outdated.has(state.id);
     const current = this.currentRange(state);
     if (outdated) {
-      thread.range = undefined; // shown at file level, never on lines that are not its code
+      // Shown on line 1, never on lines that are not its code. Not `undefined` (file level):
+      // VS Code drops `undefined` when it sends a thread update to the editor, which then keeps
+      // the old range and stretches it as the file changes.
+      thread.range = new vscode.Range(0, 0, 0, 0);
     } else if (current) {
       const { start, end } = toZeroBasedLines(current);
       thread.range = new vscode.Range(start, 0, end, 0);

@@ -90,11 +90,11 @@ describe('US-07 — a comment becomes outdated when its code disappears', () => 
     assert.deepEqual(anchorUpdates(id), [], 'the recorded anchor is kept as is');
   });
 
-  it('shows it off any line, quoting the original code (AC 2, 6)', async () => {
+  it('shows it on line 1, off its former lines, quoting the original code (AC 2, 6)', async () => {
     const { id, path, doc } = await threadOnIfBlock();
     await rewriteOutside(path, doc, ['// everything', '// was deleted']);
     const t = managed(id);
-    assert.equal(t.thread.range, undefined);
+    assert.deepEqual([t.thread.range!.start.line, t.thread.range!.end.line], [0, 0]);
     const first = text(t.thread.comments[0]!);
     assert.ok(first.includes('```\n  if (!user) {\n    return null;\n  }\n```'), first);
     assert.ok(first.endsWith('Throw instead of returning null'));
