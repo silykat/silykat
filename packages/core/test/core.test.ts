@@ -526,3 +526,35 @@ describe('Store.updateAnchor (US-06)', () => {
     expect((await store.loadThread(t.id)).state!.anchor.range).toEqual({ startLine: 15, endLine: 17 });
   });
 });
+
+describe('reanchor — whitespace changes (US-07)', () => {
+  const file = (lines: string[]) => lines.join('\n') + '\n';
+  const BASE = ['function a() {', '  if (x) {', '    return null;', '  }', '}'];
+  const at = (startLine: number, endLine: number) => ({
+    path: 'a.ts',
+    source: 'worktree' as const,
+    ref: null,
+    sha: null,
+    ...buildAnchorContext(file(BASE), { startLine, endLine }),
+  });
+
+  it('tolerates re-indentation and spacing changes', () => {
+    const reformatted = ['function a() {', '    if (x){', '        return   null;', '    }', '}'];
+    expect(reanchor(at(2, 4), file(reformatted))).toEqual({ kind: 'fuzzy', range: { startLine: 2, endLine: 4 } });
+    expect(reanchor(at(2, 4), file(['// moved', ...reformatted]))).toEqual({ kind: 'fuzzy', range: { startLine: 3, endLine: 5 } });
+  });
+
+  it('still prefers an exact match over a whitespace-only one', () => {
+    const both = ['if (x) {', 'return null;', '}', '', ...BASE]; // loose copy first (closer), exact copy later
+    expect(reanchor(at(2, 4), file(both))).toEqual({ kind: 'moved', range: { startLine: 6, endLine: 8 } });
+  });
+
+  it('reports real code changes as lost', () => {
+    expect(reanchor(at(2, 4), file(['function a() {', '  if (y) {', '    return 0;', '  }', '}']))).toEqual({ kind: 'lost' });
+  });
+
+  it('never matches a blank-only snippet loosely', () => {
+    const blank = { ...at(1, 1), snippet: '   ', range: { startLine: 1, endLine: 1 } };
+    expect(reanchor(blank, file(BASE))).toEqual({ kind: 'lost' });
+  });
+});

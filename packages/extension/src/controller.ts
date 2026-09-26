@@ -38,6 +38,8 @@ export class ReviewController implements vscode.Disposable {
   /** Positions of threads in documents with unsaved edits; persisted on save (US-06). */
   private readonly liveRanges = new Map<string, LineRange>();
   private readonly settleTimers = new Map<string, NodeJS.Timeout>();
+  /** Threads whose code is no longer in the file (US-07). Derived state: never written. */
+  private readonly outdated = new Set<string>();
   private watchers: vscode.Disposable[] = [];
   confirm: ConfirmHandler = modalConfirm;
   private ctx: RenderContext;
@@ -62,6 +64,7 @@ export class ReviewController implements vscode.Disposable {
     for (const m of this.managed.values()) m.thread.dispose();
     this.managed.clear();
     this.liveRanges.clear();
+    this.outdated.clear();
     this.disposeWatchers();
 
     const folders = (vscode.workspace.workspaceFolders ?? []).filter((f) => f.uri.scheme === 'file');
@@ -156,7 +159,7 @@ export class ReviewController implements vscode.Disposable {
   editComment(comment: LrComment): void {
     const managed = this.managed.get(comment.threadId);
     if (!managed || !comment.isUserComment || managed.state.readOnly) return;
-    comment.mode = vscode.CommentMode.Editing;
+    comment.startEditing();
     managed.thread.comments = [...managed.thread.comments];
   }
 
@@ -288,6 +291,7 @@ export class ReviewController implements vscode.Disposable {
       text: c.text,
     }));
     for (const m of this.trackedThreadsOf(e.document.uri)) {
+      if (this.outdated.has(m.state.id)) continue; // no position to track until its code is found again
       const { start, end } = toZeroBasedLines(this.currentRange(m.state)!);
       const next = applyChanges({ start, end }, changes);
       if (next.start === start && next.end === end) continue;
@@ -350,6 +354,10 @@ export class ReviewController implements vscode.Disposable {
   private async persistPositions(doc: vscode.TextDocument): Promise<void> {
     const text = doc.getText();
     for (const m of this.trackedThreadsOf(doc.uri)) {
+      if (this.outdated.has(m.state.id)) {
+        await this.reanchorFromText(m.root, m.state.id, text); // maybe the user typed its code back
+        continue;
+      }
       const range = this.currentRange(m.state)!;
       const context = buildAnchorContext(text, range);
       const unchanged = sameRange(context.range, m.state.anchor.range) && context.snippet === m.state.anchor.snippet;
@@ -368,9 +376,12 @@ export class ReviewController implements vscode.Disposable {
     if (open?.isDirty) return; // positions are tracked live until the next save
     let text: string;
     try {
-      text = open ? open.getText() : await readFile(this.fsPathOf(m), 'utf8');
+      // The disk is the truth for a clean document: VS Code may keep a closed tab's document
+      // around with stale content for a while.
+      text = await readFile(this.fsPathOf(m), 'utf8');
     } catch {
-      return; // file gone: handled with outdated threads (US-07)
+      this.setOutdated(threadId, true); // the file itself is gone
+      return;
     }
     await this.reanchorFromText(root, threadId, text);
   }
@@ -379,11 +390,25 @@ export class ReviewController implements vscode.Disposable {
     const m = this.managed.get(threadId);
     if (!m || m.state.readOnly) return;
     const result = reanchor(m.state.anchor, text);
-    if (result?.kind !== 'moved') {
-      if (result?.kind === 'lost') this.log.info(`${m.state.anchor.path}: code of thread ${threadId} not found`);
+    if (!result) return;
+    if (result.kind === 'lost') {
+      if (!this.outdated.has(threadId)) this.log.info(`${m.state.anchor.path}: code of thread ${threadId} not found, outdated`);
+      this.setOutdated(threadId, true);
       return;
     }
-    await this.writeAnchor(root, threadId, { ...m.state.anchor, ...buildAnchorContext(text, result.range) });
+    this.setOutdated(threadId, false);
+    // Moved, or only re-indented: record where the code is now, with its current text.
+    if (result.kind !== 'exact') {
+      await this.writeAnchor(root, threadId, { ...m.state.anchor, ...buildAnchorContext(text, result.range) });
+    }
+  }
+
+  private setOutdated(threadId: string, outdated: boolean): void {
+    if (this.outdated.has(threadId) === outdated) return;
+    if (outdated) this.outdated.add(threadId);
+    else this.outdated.delete(threadId);
+    const m = this.managed.get(threadId);
+    if (m) this.adopt(m.root, m.state, m.thread);
   }
 
   /** Persists a new anchor. `live` is the in-memory position it was computed from, if any. */
@@ -416,8 +441,14 @@ export class ReviewController implements vscode.Disposable {
   }
 
   /** Snapshot for tests and diagnostics. */
-  listThreads(): { id: string; rootPath: string; state: ThreadState; thread: vscode.CommentThread }[] {
-    return [...this.managed.entries()].map(([id, m]) => ({ id, rootPath: m.root.path, state: m.state, thread: m.thread }));
+  listThreads(): { id: string; rootPath: string; state: ThreadState; thread: vscode.CommentThread; outdated: boolean }[] {
+    return [...this.managed.entries()].map(([id, m]) => ({
+      id,
+      rootPath: m.root.path,
+      state: m.state,
+      thread: m.thread,
+      outdated: this.outdated.has(id),
+    }));
   }
 
   dispose(): void {
@@ -430,6 +461,7 @@ export class ReviewController implements vscode.Disposable {
     this.managed.get(threadId)?.thread.dispose();
     this.managed.delete(threadId);
     this.liveRanges.delete(threadId);
+    this.outdated.delete(threadId);
   }
 
   private disposeWatchers(): void {
@@ -457,12 +489,15 @@ export class ReviewController implements vscode.Disposable {
     // The watcher may have rendered this thread before its creator adopted it: keep a single instance.
     const previous = this.managed.get(state.id);
     if (previous && previous.thread !== thread) previous.thread.dispose();
+    const outdated = this.outdated.has(state.id);
     const current = this.currentRange(state);
-    if (current) {
+    if (outdated) {
+      thread.range = undefined; // shown at file level, never on lines that are not its code
+    } else if (current) {
       const { start, end } = toZeroBasedLines(current);
       thread.range = new vscode.Range(start, 0, end, 0);
     }
-    applyThreadState(thread, state, this.ctx);
+    applyThreadState(thread, state, this.ctx, { outdated });
     this.managed.set(state.id, { state, root, thread });
     this.byThread.set(thread, state.id);
   }
