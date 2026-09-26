@@ -1,0 +1,886 @@
+#!/usr/bin/env node
+"use strict";
+
+// src/cli.ts
+var import_promises2 = require("node:fs/promises");
+var import_node_path4 = require("node:path");
+var import_node_util = require("node:util");
+
+// ../core/src/types.ts
+var SCHEMA_VERSION = 1;
+var STORE_DIR = ".local-review";
+
+// ../core/src/ids.ts
+var import_node_crypto = require("node:crypto");
+var ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+function ulid(now = Date.now()) {
+  let time = "";
+  let t = now;
+  for (let i = 0; i < 10; i++) {
+    time = ALPHABET[t % 32] + time;
+    t = Math.floor(t / 32);
+  }
+  const bytes = (0, import_node_crypto.randomBytes)(16);
+  let rand = "";
+  for (const b of bytes) rand += ALPHABET[b % 32];
+  return time + rand;
+}
+var newThreadId = () => `t_${ulid()}`;
+var newCommentId = () => `c_${ulid()}`;
+var newReviewId = () => `r_${ulid()}`;
+
+// ../core/src/anchorContext.ts
+function splitLines(text) {
+  return text.split(/\r\n|\r|\n/);
+}
+
+// ../core/src/events.ts
+var THREAD_EVENT_TYPES = /* @__PURE__ */ new Set([
+  "thread.created",
+  "comment.added",
+  "comment.edited",
+  "comment.deleted",
+  "status.changed",
+  "anchor.updated",
+  "thread.deleted"
+]);
+var REVIEW_EVENT_TYPES = /* @__PURE__ */ new Set([
+  "review.started",
+  "review.submitted",
+  "review.discarded"
+]);
+function serializeEvents(events) {
+  return events.map((e) => JSON.stringify(e) + "\n").join("");
+}
+function parseJournal(text, source = "journal") {
+  return parseEvents(text, source, THREAD_EVENT_TYPES);
+}
+function parseReviewJournal(text, source = "review") {
+  return parseEvents(text, source, REVIEW_EVENT_TYPES);
+}
+function parseEvents(text, source, types) {
+  const events = [];
+  const warnings = [];
+  let futureVersion = false;
+  const lastNewline = text.lastIndexOf("\n");
+  const complete = lastNewline === -1 ? "" : text.slice(0, lastNewline);
+  const lines = complete === "" ? [] : complete.split("\n");
+  lines.forEach((line, i) => {
+    if (line.trim() === "") return;
+    let raw;
+    try {
+      raw = JSON.parse(line);
+    } catch {
+      warnings.push(`${source}:${i + 1}: invalid JSON, line skipped`);
+      return;
+    }
+    if (!isRecord(raw) || typeof raw.v !== "number" || typeof raw.type !== "string") {
+      warnings.push(`${source}:${i + 1}: not an event, line skipped`);
+      return;
+    }
+    if (raw.v > SCHEMA_VERSION) {
+      futureVersion = true;
+      return;
+    }
+    if (raw.by === "claude") {
+      raw.by = "agent";
+      raw.agent ??= "Claude";
+    }
+    if (!types.has(raw.type)) {
+      warnings.push(`${source}:${i + 1}: unknown event type "${raw.type}", line skipped`);
+      return;
+    }
+    events.push(raw);
+  });
+  return { events, warnings, futureVersion };
+}
+function isRecord(x) {
+  return typeof x === "object" && x !== null && !Array.isArray(x);
+}
+
+// ../core/src/fold.ts
+function foldThread(events, opts = {}) {
+  const first = events[0];
+  if (!first || first.type !== "thread.created") return null;
+  const reviews = opts.reviews ?? /* @__PURE__ */ new Map();
+  const isDraft = (reviewId) => reviewId !== null && reviews.get(reviewId)?.state !== "submitted";
+  const state = {
+    id: first.threadId,
+    anchor: first.anchor,
+    status: "open",
+    comments: [],
+    createdAt: first.at,
+    deleted: false,
+    readOnly: opts.futureVersion ?? false,
+    lastAuthor: null,
+    lastAgentName: null,
+    hasPublished: false,
+    onlyDrafts: false
+  };
+  const byId = /* @__PURE__ */ new Map();
+  const discarded = (reviewId) => reviewId !== null && reviews.get(reviewId)?.state === "discarded";
+  for (const e of events.slice(1)) {
+    switch (e.type) {
+      case "comment.added": {
+        if (discarded(e.reviewId)) break;
+        const c = {
+          id: e.commentId,
+          author: e.by,
+          ...e.by === "agent" && e.agent ? { agentName: e.agent } : {},
+          body: e.body,
+          createdAt: e.at,
+          reviewId: e.reviewId,
+          isDraft: isDraft(e.reviewId)
+        };
+        byId.set(c.id, c);
+        state.comments.push(c);
+        break;
+      }
+      case "comment.edited": {
+        const c = byId.get(e.commentId);
+        if (c && c.author === e.by) {
+          c.body = e.body;
+          c.editedAt = e.at;
+        }
+        break;
+      }
+      case "comment.deleted": {
+        const c = byId.get(e.commentId);
+        if (c && c.author === e.by) {
+          byId.delete(e.commentId);
+          state.comments = state.comments.filter((x) => x.id !== e.commentId);
+        }
+        break;
+      }
+      case "status.changed":
+        state.status = e.status;
+        break;
+      case "anchor.updated":
+        state.anchor = e.anchor;
+        break;
+      case "thread.deleted":
+        state.deleted = true;
+        break;
+      case "thread.created":
+        break;
+    }
+  }
+  if (state.comments.length === 0) state.deleted = true;
+  const last = state.comments[state.comments.length - 1];
+  state.lastAuthor = last ? last.author : null;
+  state.lastAgentName = [...state.comments].reverse().find((c) => c.agentName)?.agentName ?? null;
+  state.hasPublished = state.comments.some((c) => !c.isDraft);
+  state.onlyDrafts = state.comments.length > 0 && !state.hasPublished;
+  return state;
+}
+function foldReview(events) {
+  const first = events[0];
+  if (!first || first.type !== "review.started") return null;
+  const state = { id: first.reviewId, state: "active", startedAt: first.at };
+  for (const e of events.slice(1)) {
+    if (state.state !== "active") break;
+    if (e.type === "review.submitted") {
+      state.state = "submitted";
+      state.submittedAt = e.at;
+      if (e.summary) state.summary = e.summary;
+    } else if (e.type === "review.discarded") {
+      state.state = "discarded";
+    }
+  }
+  return state;
+}
+
+// ../core/src/store.ts
+var import_promises = require("node:fs/promises");
+var import_node_path = require("node:path");
+var Store = class {
+  constructor(root) {
+    this.root = root;
+    this.dir = (0, import_node_path.join)(root, STORE_DIR);
+  }
+  root;
+  dir;
+  get threadsDir() {
+    return (0, import_node_path.join)(this.dir, "threads");
+  }
+  threadFile(threadId) {
+    if (!THREAD_ID.test(threadId)) throw new Error(`Invalid thread id: ${threadId}`);
+    return (0, import_node_path.join)(this.threadsDir, `${threadId}.jsonl`);
+  }
+  get reviewsDir() {
+    return (0, import_node_path.join)(this.dir, "reviews");
+  }
+  reviewFile(reviewId) {
+    if (!REVIEW_ID.test(reviewId)) throw new Error(`Invalid review id: ${reviewId}`);
+    return (0, import_node_path.join)(this.reviewsDir, `${reviewId}.jsonl`);
+  }
+  /** Thread id of a journal file name, or `null` if the name is not a thread journal. */
+  static threadIdOf(fileName) {
+    const id = fileName.endsWith(".jsonl") ? fileName.slice(0, -".jsonl".length) : "";
+    return THREAD_ID.test(id) ? id : null;
+  }
+  /** Loads every non-deleted thread and every review. A missing store is simply empty: reading never creates it. */
+  async loadAll() {
+    const { reviews, warnings } = await this.loadReviews();
+    const threads = [];
+    for (const file of await listJournals(this.threadsDir)) {
+      const { state, warnings: w } = await this.readJournal((0, import_node_path.join)(this.threadsDir, file), `threads/${file}`, reviews);
+      warnings.push(...w);
+      if (state && !state.deleted) threads.push(state);
+    }
+    return { threads, reviews: [...reviews.values()], warnings };
+  }
+  async loadThread(threadId) {
+    const { reviews } = await this.loadReviews();
+    try {
+      return await this.readJournal(this.threadFile(threadId), `threads/${threadId}.jsonl`, reviews);
+    } catch (err) {
+      if (isNotFound(err)) return { state: null, warnings: [] };
+      throw err;
+    }
+  }
+  async loadReviews() {
+    const reviews = /* @__PURE__ */ new Map();
+    const warnings = [];
+    for (const file of await listJournals(this.reviewsDir)) {
+      const label = `reviews/${file}`;
+      const parsed = parseReviewJournal(await (0, import_promises.readFile)((0, import_node_path.join)(this.reviewsDir, file), "utf8"), label);
+      warnings.push(...parsed.warnings);
+      const state = foldReview(parsed.events);
+      if (state) reviews.set(state.id, state);
+      else warnings.push(`${label}: no review.started event, file skipped`);
+    }
+    return { reviews, warnings };
+  }
+  /** The review in progress, if any. There is at most one per store (V1). */
+  async activeReview() {
+    const { reviews } = await this.loadReviews();
+    return latestActive(reviews);
+  }
+  /** Starts a review, or returns the one already in progress. */
+  async startReview() {
+    const active = await this.activeReview();
+    if (active) return active;
+    await this.ensureInitialized();
+    const reviewId = newReviewId();
+    const event = {
+      v: SCHEMA_VERSION,
+      type: "review.started",
+      at: (/* @__PURE__ */ new Date()).toISOString(),
+      by: "user",
+      reviewId
+    };
+    await (0, import_promises.appendFile)(this.reviewFile(reviewId), serializeEvents([event]), { flag: "a" });
+    return foldReview([event]);
+  }
+  /**
+   * Publishes a review: its draft comments become visible to the agent. A draft reply in a thread
+   * the agent was done with (`needs-info`, `addressed`, `resolved`) hands it back to the agent,
+   * like a direct reply does.
+   */
+  async submitReview(reviewId, summary) {
+    await this.assertActiveReview(reviewId);
+    const { threads: before } = await this.loadAll();
+    const text = summary?.trim();
+    const event = {
+      v: SCHEMA_VERSION,
+      type: "review.submitted",
+      at: (/* @__PURE__ */ new Date()).toISOString(),
+      by: "user",
+      ...text ? { summary: text } : {}
+    };
+    await (0, import_promises.appendFile)(this.reviewFile(reviewId), serializeEvents([event]), { flag: "a" });
+    for (const t of before) {
+      const repliesInReview = t.comments.some((c) => c.reviewId === reviewId && c.author === "user");
+      if (repliesInReview && t.status !== "open" && !t.readOnly) await this.setStatus(t.id, "open", "user");
+    }
+    const { reviews } = await this.loadReviews();
+    return reviews.get(reviewId);
+  }
+  /** Abandons a review: its draft comments are dropped, and threads holding only drafts disappear. */
+  async discardReview(reviewId) {
+    await this.assertActiveReview(reviewId);
+    const event = {
+      v: SCHEMA_VERSION,
+      type: "review.discarded",
+      at: (/* @__PURE__ */ new Date()).toISOString(),
+      by: "user"
+    };
+    await (0, import_promises.appendFile)(this.reviewFile(reviewId), serializeEvents([event]), { flag: "a" });
+    const { reviews } = await this.loadReviews();
+    return reviews.get(reviewId);
+  }
+  /**
+   * Adds a comment, optionally changing the status in the same write so that readers never
+   * observe the comment without its status.
+   *
+   * A published reply from the user hands the thread back to the agent: unless a status is
+   * given, a thread that is `needs-info`, `addressed` or `resolved` goes back to `open`.
+   */
+  async addComment(threadId, c, opts = {}) {
+    const body = c.body.trim();
+    if (body === "") throw new Error("Comment body is empty");
+    if (opts.status) assertCanSetStatus(opts.status, c.author);
+    if (c.reviewId !== null) await this.assertCanDraft(c.reviewId, c.author);
+    const current = await this.writableThread(threadId, c.author);
+    const who = actor(c.author, c.agent);
+    const reopens = c.author === "user" && c.reviewId === null && current.status !== "open";
+    const status2 = opts.status ?? (reopens ? "open" : void 0);
+    const at = (/* @__PURE__ */ new Date()).toISOString();
+    const events = [
+      { v: SCHEMA_VERSION, type: "comment.added", at, ...who, commentId: newCommentId(), body, reviewId: c.reviewId }
+    ];
+    if (status2) events.push({ v: SCHEMA_VERSION, type: "status.changed", at, ...who, status: status2 });
+    return this.appendAndReload(threadId, events);
+  }
+  async setStatus(threadId, status2, by, agent) {
+    assertCanSetStatus(status2, by);
+    const who = actor(by, agent);
+    await this.writableThread(threadId, by);
+    const event = {
+      v: SCHEMA_VERSION,
+      type: "status.changed",
+      at: (/* @__PURE__ */ new Date()).toISOString(),
+      ...who,
+      status: status2
+    };
+    return this.appendAndReload(threadId, [event]);
+  }
+  /** Records where the thread's code now is (after the file changed). */
+  async updateAnchor(threadId, anchor, by, agent) {
+    const who = actor(by, agent);
+    await this.writableThread(threadId, by);
+    const event = {
+      v: SCHEMA_VERSION,
+      type: "anchor.updated",
+      at: (/* @__PURE__ */ new Date()).toISOString(),
+      ...who,
+      anchor
+    };
+    return this.appendAndReload(threadId, [event]);
+  }
+  /** Edits a comment. Only its author can edit it. */
+  async editComment(threadId, commentId, body, by, agent) {
+    const text = body.trim();
+    if (text === "") throw new Error("Comment body is empty");
+    const who = actor(by, agent);
+    const current = await this.writableThread(threadId, by);
+    assertOwnComment(current, commentId, by);
+    if (current.comments.find((c) => c.id === commentId).body === text) return current;
+    const event = {
+      v: SCHEMA_VERSION,
+      type: "comment.edited",
+      at: (/* @__PURE__ */ new Date()).toISOString(),
+      ...who,
+      commentId,
+      body: text
+    };
+    return this.appendAndReload(threadId, [event]);
+  }
+  /**
+   * Deletes a comment. Only its author can delete it. Deleting the last comment deletes the
+   * thread too, in the same write: a thread never exists without comments.
+   */
+  async deleteComment(threadId, commentId, by, agent) {
+    const who = actor(by, agent);
+    const current = await this.writableThread(threadId, by);
+    assertOwnComment(current, commentId, by);
+    const at = (/* @__PURE__ */ new Date()).toISOString();
+    const events = [{ v: SCHEMA_VERSION, type: "comment.deleted", at, ...who, commentId }];
+    if (current.comments.length === 1) events.push({ v: SCHEMA_VERSION, type: "thread.deleted", at, ...who });
+    return this.appendAndReload(threadId, events);
+  }
+  /**
+   * Deletes a whole thread, agent replies included. Only the user can. The journal keeps its
+   * history (append-only): the thread is simply never shown again.
+   */
+  async deleteThread(threadId, by) {
+    if (by !== "user") throw new Error("Only the user can delete a thread");
+    await this.writableThread(threadId, by);
+    const event = { v: SCHEMA_VERSION, type: "thread.deleted", at: (/* @__PURE__ */ new Date()).toISOString(), by };
+    return this.appendAndReload(threadId, [event]);
+  }
+  /** A thread `by` may write to. Agents never see threads that only hold drafts. */
+  async writableThread(threadId, by) {
+    const { state } = await this.loadThread(threadId);
+    if (!state || state.deleted || by === "agent" && !state.hasPublished) {
+      throw new Error(`Thread not found: ${threadId}`);
+    }
+    if (state.readOnly) throw new Error(`Thread ${threadId} was written by a newer version and is read-only`);
+    return state;
+  }
+  async appendAndReload(threadId, events) {
+    await (0, import_promises.appendFile)(this.threadFile(threadId), serializeEvents(events), { flag: "a" });
+    const { state } = await this.loadThread(threadId);
+    if (!state) throw new Error(`Thread vanished while writing: ${threadId}`);
+    return state;
+  }
+  /** Drafts belong to the user: only the user writes them, and only in the review in progress. */
+  async assertCanDraft(reviewId, by) {
+    if (by !== "user") throw new Error("Only the user writes draft comments");
+    await this.assertActiveReview(reviewId);
+  }
+  async assertActiveReview(reviewId) {
+    const { reviews } = await this.loadReviews();
+    const review = reviews.get(reviewId);
+    if (!review) throw new Error(`Review not found: ${reviewId}`);
+    if (review.state !== "active") throw new Error(`Review ${reviewId} is already ${review.state}`);
+  }
+  async readJournal(file, label, reviews) {
+    const text = await (0, import_promises.readFile)(file, "utf8");
+    const parsed = parseJournal(text, label);
+    const state = foldThread(parsed.events, { futureVersion: parsed.futureVersion, reviews });
+    const warnings = [...parsed.warnings];
+    if (!state) warnings.push(`${label}: no thread.created event, file skipped`);
+    return { state, warnings };
+  }
+  async createThread(anchor, first) {
+    const body = first.body.trim();
+    if (body === "") throw new Error("Comment body is empty");
+    if (first.reviewId !== null) await this.assertCanDraft(first.reviewId, first.author);
+    await this.ensureInitialized();
+    const who = actor(first.author, first.agent);
+    const threadId = newThreadId();
+    const at = (/* @__PURE__ */ new Date()).toISOString();
+    const events = [
+      { v: SCHEMA_VERSION, type: "thread.created", at, ...who, threadId, anchor },
+      {
+        v: SCHEMA_VERSION,
+        type: "comment.added",
+        at,
+        ...who,
+        commentId: newCommentId(),
+        body,
+        reviewId: first.reviewId
+      }
+    ];
+    await (0, import_promises.appendFile)(this.threadFile(threadId), serializeEvents(events), { flag: "a" });
+    const { reviews } = await this.loadReviews();
+    const state = foldThread(events, { reviews });
+    if (!state) throw new Error("unreachable: freshly created thread failed to fold");
+    return state;
+  }
+  async ensureInitialized() {
+    await (0, import_promises.mkdir)(this.threadsDir, { recursive: true });
+    await (0, import_promises.mkdir)(this.reviewsDir, { recursive: true });
+    try {
+      await (0, import_promises.writeFile)((0, import_node_path.join)(this.dir, "schema-version"), `${SCHEMA_VERSION}
+`, { flag: "wx" });
+    } catch (err) {
+      if (!isAlreadyExists(err)) throw err;
+    }
+  }
+};
+var THREAD_ID = /^t_[0-9A-HJKMNP-TV-Z]{26}$/;
+var REVIEW_ID = /^r_[0-9A-HJKMNP-TV-Z]{26}$/;
+async function listJournals(dir) {
+  try {
+    return (await (0, import_promises.readdir)(dir)).filter((f) => f.endsWith(".jsonl")).sort();
+  } catch (err) {
+    if (isNotFound(err)) return [];
+    throw err;
+  }
+}
+function latestActive(reviews) {
+  const active = [...reviews.values()].filter((r) => r.state === "active");
+  active.sort((a, b) => b.startedAt.localeCompare(a.startedAt) || b.id.localeCompare(a.id));
+  return active[0] ?? null;
+}
+function actor(by, agent) {
+  if (by === "user") return { by };
+  const name = agent?.trim();
+  if (!name) throw new Error("An agent must give its name");
+  return { by, agent: name };
+}
+function assertOwnComment(thread, commentId, by) {
+  const comment = thread.comments.find((c) => c.id === commentId);
+  if (!comment) throw new Error(`Comment not found: ${commentId}`);
+  if (comment.author !== by) throw new Error("You can only change your own comments");
+}
+function assertCanSetStatus(status2, by) {
+  if (status2 === "resolved" && by !== "user") throw new Error("Only the user can resolve a thread");
+}
+function isNotFound(err) {
+  return err?.code === "ENOENT";
+}
+function isAlreadyExists(err) {
+  return err?.code === "EEXIST";
+}
+
+// ../core/src/reanchor.ts
+function reanchor(anchor, fileText) {
+  if (!anchor.range) return null;
+  const lines = splitLines(fileText);
+  const snippet = splitLines(anchor.snippet);
+  const n = snippet.length;
+  const toRange = (i) => ({ startLine: i + 1, endLine: i + n });
+  const stored = anchor.range.startLine - 1;
+  const exactAt = (i) => i >= 0 && i + n <= lines.length && snippet.every((l, k) => lines[i + k] === l);
+  if (exactAt(stored)) return { kind: "exact", range: toRange(stored) };
+  const moved = closest(anchor, lines, n, stored, exactAt);
+  if (moved !== void 0) return { kind: "moved", range: toRange(moved) };
+  const normalized = snippet.map(normalize);
+  if (normalized.every((l) => l === "")) return { kind: "lost" };
+  const looseAt = (i) => i >= 0 && i + n <= lines.length && normalized.every((l, k) => normalize(lines[i + k]) === l);
+  const fuzzy = closest(anchor, lines, n, stored, looseAt);
+  return fuzzy !== void 0 ? { kind: "fuzzy", range: toRange(fuzzy) } : { kind: "lost" };
+}
+function normalize(line) {
+  return line.replace(/\s+/g, "");
+}
+function closest(anchor, lines, n, stored, matchesAt) {
+  let best;
+  for (let i = 0; i + n <= lines.length; i++) {
+    if (!matchesAt(i)) continue;
+    const candidate = { i, distance: Math.abs(i - stored), context: contextScore(anchor, lines, i, n) };
+    if (!best || candidate.distance < best.distance || candidate.distance === best.distance && candidate.context > best.context) {
+      best = candidate;
+    }
+  }
+  return best?.i;
+}
+function contextScore(anchor, lines, start, n) {
+  let score = 0;
+  anchor.contextBefore.forEach((l, k) => {
+    if (lines[start - anchor.contextBefore.length + k] === l) score++;
+  });
+  anchor.contextAfter.forEach((l, k) => {
+    if (lines[start + n + k] === l) score++;
+  });
+  return score;
+}
+
+// ../core/src/agentView.ts
+var import_node_fs = require("node:fs");
+var import_node_path2 = require("node:path");
+function agentView(thread) {
+  if (thread.deleted) return null;
+  const comments = thread.comments.filter((c) => !c.isDraft);
+  if (comments.length === 0) return null;
+  const last = comments[comments.length - 1];
+  const open = thread.status !== "resolved";
+  return {
+    thread,
+    comments,
+    needsAgent: open && last.author === "user",
+    waitsForUser: open && last.author === "agent"
+  };
+}
+function findStoreRoot(fromDir) {
+  let dir = (0, import_node_path2.resolve)(fromDir);
+  for (; ; ) {
+    if ((0, import_node_fs.existsSync)((0, import_node_path2.join)(dir, STORE_DIR))) return dir;
+    const parent = (0, import_node_path2.dirname)(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+// ../core/src/anchorVersion.ts
+function isIndexRef(ref) {
+  return ref === "~" || ref === "";
+}
+function versionTag(anchor) {
+  if (anchor.source !== "git") return void 0;
+  if (anchor.ref === null || isIndexRef(anchor.ref)) return "Index";
+  const short = anchor.sha?.slice(0, 7);
+  if (anchor.ref === "HEAD") return short ? `HEAD ${short}` : "HEAD";
+  return short ?? anchor.ref;
+}
+
+// src/digest.ts
+var import_node_path3 = require("node:path");
+function locate(view, fileText) {
+  const a = view.thread.anchor;
+  if (!a.range) return { view, range: null, code: "", outdated: false };
+  if (a.source !== "worktree") return { view, range: a.range, code: a.snippet, outdated: false };
+  const found = fileText === null ? { kind: "lost" } : reanchor(a, fileText);
+  if (!found || found.kind === "lost") return { view, range: null, code: a.snippet, outdated: true };
+  const lines = fileText.split(/\r\n|\r|\n/).slice(found.range.startLine - 1, found.range.endLine);
+  return { view, range: found.range, code: lines.join("\n"), outdated: false };
+}
+var LANGUAGES = {
+  ".ts": "ts",
+  ".tsx": "tsx",
+  ".js": "js",
+  ".jsx": "jsx",
+  ".mjs": "js",
+  ".cjs": "js",
+  ".json": "json",
+  ".md": "md",
+  ".py": "python",
+  ".go": "go",
+  ".rs": "rust",
+  ".java": "java",
+  ".kt": "kotlin",
+  ".rb": "ruby",
+  ".sh": "bash",
+  ".yml": "yaml",
+  ".yaml": "yaml",
+  ".css": "css",
+  ".html": "html",
+  ".sql": "sql",
+  ".c": "c",
+  ".cpp": "cpp",
+  ".h": "c",
+  ".cs": "csharp",
+  ".php": "php",
+  ".swift": "swift"
+};
+function fence(code, path, startLine) {
+  const numbered = startLine === null ? code : code.split("\n").map((l, i) => `${startLine + i} | ${l}`).join("\n");
+  const longest = Math.max(0, ...(numbered.match(/`+/g) ?? []).map((r) => r.length));
+  const ticks = "`".repeat(Math.max(3, longest + 1));
+  return `${ticks}${LANGUAGES[(0, import_node_path3.extname)(path)] ?? ""}
+${numbered}
+${ticks}`;
+}
+function where(l) {
+  const a = l.view.thread.anchor;
+  if (!a.range) return `${a.path} (whole file)`;
+  if (l.outdated) return `${a.path} (outdated)`;
+  const r = l.range;
+  return `${a.path}:${r.startLine}${r.endLine !== r.startLine ? `-${r.endLine}` : ""}`;
+}
+function renderThread(l) {
+  const { thread, comments } = l.view;
+  const a = thread.anchor;
+  const tag = versionTag(a);
+  const lines = [`## ${thread.id} \u2014 ${where(l)}`, ""];
+  const facts = [`Status: ${thread.status}`];
+  if (tag)
+    facts.push(`About the ${tag === "Index" ? "staged version (index)" : `version ${tag}`}, not the working tree`);
+  if (a.diff) facts.push(`Made in a diff (${a.diff.side === "base" ? "old" : "new"} side)`);
+  lines.push(facts.join(" \xB7 "), "");
+  if (l.outdated) lines.push("\u26A0\uFE0F Outdated: this code is no longer in the file. Recorded code:", "");
+  if (a.range) lines.push(fence(l.code, a.path, l.outdated ? null : l.range.startLine), "");
+  for (const c of comments) {
+    const who = c.author === "user" ? "User" : c.agentName ?? "Agent";
+    lines.push(`**${who}** (${c.createdAt}${c.editedAt ? ", edited" : ""}):`, c.body, "");
+  }
+  return lines.join("\n").trimEnd();
+}
+function renderReviews(located, reviews) {
+  const ids = new Set(located.flatMap((l) => l.view.comments.map((c) => c.reviewId).filter((id) => id !== null)));
+  const withSummary = reviews.filter((r) => ids.has(r.id) && r.state === "submitted" && r.summary);
+  return withSummary.map((r) => `> **Review summary** (${r.submittedAt}): ${r.summary}`).join("\n");
+}
+
+// src/cli.ts
+var EXIT = { OK: 0, ERROR: 1, NOT_FOUND: 2 };
+var UsageError = class extends Error {
+};
+var USAGE = `lr \u2014 Local Review, for agents
+
+Usage:
+  lr status                               How many threads wait for you
+  lr list [--all] [--format md|json]      Threads waiting for you (--all: every unresolved thread)
+  lr show <thread-id> [--format md|json]  One thread, in full
+  lr reply <thread-id> --agent <name> (--body <markdown> | --body-file <path> | --body -)
+           [--status addressed|needs-info]
+  lr set-status <thread-id> addressed|needs-info --agent <name>
+
+Options:
+  --root <dir>    Folder holding .local-review/ (default: found from the current directory)
+  --agent <name>  Your display name in the threads (default: $LR_AGENT)
+
+Statuses: "addressed" = done, the user will verify; "needs-info" = you asked the user a question.
+Only the user resolves threads.`;
+async function runCli(args, io) {
+  const [command, ...rest] = args;
+  try {
+    switch (command) {
+      case "status":
+        return await status(rest, io);
+      case "list":
+        return await list(rest, io);
+      case "show":
+        return await show(rest, io);
+      case "reply":
+        return await reply(rest, io);
+      case "set-status":
+        return await setStatus(rest, io);
+      case void 0:
+      case "help":
+      case "--help":
+      case "-h":
+        io.out(USAGE);
+        return command === void 0 ? EXIT.ERROR : EXIT.OK;
+      default:
+        throw new UsageError(`Unknown command: ${command}`);
+    }
+  } catch (err) {
+    if (err instanceof UsageError) {
+      io.err(`lr: ${err.message}
+
+${USAGE}`);
+      return EXIT.ERROR;
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    io.err(`lr: ${message}`);
+    return /not found/i.test(message) ? EXIT.NOT_FOUND : EXIT.ERROR;
+  }
+}
+function parse(rest, options) {
+  try {
+    const parsed = (0, import_node_util.parseArgs)({ args: rest, options: { root: { type: "string" }, ...options }, allowPositionals: true });
+    return { values: parsed.values, positionals: parsed.positionals };
+  } catch (err) {
+    throw new UsageError(err instanceof Error ? err.message : String(err));
+  }
+}
+var str = (v) => typeof v === "string" ? v : void 0;
+function openStore(root, io) {
+  const dir = root ? (0, import_node_path4.resolve)(io.cwd, root) : findStoreRoot(io.cwd);
+  if (!dir) throw new Error(`no .local-review/ found from ${io.cwd} (nothing has been commented yet?)`);
+  return new Store(dir);
+}
+async function visibleThreads(store) {
+  const { threads } = await store.loadAll();
+  const views = threads.map(agentView).filter((v) => v !== null);
+  const located = await Promise.all(views.map(async (v) => locate(v, await readWorkingFile(store, v))));
+  located.sort((a, b) => a.view.thread.anchor.path.localeCompare(b.view.thread.anchor.path) || lineOf(a) - lineOf(b));
+  return { located, store };
+}
+async function readWorkingFile(store, view) {
+  if (view.thread.anchor.source !== "worktree") return null;
+  try {
+    return await (0, import_promises2.readFile)((0, import_node_path4.join)(store.root, ...view.thread.anchor.path.split("/")), "utf8");
+  } catch {
+    return null;
+  }
+}
+var lineOf = (l) => l.range?.startLine ?? 0;
+async function status(rest, io) {
+  const { values } = parse(rest, {});
+  const { located } = await visibleThreads(openStore(str(values.root), io));
+  const forAgent = located.filter((l) => l.view.needsAgent).length;
+  const forUser = located.filter((l) => l.view.waitsForUser).length;
+  io.out(`${forAgent} thread${forAgent === 1 ? "" : "s"} waiting for you \xB7 ${forUser} waiting for the user`);
+  return EXIT.OK;
+}
+async function list(rest, io) {
+  const { values } = parse(rest, { all: { type: "boolean" }, format: { type: "string" } });
+  const { located } = await visibleThreads(openStore(str(values.root), io));
+  const selected = located.filter(
+    (l) => values.all === true ? l.view.thread.status !== "resolved" : l.view.needsAgent
+  );
+  if (str(values.format) === "json") {
+    io.out(JSON.stringify(selected.map(toJson), null, 2));
+    return EXIT.OK;
+  }
+  if (selected.length === 0) {
+    io.out(
+      values.all === true ? "No unresolved thread." : "Nothing waits for you: no thread where the user spoke last."
+    );
+    return EXIT.OK;
+  }
+  const store = openStore(str(values.root), io);
+  const { reviews } = await store.loadAll();
+  const n = selected.length;
+  const parts = [
+    `# Local Review \u2014 ${n} thread${n === 1 ? "" : "s"} ${values.all === true ? "unresolved" : "waiting for you"}`
+  ];
+  const summaries = renderReviews(selected, reviews);
+  if (summaries) parts.push(summaries);
+  parts.push(...selected.map(renderThread));
+  io.out(parts.join("\n\n"));
+  return EXIT.OK;
+}
+async function show(rest, io) {
+  const { values, positionals } = parse(rest, { format: { type: "string" } });
+  const id = requireThreadId(positionals);
+  const { located } = await visibleThreads(openStore(str(values.root), io));
+  const found = located.find((l) => l.view.thread.id === id);
+  if (!found) throw new Error(`Thread not found: ${id}`);
+  io.out(str(values.format) === "json" ? JSON.stringify(toJson(found), null, 2) : renderThread(found));
+  return EXIT.OK;
+}
+async function reply(rest, io) {
+  const { values, positionals } = parse(rest, {
+    agent: { type: "string" },
+    body: { type: "string" },
+    "body-file": { type: "string" },
+    status: { type: "string" }
+  });
+  const id = requireThreadId(positionals);
+  const agent = requireAgent(str(values.agent), io);
+  const status2 = str(values.status) === void 0 ? void 0 : agentStatus(str(values.status));
+  let body = str(values.body);
+  if (body === "-") body = await io.readStdin();
+  const bodyFile = str(values["body-file"]);
+  if (bodyFile) body = await (0, import_promises2.readFile)((0, import_node_path4.resolve)(io.cwd, bodyFile), "utf8");
+  if (body === void 0 || body.trim() === "") throw new UsageError("reply needs --body, --body-file or --body -");
+  const state = await openStore(str(values.root), io).addComment(
+    id,
+    { author: "agent", agent, body, reviewId: null },
+    status2 ? { status: status2 } : {}
+  );
+  io.out(`Replied on ${state.id} (status: ${state.status}).`);
+  return EXIT.OK;
+}
+async function setStatus(rest, io) {
+  const { values, positionals } = parse(rest, { agent: { type: "string" } });
+  const id = requireThreadId(positionals);
+  const status2 = agentStatus(positionals[1]);
+  const state = await openStore(str(values.root), io).setStatus(
+    id,
+    status2,
+    "agent",
+    requireAgent(str(values.agent), io)
+  );
+  io.out(`${state.id} is now ${state.status}.`);
+  return EXIT.OK;
+}
+function requireThreadId(positionals) {
+  const id = positionals[0];
+  if (!id) throw new UsageError("missing <thread-id>");
+  return id;
+}
+function requireAgent(flag, io) {
+  const agent = (flag ?? io.env.LR_AGENT)?.trim();
+  if (!agent) throw new UsageError("say who you are with --agent <name> (or set LR_AGENT)");
+  return agent;
+}
+function agentStatus(value) {
+  if (value === "addressed" || value === "needs-info") return value;
+  throw new UsageError(`status must be "addressed" or "needs-info"${value ? `, not "${value}"` : ""}`);
+}
+function toJson(l) {
+  const { thread, comments, needsAgent, waitsForUser } = l.view;
+  return {
+    id: thread.id,
+    path: thread.anchor.path,
+    source: thread.anchor.source,
+    ref: thread.anchor.ref,
+    sha: thread.anchor.sha,
+    range: l.range,
+    outdated: l.outdated,
+    code: l.code,
+    status: thread.status,
+    needsAgent,
+    waitsForUser,
+    comments: comments.map((c) => ({
+      author: c.author === "user" ? "user" : c.agentName ?? "agent",
+      body: c.body,
+      createdAt: c.createdAt,
+      edited: c.editedAt !== void 0
+    }))
+  };
+}
+
+// src/main.ts
+async function readStdin() {
+  const chunks = [];
+  for await (const chunk of process.stdin) chunks.push(chunk);
+  return Buffer.concat(chunks).toString("utf8");
+}
+runCli(process.argv.slice(2), {
+  cwd: process.cwd(),
+  env: process.env,
+  out: (text) => process.stdout.write(text + "\n"),
+  err: (text) => process.stderr.write(text + "\n"),
+  readStdin
+}).then((code) => {
+  process.exitCode = code;
+});

@@ -47,14 +47,16 @@ Until the first agent integration ships, **Local Review (dev): Simulate Agent Re
 
 Agents read and answer the threads with **`lr`**, an agent-neutral command line (`packages/cli`). The Claude Code plugin (`adapters/claude-code/plugin`) ships `lr` and a skill that tells Claude how to handle a review.
 
-For now, load the plugin from this repository:
+Install it once, from this repository's plugin marketplace:
 
 ```sh
-npm install && npm run build:claude-plugin
-claude --plugin-dir /path/to/local-review/adapters/claude-code/plugin
+claude plugin marketplace add lbenamer/local-review
+claude plugin install local-review@local-review
 ```
 
-Then, in the session, run **`/local-review:review`** (or ask Claude to handle your review comments). Claude reads the threads waiting for it, changes the code, and replies in each thread: **addressed** when done, **needs-info** when it asks you a question. Its replies show up live in VS Code. Only you resolve threads.
+The repository is private for now: this needs git access to it. To get a newer version later, run `claude plugin marketplace update local-review`, then update the plugin from `/plugin`.
+
+Then, in any session, run **`/local-review:review`** (or ask Claude to handle your review comments). Claude reads the threads waiting for it, changes the code, and replies in each thread: **addressed** when done, **needs-info** when it asks you a question. Its replies show up live in VS Code. Only you resolve threads.
 
 `lr` on its own:
 
@@ -77,6 +79,8 @@ lr set-status <thread-id> needs-info --agent Claude
 Neutral packages never depend on an adapter. `npm test` checks these rules (`scripts/check-boundaries.mjs`).
 
 ## Development
+
+To work on the plugin, load it from your checkout instead: `npm run build:claude-plugin`, then `claude --plugin-dir adapters/claude-code/plugin`. The bundled `lr` in `plugin/bin/` is committed, so that the plugin installs from git: `npm test` fails when it is out of date.
 
 Requirements: Node ≥ 20 and the `code` command on your PATH.
 
