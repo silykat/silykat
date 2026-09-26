@@ -80,19 +80,24 @@ export class Store {
   /**
    * Adds a comment, optionally changing the status in the same write so that readers never
    * observe the comment without its status.
+   *
+   * A published reply from the user hands the thread back to the agent: unless a status is
+   * given, a thread that is `needs-info`, `addressed` or `resolved` goes back to `open` (D12).
    */
   async addComment(threadId: string, c: NewComment, opts: { status?: ThreadStatus } = {}): Promise<ThreadState> {
     const body = c.body.trim();
     if (body === '') throw new Error('Comment body is empty');
     if (opts.status) assertCanSetStatus(opts.status, c.author);
-    await this.writableThread(threadId);
+    const current = await this.writableThread(threadId);
 
     const who = actor(c.author, c.agent);
+    const reopens = c.author === 'user' && c.reviewId === null && current.status !== 'open';
+    const status = opts.status ?? (reopens ? 'open' : undefined);
     const at = new Date().toISOString();
     const events: ThreadEvent[] = [
       { v: SCHEMA_VERSION, type: 'comment.added', at, ...who, commentId: newCommentId(), body, reviewId: c.reviewId },
     ];
-    if (opts.status) events.push({ v: SCHEMA_VERSION, type: 'status.changed', at, ...who, status: opts.status });
+    if (status) events.push({ v: SCHEMA_VERSION, type: 'status.changed', at, ...who, status });
     return this.appendAndReload(threadId, events);
   }
 

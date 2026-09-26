@@ -23,6 +23,8 @@ For any other key combination, set it to `"none"` and bind the `localReview.comm
 
 The agent's replies appear live in the thread, signed with the agent's name, with a status label: **Waiting for Claude**, **💬 Claude replied**, **❓ Claude is waiting for your reply** or **✅ Addressed by Claude — please verify**. Until an agent is plugged in, the default agent name is Claude.
 
+Reply in the thread with **Reply** (or `Cmd+Enter`). Replying to a question, or to a thread the agent marked as addressed, hands the thread back to the agent: it shows **Waiting for Claude** again.
+
 Until the first agent integration ships, **Local Review (dev): Simulate Agent Reply** writes a reply as the agent from a separate process, through the same path a real integration will use.
 
 ## Development

@@ -67,8 +67,7 @@ export function applyThreadState(thread: vscode.CommentThread, state: ThreadStat
   thread.comments = state.comments.map((c) => toVsComment(c, ctx));
   thread.label = threadLabel(state);
   thread.contextValue = ['lr', state.status, state.readOnly ? 'readonly' : ''].filter(Boolean).join(' ');
-  // Replies arrive with US-03.
-  thread.canReply = false;
+  thread.canReply = state.readOnly ? false : { name: ctx.userName };
   thread.state =
     state.status === 'resolved' ? vscode.CommentThreadState.Resolved : vscode.CommentThreadState.Unresolved;
 }

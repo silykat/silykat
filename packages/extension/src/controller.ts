@@ -33,7 +33,7 @@ export class ReviewController implements vscode.Disposable {
     this.ctx = { userName: 'Me', agentIcon: vscode.Uri.joinPath(extensionUri, 'media', 'agent.svg') };
     this.controller = vscode.comments.createCommentController(CONTROLLER_ID, 'Local Review');
     this.controller.options = {
-      prompt: 'Comment',
+      prompt: 'Reply',
       placeHolder: 'Write a comment (Markdown supported)…',
     };
     this.controller.commentingRangeProvider = {
@@ -95,6 +95,22 @@ export class ReviewController implements vscode.Disposable {
     } catch (err) {
       this.log.error('Failed to save the comment', err);
       void vscode.window.showErrorMessage(`Local Review: the comment could not be saved (${String(err)}).`);
+    }
+  }
+
+  /** Handler of the "Reply" button under an existing thread. */
+  async reply(reply: vscode.CommentReply): Promise<void> {
+    const text = reply.text.trim();
+    const threadId = this.byThread.get(reply.thread);
+    const managed = threadId ? this.managed.get(threadId) : undefined;
+    if (text === '' || !threadId || !managed) return;
+
+    try {
+      const state = await managed.root.store.addComment(threadId, { author: 'user', body: text, reviewId: null });
+      this.adopt(managed.root, state, reply.thread);
+    } catch (err) {
+      this.log.error('Failed to save the reply', err);
+      void vscode.window.showErrorMessage(`Local Review: the reply could not be saved (${String(err)}).`);
     }
   }
 

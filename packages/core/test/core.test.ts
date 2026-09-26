@@ -317,3 +317,77 @@ describe('Store — replies and statuses', () => {
     expect(await store.loadThread('t_00000000000000000000000000')).toEqual({ state: null, warnings: [] });
   });
 });
+
+describe('Store — user replies (US-03)', () => {
+  let root: string;
+  let store: Store;
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'lr-core-'));
+    store = new Store(root);
+  });
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const events = async (id: string) =>
+    (await readFile(store.threadFile(id), 'utf8'))
+      .trimEnd()
+      .split('\n')
+      .map((l) => JSON.parse(l));
+  const reply = (id: string, body: string) => store.addComment(id, { author: 'user', body, reviewId: null });
+
+  for (const from of ['needs-info', 'addressed'] as const) {
+    it(`hands a ${from} thread back to the agent`, async () => {
+      const t = await store.createThread(anchor(), { author: 'user', body: 'q', reviewId: null });
+      await store.addComment(t.id, { author: 'agent', agent: 'Claude', body: 'a', reviewId: null }, { status: from });
+      const s = await reply(t.id, 'here is the detail');
+      expect(s.status).toBe('open');
+      expect(s.lastAuthor).toBe('user');
+      expect((await events(t.id)).slice(-2).map((e) => [e.type, e.by, e.status])).toEqual([
+        ['comment.added', 'user', undefined],
+        ['status.changed', 'user', 'open'],
+      ]);
+    });
+  }
+
+  it('reopens a resolved thread', async () => {
+    const t = await store.createThread(anchor(), { author: 'user', body: 'q', reviewId: null });
+    await store.setStatus(t.id, 'resolved', 'user');
+    expect((await reply(t.id, 'one more thing')).status).toBe('open');
+  });
+
+  it('writes no status event when the thread is already open', async () => {
+    const t = await store.createThread(anchor(), { author: 'user', body: 'q', reviewId: null });
+    await reply(t.id, 'precision');
+    expect((await events(t.id)).map((e) => e.type)).toEqual(['thread.created', 'comment.added', 'comment.added']);
+  });
+
+  it('does not reopen for a draft reply (it is published later, with the review)', async () => {
+    const t = await store.createThread(anchor(), { author: 'user', body: 'q', reviewId: null });
+    await store.setStatus(t.id, 'addressed', 'agent', 'Claude');
+    const s = await store.addComment(t.id, { author: 'user', body: 'draft', reviewId: 'r_1' });
+    expect(s.status).toBe('addressed');
+  });
+
+  it('loses nothing when the user and the agent write at the same time (AC 5)', async () => {
+    const t = await store.createThread(anchor(), { author: 'user', body: 'q', reviewId: null });
+    const user = new Store(root);
+    const agent = new Store(root);
+    const N = 200;
+    await Promise.all(
+      Array.from({ length: N }, (_, i) => [
+        user.addComment(t.id, { author: 'user', body: `user ${i}`, reviewId: null }),
+        agent.addComment(t.id, { author: 'agent', agent: 'Claude', body: `agent ${i}`, reviewId: null }),
+      ]).flat(),
+    );
+    const s = (await store.loadThread(t.id)).state!;
+    expect(s.comments).toHaveLength(1 + 2 * N);
+    const bodies = new Set(s.comments.map((c) => c.body));
+    for (let i = 0; i < N; i++) {
+      expect(bodies.has(`user ${i}`)).toBe(true);
+      expect(bodies.has(`agent ${i}`)).toBe(true);
+    }
+    const parsed = parseJournal(await readFile(store.threadFile(t.id), 'utf8'));
+    expect(parsed.warnings).toEqual([]); // no interleaved or torn lines
+  });
+});
