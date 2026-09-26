@@ -43,6 +43,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
     vscode.commands.registerCommand('localReview.reopenThread', (thread: vscode.CommentThread) =>
       review.setThreadStatus(thread, 'open'),
     ),
+    vscode.commands.registerCommand('localReview.openOriginalDiff', (thread: vscode.CommentThread) =>
+      review.openOriginalDiff(thread),
+    ),
     vscode.commands.registerCommand('localReview.editComment', (c: LrComment) => review.editComment(c)),
     vscode.commands.registerCommand('localReview.saveEdit', (c: LrComment) => review.saveEdit(c)),
     vscode.commands.registerCommand('localReview.cancelEdit', (c: LrComment) => review.cancelEdit(c)),

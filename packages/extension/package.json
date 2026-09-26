@@ -97,6 +97,11 @@
         "icon": "$(issue-reopened)"
       },
       {
+        "command": "localReview.openOriginalDiff",
+        "title": "Open Original Diff",
+        "icon": "$(diff)"
+      },
+      {
         "command": "localReview.deleteThread",
         "title": "Delete Thread",
         "icon": "$(trash)"
@@ -206,6 +211,10 @@
         {
           "command": "localReview.discardReview",
           "when": "localReview.reviewActive"
+        },
+        {
+          "command": "localReview.openOriginalDiff",
+          "when": "false"
         }
       ],
       "editor/context": [
@@ -248,34 +257,39 @@
         },
         {
           "command": "localReview.reply",
-          "when": "commentController == local-review && !commentThreadIsEmpty && !commentIsEmpty && commentThread =~ /^lr (open|needs-info|addressed|resolved)$/ && !localReview.reviewActive",
+          "when": "commentController == local-review && !commentThreadIsEmpty && !commentIsEmpty && commentThread =~ /^lr (open|needs-info|addressed|resolved)( diff)?$/ && !localReview.reviewActive",
           "group": "inline@1"
         },
         {
           "command": "localReview.addToReview",
-          "when": "commentController == local-review && !commentThreadIsEmpty && !commentIsEmpty && commentThread =~ /^lr (open|needs-info|addressed|resolved)$/ && localReview.reviewActive",
+          "when": "commentController == local-review && !commentThreadIsEmpty && !commentIsEmpty && commentThread =~ /^lr (open|needs-info|addressed|resolved)( diff)?$/ && localReview.reviewActive",
           "group": "inline@1"
         },
         {
           "command": "localReview.replyNow",
-          "when": "commentController == local-review && !commentThreadIsEmpty && !commentIsEmpty && commentThread =~ /^lr (open|needs-info|addressed|resolved)$/ && localReview.reviewActive",
+          "when": "commentController == local-review && !commentThreadIsEmpty && !commentIsEmpty && commentThread =~ /^lr (open|needs-info|addressed|resolved)( diff)?$/ && localReview.reviewActive",
           "group": "inline@2"
         }
       ],
       "comments/commentThread/title": [
         {
+          "command": "localReview.openOriginalDiff",
+          "when": "commentController == local-review && commentThread =~ / diff$/",
+          "group": "inline@0"
+        },
+        {
           "command": "localReview.resolveThread",
-          "when": "commentController == local-review && commentThread =~ /^lr (open|needs-info|addressed)$/",
+          "when": "commentController == local-review && commentThread =~ /^lr (open|needs-info|addressed)( diff)?$/",
           "group": "inline@1"
         },
         {
           "command": "localReview.reopenThread",
-          "when": "commentController == local-review && commentThread =~ /^lr resolved$/",
+          "when": "commentController == local-review && commentThread =~ /^lr resolved( diff)?$/",
           "group": "inline@1"
         },
         {
           "command": "localReview.deleteThread",
-          "when": "commentController == local-review && commentThread =~ /^lr (draft )?(open|needs-info|addressed|resolved)$/",
+          "when": "commentController == local-review && commentThread =~ /^lr (draft )?(open|needs-info|addressed|resolved)( diff)?$/",
           "group": "inline@2"
         }
       ],

@@ -133,3 +133,38 @@ describe('buttons of a published thread', () => {
     expect(buttons(draftOnly, true)).toEqual(['localReview.addToReview']);
   });
 });
+
+describe('threads made in a diff', () => {
+  const inDiff = (over: Partial<Parameters<typeof threadContextValue>[0]> = {}) =>
+    threadContextValue({
+      status: 'open',
+      readOnly: false,
+      onlyDrafts: false,
+      anchor: {
+        diff: {
+          side: 'base',
+          base: { source: 'git', ref: '~', sha: null },
+          head: { source: 'worktree', ref: null, sha: null },
+        },
+      },
+      ...over,
+    });
+
+  it('are tagged "diff" and offer "Open Original Diff"', () => {
+    expect(inDiff()).toBe('lr open diff');
+    expect(shownFor('localReview.openOriginalDiff', inDiff())).toBe(true);
+    expect(
+      shownFor(
+        'localReview.openOriginalDiff',
+        threadContextValue({ status: 'open', readOnly: false, onlyDrafts: false }),
+      ),
+    ).toBe(false);
+  });
+
+  it('keep every other action', () => {
+    expect(shownFor('localReview.resolveThread', inDiff())).toBe(true);
+    expect(shownFor('localReview.deleteThread', inDiff({ onlyDrafts: true }))).toBe(true);
+    expect(shownFor('localReview.reopenThread', inDiff({ status: 'resolved' }))).toBe(true);
+    expect(shownFor('localReview.resolveThread', inDiff({ readOnly: true }))).toBe(false);
+  });
+});

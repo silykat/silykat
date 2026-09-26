@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { userInfo } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import * as vscode from 'vscode';
 import {
   buildAnchorContext,
@@ -12,8 +12,8 @@ import {
   type ReviewState,
   type ThreadState,
 } from '@local-review/core';
-import { ensureExcluded, gitUserName, resolveCommit } from './git';
-import { anchorRef, isIndexRef, parseGitQuery } from './gitUri';
+import { commitExists, ensureExcluded, gitUserName, resolveCommit } from './git';
+import { anchorRef, isIndexRef, parseGitQuery, versionTag } from './gitUri';
 import type { Log } from './log';
 import { toLineRange, toZeroBasedLines } from './range';
 import { applyThreadState, awaitsUser, bodyText, LrComment, threadRange, type RenderContext } from './render';
@@ -288,6 +288,40 @@ export class ReviewController implements vscode.Disposable {
   private defaultRoot(): Root | undefined {
     const active = vscode.window.activeTextEditor?.document.uri;
     return (active?.scheme === 'file' ? this.roots.forFile(active.fsPath) : undefined) ?? this.roots.all()[0];
+  }
+
+  /**
+   * "Open Original Diff": reopens the diff a thread was made in, with the exact versions it
+   * compared. Returns false when it cannot, e.g. a commit is gone after a rebase.
+   */
+  async openOriginalDiff(thread: vscode.CommentThread): Promise<boolean> {
+    const threadId = this.byThread.get(thread);
+    const m = threadId ? this.managed.get(threadId) : undefined;
+    const diff = m?.state.anchor.diff;
+    if (!m || !diff) return false;
+
+    for (const side of [diff.base, diff.head]) {
+      if (side.source === 'git' && side.sha && !(await commitExists(m.root.path, side.sha))) {
+        void vscode.window.showErrorMessage(
+          `Local Review: commit ${side.sha.slice(0, 7)} no longer exists (rewritten by a rebase?), so the original diff cannot be opened.`,
+        );
+        return false;
+      }
+    }
+    const fsPath = join(m.root.path, ...m.state.anchor.path.split('/'));
+    const uriOf = (side: AnchorSide) =>
+      side.source === 'worktree'
+        ? vscode.Uri.file(fsPath)
+        : gitUri(fsPath, side.ref === '~' ? '~' : (side.sha ?? 'HEAD'));
+    const name = (side: AnchorSide) => versionTag(side) ?? 'Working Tree';
+    const file = basename(fsPath);
+    await vscode.commands.executeCommand(
+      'vscode.diff',
+      uriOf(diff.base),
+      uriOf(diff.head),
+      `${file} (${name(diff.base)}) ↔ ${file} (${name(diff.head)})`,
+    );
+    return true;
   }
 
   /** "Resolve" / "Reopen" from the thread header. Only the user resolves. */

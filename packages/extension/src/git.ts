@@ -16,6 +16,11 @@ export async function resolveCommit(cwd: string, ref: string): Promise<string | 
   return sha && /^[0-9a-f]{40,64}$/.test(sha) ? sha : null;
 }
 
+/** Whether a commit is still in the repository (it may be gone after a rebase and a gc). */
+export async function commitExists(cwd: string, sha: string): Promise<boolean> {
+  return (await git(['cat-file', '-e', `${sha}^{commit}`], cwd)) !== null;
+}
+
 export async function gitUserName(cwd: string): Promise<string | null> {
   const name = await git(['config', 'user.name'], cwd);
   return name || null;
