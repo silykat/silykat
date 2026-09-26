@@ -53,6 +53,29 @@
         "icon": "$(issue-reopened)"
       },
       {
+        "command": "localReview.deleteThread",
+        "title": "Delete Thread",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "localReview.editComment",
+        "title": "Edit",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "localReview.deleteComment",
+        "title": "Delete",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "localReview.saveEdit",
+        "title": "Save"
+      },
+      {
+        "command": "localReview.cancelEdit",
+        "title": "Cancel"
+      },
+      {
         "command": "localReview.dev.simulateAgentReply",
         "title": "Simulate Agent Reply",
         "category": "Local Review (dev)"
@@ -82,6 +105,26 @@
         },
         {
           "command": "localReview.reopenThread",
+          "when": "false"
+        },
+        {
+          "command": "localReview.deleteThread",
+          "when": "false"
+        },
+        {
+          "command": "localReview.editComment",
+          "when": "false"
+        },
+        {
+          "command": "localReview.deleteComment",
+          "when": "false"
+        },
+        {
+          "command": "localReview.saveEdit",
+          "when": "false"
+        },
+        {
+          "command": "localReview.cancelEdit",
           "when": "false"
         }
       ],
@@ -119,6 +162,35 @@
           "command": "localReview.reopenThread",
           "when": "commentController == local-review && commentThread =~ /^lr resolved$/",
           "group": "inline@1"
+        },
+        {
+          "command": "localReview.deleteThread",
+          "when": "commentController == local-review && commentThread =~ /^lr (open|needs-info|addressed|resolved)$/",
+          "group": "inline@2"
+        }
+      ],
+      "comments/comment/title": [
+        {
+          "command": "localReview.editComment",
+          "when": "commentController == local-review && comment == author-user",
+          "group": "inline@1"
+        },
+        {
+          "command": "localReview.deleteComment",
+          "when": "commentController == local-review && comment == author-user",
+          "group": "inline@2"
+        }
+      ],
+      "comments/comment/context": [
+        {
+          "command": "localReview.saveEdit",
+          "when": "commentController == local-review && comment == author-user",
+          "group": "inline@1"
+        },
+        {
+          "command": "localReview.cancelEdit",
+          "when": "commentController == local-review && comment == author-user",
+          "group": "inline@2"
         }
       ]
     },

@@ -1,4 +1,4 @@
-import type { ThreadState } from '@local-review/core';
+import type { CommentState, ThreadState } from '@local-review/core';
 
 // Pure so that the manifest's `when` clauses can be unit-tested against it.
 
@@ -8,4 +8,9 @@ import type { ThreadState } from '@local-review/core';
  */
 export function threadContextValue(state: Pick<ThreadState, 'status' | 'readOnly'>): string {
   return state.readOnly ? `lr readonly ${state.status}` : `lr ${state.status}`;
+}
+
+/** Context value of a comment, matched by `comment == …`: only the user's comments get edit/delete. */
+export function commentContextValue(comment: Pick<CommentState, 'author'>): string {
+  return `author-${comment.author}`;
 }

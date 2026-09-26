@@ -4,11 +4,17 @@ import { buildAnchorContext, type Anchor, type ThreadState } from '@local-review
 import { ensureExcluded, gitUserName } from './git';
 import type { Log } from './log';
 import { toLineRange } from './range';
-import { applyThreadState, awaitsUser, threadRange, type RenderContext } from './render';
+import { applyThreadState, awaitsUser, bodyText, LrComment, threadRange, type RenderContext } from './render';
 import { Roots, type Root } from './roots';
 import { watchThreads } from './watcher';
 
 export const CONTROLLER_ID = 'local-review';
+
+/** Asks the user to confirm a destructive action. Replaceable in tests. */
+export type ConfirmHandler = (message: string, detail: string, action: string) => Promise<boolean>;
+
+const modalConfirm: ConfirmHandler = async (message, detail, action) =>
+  (await vscode.window.showWarningMessage(message, { modal: true, detail }, action)) === action;
 
 interface Managed {
   state: ThreadState;
@@ -24,6 +30,7 @@ export class ReviewController implements vscode.Disposable {
   private readonly byThread = new WeakMap<vscode.CommentThread, string>();
   private readonly excludedRoots = new Set<string>();
   private watchers: vscode.Disposable[] = [];
+  confirm: ConfirmHandler = modalConfirm;
   private ctx: RenderContext;
 
   constructor(
@@ -133,6 +140,84 @@ export class ReviewController implements vscode.Disposable {
     }
   }
 
+  /** "Edit" on one of the user's comments: switches it to an inline editor. */
+  editComment(comment: LrComment): void {
+    const managed = this.managed.get(comment.threadId);
+    if (!managed || !comment.isUserComment || managed.state.readOnly) return;
+    comment.mode = vscode.CommentMode.Editing;
+    managed.thread.comments = [...managed.thread.comments];
+  }
+
+  /** "Save" under a comment being edited. VS Code has put the edited text in `comment.body`. */
+  async saveEdit(comment: LrComment): Promise<void> {
+    const managed = this.managed.get(comment.threadId);
+    if (!managed || !comment.isUserComment) return;
+    const text = bodyText(comment.body).trim();
+    if (text === '') {
+      void vscode.window.showWarningMessage('Local Review: a comment cannot be empty. Delete it instead.');
+      return;
+    }
+    try {
+      comment.mode = vscode.CommentMode.Preview; // leave edit mode so the refresh re-renders it
+      const state = await managed.root.store.editComment(comment.threadId, comment.commentId, text, 'user');
+      this.adopt(managed.root, state, managed.thread);
+    } catch (err) {
+      comment.mode = vscode.CommentMode.Editing;
+      managed.thread.comments = [...managed.thread.comments];
+      this.log.error('Failed to save the edit', err);
+      void vscode.window.showErrorMessage(`Local Review: the edit could not be saved (${String(err)}).`);
+    }
+  }
+
+  cancelEdit(comment: LrComment): void {
+    const managed = this.managed.get(comment.threadId);
+    if (!managed) return;
+    comment.restore();
+    managed.thread.comments = [...managed.thread.comments];
+  }
+
+  /** "Delete" on one of the user's comments. The last comment takes the thread with it. */
+  async deleteComment(comment: LrComment): Promise<void> {
+    const managed = this.managed.get(comment.threadId);
+    if (!managed || !comment.isUserComment || managed.state.readOnly) return;
+    const isLast = managed.state.comments.length === 1;
+    const confirmed = await this.confirm(
+      'Delete this comment?',
+      isLast ? 'It is the only comment of the thread: the thread will be deleted too.' : 'It will no longer be shown.',
+      'Delete',
+    );
+    if (!confirmed) return;
+    try {
+      const state = await managed.root.store.deleteComment(comment.threadId, comment.commentId, 'user');
+      if (state.deleted) this.forget(state.id);
+      else this.adopt(managed.root, state, managed.thread);
+    } catch (err) {
+      this.log.error('Failed to delete the comment', err);
+      void vscode.window.showErrorMessage(`Local Review: the comment could not be deleted (${String(err)}).`);
+    }
+  }
+
+  /** "Delete Thread" in the thread header: the whole conversation, agent replies included. */
+  async deleteThread(thread: vscode.CommentThread): Promise<void> {
+    const threadId = this.byThread.get(thread);
+    const managed = threadId ? this.managed.get(threadId) : undefined;
+    if (!threadId || !managed || managed.state.readOnly) return;
+    const n = managed.state.comments.length;
+    const confirmed = await this.confirm(
+      'Delete this thread?',
+      `Its ${n} comment${n > 1 ? 's' : ''}, including the agent's replies, will no longer be shown.`,
+      'Delete Thread',
+    );
+    if (!confirmed) return;
+    try {
+      await managed.root.store.deleteThread(threadId, 'user');
+      this.forget(threadId);
+    } catch (err) {
+      this.log.error('Failed to delete the thread', err);
+      void vscode.window.showErrorMessage(`Local Review: the thread could not be deleted (${String(err)}).`);
+    }
+  }
+
   /** Re-reads one journal after it changed on disk, whoever wrote it. */
   async refreshThread(root: Root, threadId: string): Promise<void> {
     let state: ThreadState | null;
@@ -147,8 +232,7 @@ export class ReviewController implements vscode.Disposable {
 
     const existing = this.managed.get(threadId);
     if (!state || state.deleted) {
-      existing?.thread.dispose();
-      this.managed.delete(threadId);
+      this.forget(threadId);
       return;
     }
     if (!existing) {
@@ -175,6 +259,11 @@ export class ReviewController implements vscode.Disposable {
   dispose(): void {
     this.disposeWatchers();
     this.controller.dispose();
+  }
+
+  private forget(threadId: string): void {
+    this.managed.get(threadId)?.thread.dispose();
+    this.managed.delete(threadId);
   }
 
   private disposeWatchers(): void {

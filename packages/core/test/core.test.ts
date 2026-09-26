@@ -391,3 +391,77 @@ describe('Store — user replies (US-03)', () => {
     expect(parsed.warnings).toEqual([]); // no interleaved or torn lines
   });
 });
+
+describe('Store — edit and delete (US-05)', () => {
+  let root: string;
+  let store: Store;
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'lr-core-'));
+    store = new Store(root);
+  });
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const withAgentReply = async () => {
+    const t = await store.createThread(anchor(), { author: 'user', body: 'first', reviewId: null });
+    return store.addComment(t.id, { author: 'agent', agent: 'Claude', body: 'answer', reviewId: null });
+  };
+
+  it('edits the user own comment and marks it edited', async () => {
+    const t = await withAgentReply();
+    const s = await store.editComment(t.id, t.comments[0]!.id, '  first, reworded  ', 'user');
+    expect(s.comments[0]).toMatchObject({ body: 'first, reworded' });
+    expect(s.comments[0]!.editedAt).toBeDefined();
+    expect(s.comments[1]!.editedAt).toBeUndefined();
+  });
+
+  it('writes nothing when the text did not change', async () => {
+    const t = await withAgentReply();
+    const before = await readFile(store.threadFile(t.id), 'utf8');
+    await store.editComment(t.id, t.comments[0]!.id, 'first', 'user');
+    expect(await readFile(store.threadFile(t.id), 'utf8')).toBe(before);
+  });
+
+  it('refuses to edit or delete someone else’s comment, or an empty edit', async () => {
+    const t = await withAgentReply();
+    const agentComment = t.comments[1]!.id;
+    await expect(store.editComment(t.id, agentComment, 'mine now', 'user')).rejects.toThrow(/own comments/);
+    await expect(store.deleteComment(t.id, agentComment, 'user')).rejects.toThrow(/own comments/);
+    await expect(store.editComment(t.id, t.comments[0]!.id, '  ', 'user')).rejects.toThrow(/empty/);
+    await expect(store.deleteComment(t.id, 'c_missing', 'user')).rejects.toThrow(/not found/);
+  });
+
+  it('deletes a comment and keeps the thread', async () => {
+    const t = await withAgentReply();
+    const extra = await store.addComment(t.id, { author: 'user', body: 'typo', reviewId: null });
+    const s = await store.deleteComment(t.id, extra.comments[2]!.id, 'user');
+    expect(s.deleted).toBe(false);
+    expect(s.comments.map((c) => c.body)).toEqual(['first', 'answer']);
+  });
+
+  it('deletes the thread with its last comment', async () => {
+    const t = await store.createThread(anchor(), { author: 'user', body: 'alone', reviewId: null });
+    const s = await store.deleteComment(t.id, t.comments[0]!.id, 'user');
+    expect(s.deleted).toBe(true);
+    expect((await store.loadAll()).threads).toEqual([]);
+  });
+
+  it('deletes a whole thread, agent replies included, and keeps its journal', async () => {
+    const t = await withAgentReply();
+    const s = await store.deleteThread(t.id, 'user');
+    expect(s.deleted).toBe(true);
+    expect((await store.loadAll()).threads).toEqual([]);
+    const types = (await readFile(store.threadFile(t.id), 'utf8')).trimEnd().split('\n').map((l) => JSON.parse(l).type);
+    expect(types).toEqual(['thread.created', 'comment.added', 'comment.added', 'thread.deleted']);
+  });
+
+  it('only lets the user delete a thread, and never writes to a deleted one', async () => {
+    const t = await withAgentReply();
+    await expect(store.deleteThread(t.id, 'agent')).rejects.toThrow(/Only the user/);
+    await store.deleteThread(t.id, 'user');
+    await expect(store.addComment(t.id, { author: 'agent', agent: 'Claude', body: 'late', reviewId: null })).rejects.toThrow(
+      /not found/,
+    );
+  });
+});

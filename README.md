@@ -27,6 +27,8 @@ Reply in the thread with **Reply** (or `Cmd+Enter`). Replying to a question, or 
 
 Only you can close a thread: **Resolve** (✓ in the thread header) marks it resolved and collapses it, and **Reopen** hands it back to the agent. The Comments panel can filter resolved threads out. Replying in a resolved thread reopens it.
 
+You can **Edit** or **Delete** your own comments (the agent's are read-only), and **Delete Thread** from its header. Deleting asks for confirmation; deleting the last comment deletes the thread. Deleted threads disappear from VS Code, but the history stays in the journal.
+
 Until the first agent integration ships, **Local Review (dev): Simulate Agent Reply** writes a reply as the agent from a separate process, through the same path a real integration will use.
 
 ## Development
