@@ -61,10 +61,11 @@ export class SessionsUi implements vscode.Disposable {
     }
     this.statusBar.text =
       others.length === 0
-        ? `$(hubot) ${only.agent}${only.branch ? ` · ${only.branch}` : ''}`
-        : `$(hubot) ${this.relevant.length} agent sessions`;
+        ? `$(hubot) ${only.agent}${only.branch ? ` · ${only.branch}` : ''}${only.push === false ? ' $(warning)' : ''}`
+        : `$(hubot) ${this.relevant.length} agent sessions${this.relevant.some((s) => s.push === false) ? ' $(warning)' : ''}`;
     this.statusBar.tooltip = new vscode.MarkdownString(
       ['**Local Review: agent sessions of this workspace**', ...this.relevant.map(describe)].join('\n\n'),
+      true,
     );
     this.statusBar.show();
   }
@@ -81,7 +82,7 @@ export class SessionsUi implements vscode.Disposable {
     const sorted = [...this.all].sort((a, b) => Number(relevant.has(b.id)) - Number(relevant.has(a.id)));
     await vscode.window.showQuickPick(
       sorted.map((s) => ({
-        label: `$(hubot) ${s.agent}${s.branch ? ` · ${s.branch}` : ''}`,
+        label: `$(hubot) ${s.agent}${s.branch ? ` · ${s.branch}` : ''}${s.push === false ? ' $(warning)' : ''}`,
         description: relevant.has(s.id) ? 'this workspace' : undefined,
         detail: s.cwd,
       })),
@@ -91,5 +92,8 @@ export class SessionsUi implements vscode.Disposable {
 }
 
 function describe(s: Session): string {
-  return `${s.agent}${s.branch ? ` · \`${s.branch}\`` : ''} — ${s.cwd}`;
+  const line = `${s.agent}${s.branch ? ` · \`${s.branch}\`` : ''} — ${s.cwd}`;
+  if (s.push !== false) return line;
+  const fix = s.pushCommand ? ` Relaunch it with \`${s.pushCommand}\`.` : '';
+  return `${line}\n\n$(warning) Can't be notified of your comments: it sees them when you ask it.${fix}`;
 }

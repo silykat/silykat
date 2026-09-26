@@ -54,6 +54,14 @@ interface Managed {
 }
 
 /** A reply from the agent that arrived while VS Code was running. */
+/** Comments the user made visible to the agent: to hand over to its session. */
+export interface Publication {
+  root: string;
+  kind: 'comment' | 'reply' | 'review';
+  threadIds: string[];
+  reviewId?: string;
+}
+
 export interface AgentReply {
   threadId: string;
   agentName: string;
@@ -96,6 +104,9 @@ export class ReviewController implements vscode.Disposable {
   private readonly agentReplied = new vscode.EventEmitter<AgentReply>();
   /** Fires when an agent comments in a thread (written by another process, picked up by the watcher). */
   readonly onDidReceiveAgentReply = this.agentReplied.event;
+  private readonly published = new vscode.EventEmitter<Publication>();
+  /** Fires when the user publishes comments: a direct comment, a reply outside a review, a review. */
+  readonly onDidPublish = this.published.event;
   private watchers: vscode.Disposable[] = [];
   confirm: ConfirmHandler = modalConfirm;
   choose: ChooseHandler = warningChoice;
@@ -182,6 +193,7 @@ export class ReviewController implements vscode.Disposable {
         this.addAlias(state.id, thread);
       }
       await this.excludeFromGit(root);
+      if (!reviewId) this.published.fire({ root: root.path, kind: 'comment', threadIds: [state.id] });
     } catch (err) {
       this.log.error('Failed to save the comment', err);
       void vscode.window.showErrorMessage(`Local Review: the comment could not be saved (${String(err)}).`);
@@ -199,6 +211,7 @@ export class ReviewController implements vscode.Disposable {
       const reviewId = opts.draft ? (await this.ensureReview(managed.root)).id : null;
       const state = await managed.root.store.addComment(threadId, { author: 'user', body: text, reviewId });
       this.adopt(managed.root, state, managed.thread);
+      if (!reviewId) this.published.fire({ root: managed.root.path, kind: 'reply', threadIds: [threadId] });
     } catch (err) {
       this.log.error('Failed to save the reply', err);
       void vscode.window.showErrorMessage(`Local Review: the reply could not be saved (${String(err)}).`);
@@ -236,10 +249,12 @@ export class ReviewController implements vscode.Disposable {
     const review = this.activeReviews.get(root.path);
     if (!review) return 0;
     const published = this.draftCount(root);
+    const threadIds = this.pendingThreads(root).map((t) => t.id);
     await root.store.submitReview(review.id, summary);
     this.setActiveReview(root, null);
     this.updateReviewContext();
     await this.refreshRoot(root);
+    if (threadIds.length > 0) this.published.fire({ root: root.path, kind: 'review', threadIds, reviewId: review.id });
     return published;
   }
 
@@ -277,7 +292,6 @@ export class ReviewController implements vscode.Disposable {
     return this.pendingThreads(root).reduce((n, t) => n + t.state.comments.filter((c) => c.isDraft).length, 0);
   }
 
-  /** Opens a thread's file, scrolls to it and expands it. */
   /**
    * Opens a thread's file, scrolls to it and expands it. When the file no longer exists (and was not
    * renamed), offers to resolve or delete the thread instead: there is nothing to open.
@@ -847,6 +861,7 @@ export class ReviewController implements vscode.Disposable {
   dispose(): void {
     this.changed.dispose();
     this.agentReplied.dispose();
+    this.published.dispose();
     this.settleTimers.forEach(clearTimeout);
     this.disposeWatchers();
     this.controller.dispose();

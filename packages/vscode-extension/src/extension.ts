@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { AgentRepliesUi, type Notifier } from './agentReplies';
 import { ReviewController, type ChooseHandler, type ConfirmHandler } from './controller';
 import { simulateAgentReply, type SimulateArgs } from './dev/simulateAgentReply';
+import { DeliveriesUi, type Warner } from './deliveries';
 import { createLog } from './log';
 import type { LrComment } from './render';
 import { ReviewUi, type SummaryPrompt } from './review';
@@ -30,6 +31,8 @@ export interface LocalReviewApi {
   refreshSessions(): Promise<{ statusText: string | undefined; all: string[]; relevant: string[] }>;
   /** Tests only: the agent sessions shown right now, as last polled. */
   shownSessions(): string[];
+  /** Tests only: capture the warnings about deliveries (return the action to click). */
+  setDeliveryWarner(warner: Warner | undefined): void;
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<LocalReviewApi> {
@@ -38,7 +41,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
   const reviewUi = new ReviewUi(review);
   const agentReplies = new AgentRepliesUi(review);
   const sessions = new SessionsUi();
-  context.subscriptions.push(log, review, reviewUi, agentReplies, sessions);
+  const deliveries = new DeliveriesUi(review, log);
+  context.subscriptions.push(log, review, reviewUi, agentReplies, sessions, deliveries);
 
   context.subscriptions.push(
     vscode.commands.registerCommand('localReview.commentSelection', () =>
@@ -90,6 +94,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
   const defaultChoose = review.choose;
   const defaultSummaryPrompt = reviewUi.promptSummary;
   const defaultNotifier = agentReplies.notify;
+  const defaultWarner = deliveries.warn;
   await review.reload();
   log.info('Local Review activated');
 
@@ -114,6 +119,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
     },
     awaitingStatusText: () => agentReplies.statusText,
     awaitingUser: () => review.awaitingUser(),
+    setDeliveryWarner: (warner) => {
+      deliveries.warn = warner ?? defaultWarner;
+    },
     shownSessions: () => sessions.sessions.relevant.map((s) => s.id),
     refreshSessions: async () => {
       await sessions.refresh();
