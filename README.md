@@ -60,6 +60,16 @@ Then, in any session, run **`/local-review:review`** (or ask Claude to handle yo
 
 **Sessions register themselves.** Every Claude session started with the plugin registers with Local Review (hooks at session start and end), with its folder and git branch, and records the files it writes. VS Code shows the sessions of your workspace in the status bar (**Claude · feature-x**), and **Local Review: Show Agent Sessions** lists every running session. A session that ends or crashes disappears within seconds. The registry lives in `~/.local-review/sessions/` (or `$LOCAL_REVIEW_HOME`).
 
+**Publishing is enough.** Launch Claude Code with the plugin's **channel** on, and every comment you publish in VS Code (a direct comment, a reply, a submitted review) goes to the session working on that folder by itself: Claude starts on it within seconds when it waits for you, or right after its current turn when it is busy. Comments published close together arrive as one message. Channels are a Claude Code research preview, so for now the launch command is:
+
+```sh
+claude --dangerously-load-development-channels plugin:local-review@local-review
+```
+
+An alias saves typing it, e.g. in `~/.zshrc`: `alias claude-lr='claude --dangerously-load-development-channels plugin:local-review@local-review'`. Claude Code then shows a warning about development channels at each launch: pick **I am using this for local development**. The first time Claude handles comments on its own, it asks to use the `local-review:review` skill: allow it for good.
+
+A session launched without the channel still receives the comments, but only sees them when you ask it (`/local-review:review`). VS Code tells you so once, with the command to relaunch it, and marks the session with a warning sign in the status bar. Deliveries go to each session's inbox, next to its registry entry.
+
 `lr` on its own:
 
 ```sh
@@ -71,12 +81,12 @@ lr set-status <thread-id> needs-info --agent Claude
 
 ## Architecture
 
-| Folder                      | Purpose                                                                                                                                                                                   | May depend on |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
-| `packages/core`             | Data model, journals, stores, re-anchoring                                                                                                                                                | nothing       |
-| `packages/cli`              | `lr`, the entry point for every agent                                                                                                                                                     | `core`        |
-| `packages/vscode-extension` | The VS Code extension                                                                                                                                                                     | `core`        |
-| `adapters/claude-code`      | Everything specific to Claude Code: the plugin (manifest, skill, hooks) and the hooks' source; its bundles (`plugin/bin/lr`, `plugin/hooks/local-review-hook.js`) are built and committed | `core`, `cli` |
+| Folder                      | Purpose                                                                                                                                                                                                                                                                | May depend on |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| `packages/core`             | Data model, journals, stores, re-anchoring                                                                                                                                                                                                                             | nothing       |
+| `packages/cli`              | `lr`, the entry point for every agent                                                                                                                                                                                                                                  | `core`        |
+| `packages/vscode-extension` | The VS Code extension                                                                                                                                                                                                                                                  | `core`        |
+| `adapters/claude-code`      | Everything specific to Claude Code: the plugin (manifest, skill, hooks, channel) and the sources of its hooks and channel server; its bundles (`plugin/bin/lr`, `plugin/hooks/local-review-hook.js`, `plugin/channel/local-review-channel.js`) are built and committed | `core`, `cli` |
 
 Neutral packages never depend on an adapter. `npm test` checks these rules (`scripts/check-boundaries.mjs`).
 
