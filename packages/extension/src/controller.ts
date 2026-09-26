@@ -6,11 +6,14 @@ import {
   buildAnchorContext,
   reanchor,
   type Anchor,
+  type AnchorSide,
+  type DiffInfo,
   type LineRange,
   type ReviewState,
   type ThreadState,
 } from '@local-review/core';
-import { ensureExcluded, gitUserName } from './git';
+import { ensureExcluded, gitUserName, resolveCommit } from './git';
+import { anchorRef, isIndexRef, parseGitQuery } from './gitUri';
 import type { Log } from './log';
 import { toLineRange, toZeroBasedLines } from './range';
 import { applyThreadState, awaitsUser, bodyText, LrComment, threadRange, type RenderContext } from './render';
@@ -32,7 +35,16 @@ const modalConfirm: ConfirmHandler = async (message, detail, action) =>
 interface Managed {
   state: ThreadState;
   root: Root;
+  /** The canonical instance: on the file, or on the exact git version the thread is about. */
   thread: vscode.CommentThread;
+}
+
+/** Where a new thread's anchor points, before its lines are known. */
+type AnchorBase = Pick<Anchor, 'path' | 'source' | 'ref' | 'sha' | 'diff'>;
+
+/** URI of a version of a file as the built-in git extension builds it (query = {path, ref}). */
+function gitUri(fsPath: string, ref: string): vscode.Uri {
+  return vscode.Uri.file(fsPath).with({ scheme: 'git', query: JSON.stringify({ path: fsPath, ref }) });
 }
 
 /** Owns the comment controller and keeps VS Code threads in sync with the stores. */
@@ -49,6 +61,12 @@ export class ReviewController implements vscode.Disposable {
   private readonly outdated = new Set<string>();
   /** The review in progress in each root, by root path. */
   private readonly activeReviews = new Map<string, ReviewState>();
+  /**
+   * Extra instances of git threads, by thread id then URI: a diff may show the version a thread
+   * is about under another URI than its canonical one (e.g. `HEAD` instead of the sha, or the
+   * index as `""` instead of `~`). They exist while such a document is open.
+   */
+  private readonly aliases = new Map<string, Map<string, vscode.CommentThread>>();
   private readonly changed = new vscode.EventEmitter<void>();
   /** Fires when threads, drafts or reviews change (e.g. for the status bar). */
   readonly onDidChange = this.changed.event;
@@ -75,6 +93,8 @@ export class ReviewController implements vscode.Disposable {
   async reload(): Promise<void> {
     for (const m of this.managed.values()) m.thread.dispose();
     this.managed.clear();
+    this.aliases.forEach((byUri) => byUri.forEach((t) => t.dispose()));
+    this.aliases.clear();
     this.liveRanges.clear();
     this.outdated.clear();
     this.activeReviews.clear();
@@ -104,6 +124,7 @@ export class ReviewController implements vscode.Disposable {
       }
     }
     this.updateReviewContext();
+    await Promise.all(vscode.workspace.textDocuments.map((doc) => this.attachAliases(doc)));
   }
 
   /** Handler of the "Comment" / "Comment Now" buttons (or "Add to Review" with `draft`) under a new thread's input. */
@@ -112,28 +133,32 @@ export class ReviewController implements vscode.Disposable {
     const text = reply.text.trim();
     if (text === '' || this.byThread.has(thread)) return;
 
-    const root = this.roots.forFile(thread.uri.fsPath);
-    if (thread.uri.scheme !== 'file' || !root) {
-      void vscode.window.showErrorMessage('Local Review: this file is not part of any workspace folder.');
-      return;
-    }
     if (!thread.range) {
       void vscode.window.showWarningMessage('Local Review: file-level comments are not supported yet.');
       return;
     }
 
     try {
+      const target = await this.anchorBaseFor(thread.uri);
+      if (typeof target === 'string') {
+        void vscode.window.showErrorMessage(`Local Review: ${target}`);
+        return;
+      }
+      const { root, base } = target;
       const doc = await vscode.workspace.openTextDocument(thread.uri);
       const anchor: Anchor = {
-        path: Roots.anchorPath(root, thread.uri.fsPath),
-        source: 'worktree',
-        ref: null,
-        sha: null,
+        ...base,
         ...buildAnchorContext(doc.getText(), toLineRange(thread.range.start, thread.range.end)),
       };
       const reviewId = opts.draft ? (await this.ensureReview(root)).id : null;
       const state = await root.store.createThread(anchor, { author: 'user', body: text, reviewId });
-      this.adopt(root, state, thread);
+      if (this.threadUri(root, state.anchor).toString() === thread.uri.toString()) {
+        this.adopt(root, state, thread);
+      } else {
+        // Typed on another URI of the same version (e.g. `HEAD`): keep it as an alias of the canonical thread.
+        this.render(root, state);
+        this.addAlias(state.id, thread);
+      }
       await this.excludeFromGit(root);
     } catch (err) {
       this.log.error('Failed to save the comment', err);
@@ -151,7 +176,7 @@ export class ReviewController implements vscode.Disposable {
     try {
       const reviewId = opts.draft ? (await this.ensureReview(managed.root)).id : null;
       const state = await managed.root.store.addComment(threadId, { author: 'user', body: text, reviewId });
-      this.adopt(managed.root, state, reply.thread);
+      this.adopt(managed.root, state, managed.thread);
     } catch (err) {
       this.log.error('Failed to save the reply', err);
       void vscode.window.showErrorMessage(`Local Review: the reply could not be saved (${String(err)}).`);
@@ -223,7 +248,7 @@ export class ReviewController implements vscode.Disposable {
   async reveal(threadId: string): Promise<void> {
     const m = this.managed.get(threadId);
     if (!m) return;
-    const editor = await vscode.window.showTextDocument(vscode.Uri.file(this.fsPathOf(m)), { preview: false });
+    const editor = await vscode.window.showTextDocument(this.threadUri(m.root, m.state.anchor), { preview: false });
     if (m.thread.range) {
       editor.revealRange(m.thread.range, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
       editor.selection = new vscode.Selection(m.thread.range.start, m.thread.range.start);
@@ -273,11 +298,13 @@ export class ReviewController implements vscode.Disposable {
 
     try {
       const state = await managed.root.store.setStatus(threadId, status, 'user');
-      this.adopt(managed.root, state, thread);
-      thread.collapsibleState =
-        status === 'resolved'
-          ? vscode.CommentThreadCollapsibleState.Collapsed
-          : vscode.CommentThreadCollapsibleState.Expanded;
+      this.adopt(managed.root, state, managed.thread);
+      for (const t of this.instancesOf(threadId)) {
+        t.collapsibleState =
+          status === 'resolved'
+            ? vscode.CommentThreadCollapsibleState.Collapsed
+            : vscode.CommentThreadCollapsibleState.Expanded;
+      }
     } catch (err) {
       this.log.error(`Failed to set thread status to ${status}`, err);
       void vscode.window.showErrorMessage(`Local Review: the thread could not be updated (${String(err)}).`);
@@ -420,6 +447,11 @@ export class ReviewController implements vscode.Disposable {
 
   /** Moves the threads of an edited document. Unsaved positions stay in memory until the file is saved. */
   private onDocumentChanged(e: vscode.TextDocumentChangeEvent): void {
+    if (e.document.uri.scheme === 'git') {
+      // A symbolic version moved (e.g. HEAD after a commit): the document shows another commit now.
+      void this.reattachAliases(e.document);
+      return;
+    }
     if (e.contentChanges.length === 0) return;
     const changes = e.contentChanges.map((c) => ({
       startLine: c.range.start.line,
@@ -502,6 +534,11 @@ export class ReviewController implements vscode.Disposable {
   }
 
   private async onDocumentOpened(doc: vscode.TextDocument): Promise<void> {
+    if (doc.uri.scheme === 'git') {
+      await this.attachAliases(doc);
+      await this.reanchorOnIndex(doc);
+      return;
+    }
     if (doc.uri.scheme !== 'file' || doc.isDirty) return;
     for (const m of this.trackedThreadsOf(doc.uri)) {
       if (!this.liveRanges.has(m.state.id)) await this.reanchorFromText(m.root, m.state.id, doc.getText());
@@ -510,6 +547,10 @@ export class ReviewController implements vscode.Disposable {
 
   /** Closing without saving drops unsaved positions: back to what matches the file on disk. */
   private async onDocumentClosed(doc: vscode.TextDocument): Promise<void> {
+    if (doc.uri.scheme === 'git') {
+      this.detachAliases(doc.uri);
+      return;
+    }
     for (const m of this.trackedThreadsOf(doc.uri)) {
       if (!this.liveRanges.delete(m.state.id)) continue;
       const range = threadRange(m.state);
@@ -612,6 +653,8 @@ export class ReviewController implements vscode.Disposable {
   /** Snapshot for tests and diagnostics. */
   listThreads(): {
     id: string;
+    /** Canonical URI first, then aliases. */
+    uris: string[];
     rootPath: string;
     state: ThreadState;
     thread: vscode.CommentThread;
@@ -622,6 +665,7 @@ export class ReviewController implements vscode.Disposable {
       rootPath: m.root.path,
       state: m.state,
       thread: m.thread,
+      uris: this.instancesOf(id).map((t) => t.uri.toString()),
       outdated: this.outdated.has(id),
     }));
   }
@@ -636,6 +680,8 @@ export class ReviewController implements vscode.Disposable {
   private forget(threadId: string): void {
     this.managed.get(threadId)?.thread.dispose();
     this.managed.delete(threadId);
+    this.aliases.get(threadId)?.forEach((t) => t.dispose());
+    this.aliases.delete(threadId);
     this.liveRanges.delete(threadId);
     this.outdated.delete(threadId);
     this.changed.fire();
@@ -647,12 +693,130 @@ export class ReviewController implements vscode.Disposable {
   }
 
   private commentingRanges(doc: vscode.TextDocument): vscode.Range[] {
-    if (doc.uri.scheme !== 'file' || !this.roots.isCommentable(doc.uri.fsPath)) return [];
+    const fsPath = this.commentedFile(doc.uri);
+    if (!fsPath || !this.roots.isCommentable(fsPath)) return [];
     return [new vscode.Range(0, 0, Math.max(0, doc.lineCount - 1), 0)];
   }
 
+  /** The workspace file a document shows: itself, or the file of a git version. */
+  private commentedFile(uri: vscode.Uri): string | undefined {
+    if (uri.scheme === 'file') return uri.fsPath;
+    if (uri.scheme === 'git') return parseGitQuery(uri.query)?.fsPath;
+    return undefined;
+  }
+
+  /** Canonical URI of a thread: the file, the index, or the exact commit of a git version. */
+  private threadUri(root: Root, anchor: Anchor): vscode.Uri {
+    const fsPath = join(root.path, ...anchor.path.split('/'));
+    if (anchor.source === 'worktree') return vscode.Uri.file(fsPath);
+    return gitUri(fsPath, anchor.ref === '~' ? '~' : (anchor.sha ?? anchor.ref ?? 'HEAD'));
+  }
+
+  /** Where a new thread's anchor points: the working tree file, or a git version of it. */
+  private async anchorBaseFor(uri: vscode.Uri): Promise<{ root: Root; base: AnchorBase } | string> {
+    const fsPath = this.commentedFile(uri);
+    const root = fsPath ? this.roots.forFile(fsPath) : undefined;
+    if (!fsPath || !root) return 'this file is not part of any workspace folder.';
+    const side = await this.sideOf(uri);
+    if (!side) return 'this version of the file cannot be resolved in git.';
+    return { root, base: { path: Roots.anchorPath(root, fsPath), ...side, diff: await this.diffInfoFor(uri) } };
+  }
+
+  /** Which version a document shows. `null` when a git ref cannot be resolved. */
+  private async sideOf(uri: vscode.Uri): Promise<AnchorSide | null> {
+    if (uri.scheme === 'file') return { source: 'worktree', ref: null, sha: null };
+    const parsed = uri.scheme === 'git' ? parseGitQuery(uri.query) : null;
+    const root = parsed ? this.roots.forFile(parsed.fsPath) : undefined;
+    if (!parsed || !root) return null;
+    if (isIndexRef(parsed.ref)) return { source: 'git', ref: '~', sha: null };
+    const sha = await resolveCommit(root.path, parsed.ref);
+    return sha ? { source: 'git', ref: anchorRef(parsed.ref), sha } : null;
+  }
+
+  /** The diff a document is a side of, if it is shown in one. */
+  private async diffInfoFor(uri: vscode.Uri): Promise<DiffInfo | undefined> {
+    const key = uri.toString();
+    for (const tab of vscode.window.tabGroups.all.flatMap((g) => g.tabs)) {
+      const input = tab.input;
+      if (!(input instanceof vscode.TabInputTextDiff)) continue;
+      const side = input.original.toString() === key ? 'base' : input.modified.toString() === key ? 'head' : undefined;
+      if (!side) continue;
+      const [base, head] = await Promise.all([this.sideOf(input.original), this.sideOf(input.modified)]);
+      if (base && head) return { side, base, head };
+    }
+    return undefined;
+  }
+
+  /** Canonical instance and aliases of a thread. */
+  private instancesOf(threadId: string): vscode.CommentThread[] {
+    const m = this.managed.get(threadId);
+    return [...(m ? [m.thread] : []), ...(this.aliases.get(threadId)?.values() ?? [])];
+  }
+
+  private addAlias(threadId: string, thread: vscode.CommentThread): void {
+    const m = this.managed.get(threadId);
+    if (!m) return;
+    let byUri = this.aliases.get(threadId);
+    if (!byUri) this.aliases.set(threadId, (byUri = new Map()));
+    const key = thread.uri.toString();
+    const previous = byUri.get(key);
+    if (previous && previous !== thread) previous.dispose();
+    byUri.set(key, thread);
+    this.byThread.set(thread, threadId);
+    this.adopt(m.root, m.state, m.thread);
+  }
+
+  /** Shows the git threads about the version this document shows, when it uses another URI. */
+  private async attachAliases(doc: vscode.TextDocument): Promise<void> {
+    if (doc.uri.scheme !== 'git') return;
+    const side = await this.sideOf(doc.uri);
+    const fsPath = this.commentedFile(doc.uri);
+    const root = fsPath ? this.roots.forFile(fsPath) : undefined;
+    if (!side || !fsPath || !root) return;
+    const path = Roots.anchorPath(root, fsPath);
+    const key = doc.uri.toString();
+    for (const m of this.managed.values()) {
+      const a = m.state.anchor;
+      const sameVersion =
+        a.source === 'git' && a.path === path && (a.ref === '~' ? side.ref === '~' : a.sha === side.sha);
+      if (!sameVersion || m.thread.uri.toString() === key || this.aliases.get(m.state.id)?.has(key)) continue;
+      const alias = this.controller.createCommentThread(doc.uri, m.thread.range ?? new vscode.Range(0, 0, 0, 0), []);
+      alias.collapsibleState =
+        m.state.status === 'resolved'
+          ? vscode.CommentThreadCollapsibleState.Collapsed
+          : vscode.CommentThreadCollapsibleState.Expanded;
+      this.addAlias(m.state.id, alias);
+    }
+  }
+
+  private async reattachAliases(doc: vscode.TextDocument): Promise<void> {
+    this.detachAliases(doc.uri);
+    await this.attachAliases(doc);
+  }
+
+  private detachAliases(uri: vscode.Uri): void {
+    const key = uri.toString();
+    for (const byUri of this.aliases.values()) {
+      byUri.get(key)?.dispose();
+      byUri.delete(key);
+    }
+  }
+
+  /** The index changes as files are staged: index threads find their code again, like worktree ones. */
+  private async reanchorOnIndex(doc: vscode.TextDocument): Promise<void> {
+    const parsed = parseGitQuery(doc.uri.query);
+    const root = parsed ? this.roots.forFile(parsed.fsPath) : undefined;
+    if (!parsed || !root || !isIndexRef(parsed.ref)) return;
+    const path = Roots.anchorPath(root, parsed.fsPath);
+    for (const m of [...this.managed.values()]) {
+      if (m.state.anchor.source === 'git' && m.state.anchor.ref === '~' && m.state.anchor.path === path) {
+        await this.reanchorFromText(root, m.state.id, doc.getText());
+      }
+    }
+  }
+
   private render(root: Root, state: ThreadState): void {
-    const uri = vscode.Uri.joinPath(vscode.Uri.file(root.path), ...state.anchor.path.split('/'));
+    const uri = this.threadUri(root, state.anchor);
     const range = threadRange(state) ?? new vscode.Range(0, 0, 0, 0);
     const thread = this.controller.createCommentThread(uri, range, []);
     thread.collapsibleState =
@@ -678,6 +842,10 @@ export class ReviewController implements vscode.Disposable {
       thread.range = new vscode.Range(start, 0, end, 0);
     }
     applyThreadState(thread, state, this.ctx, { outdated });
+    for (const alias of this.aliases.get(state.id)?.values() ?? []) {
+      alias.range = thread.range;
+      applyThreadState(alias, state, this.ctx, { outdated });
+    }
     this.managed.set(state.id, { state, root, thread });
     this.byThread.set(thread, state.id);
     this.changed.fire();

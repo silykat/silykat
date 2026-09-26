@@ -1,4 +1,5 @@
 import type { ThreadState } from '@local-review/core';
+import { versionTag } from './gitUri';
 
 // Pure (no `vscode` import) so that labels can be unit-tested.
 
@@ -9,8 +10,9 @@ export const DEFAULT_AGENT_NAME = 'Claude';
 export function threadLabel(state: ThreadState, outdated = false): string | undefined {
   // Nobody but the user sees a draft-only thread yet: its status means nothing so far.
   const status = state.onlyDrafts ? 'Pending' : statusLabel(state);
-  if (!outdated) return status;
-  return status ? `⚠️ Outdated · ${status}` : '⚠️ Outdated';
+  // A thread on an older version (a side of a diff) says which one: "Index", "HEAD a92bf1e"…
+  const parts = [outdated ? '⚠️ Outdated' : undefined, versionTag(state.anchor), status].filter(Boolean);
+  return parts.length > 0 ? parts.join(' · ') : undefined;
 }
 
 /**

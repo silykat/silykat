@@ -10,6 +10,12 @@ export function git(args: string[], cwd: string): Promise<string | null> {
   });
 }
 
+/** Full sha of the commit a ref points to, or `null` if it cannot be resolved. */
+export async function resolveCommit(cwd: string, ref: string): Promise<string | null> {
+  const sha = await git(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], cwd);
+  return sha && /^[0-9a-f]{40,64}$/.test(sha) ? sha : null;
+}
+
 export async function gitUserName(cwd: string): Promise<string | null> {
   const name = await git(['config', 'user.name'], cwd);
   return name || null;
