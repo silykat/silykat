@@ -9,5 +9,7 @@ await esbuild.build({
   platform: 'node',
   target: 'node20',
   banner: { js: '#!/usr/bin/env node' },
+  // Reproducible output wherever the build runs from (paths in comments are relative to this folder).
+  absWorkingDir: new URL('.', import.meta.url).pathname,
   logLevel: 'warning',
 });

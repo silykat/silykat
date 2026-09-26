@@ -1,7 +1,15 @@
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { agentView, findStoreRoot, Store, type AgentThreadView, type ThreadStatus } from '@local-review/core';
+import {
+  agentView,
+  findStoreRoot,
+  localReviewHome,
+  SessionRegistry,
+  Store,
+  type AgentThreadView,
+  type ThreadStatus,
+} from '@local-review/core';
 import { locate, renderReviews, renderThread, type Located } from './digest';
 
 export interface Io {
@@ -27,6 +35,12 @@ Usage:
            [--status addressed|needs-info]
   lr set-status <thread-id> addressed|needs-info --agent <name>
 
+Sessions (used by agent integrations to register themselves):
+  lr sessions [--format md|json]          Running agent sessions on this machine
+  lr session register --id <id> --agent <name> --cwd <dir> [--branch <b>] [--pid <n>]
+  lr session unregister --id <id>
+  lr session touch --id <id> <file>       The session wrote this file
+
 Options:
   --root <dir>    Folder holding .local-review/ (default: found from the current directory)
   --agent <name>  Your display name in the threads (default: $LR_AGENT)
@@ -48,6 +62,10 @@ export async function runCli(args: string[], io: Io): Promise<number> {
         return await reply(rest, io);
       case 'set-status':
         return await setStatus(rest, io);
+      case 'sessions':
+        return await sessions(rest, io);
+      case 'session':
+        return await session(rest, io);
       case undefined:
       case 'help':
       case '--help':
@@ -195,6 +213,65 @@ async function setStatus(rest: string[], io: Io): Promise<number> {
   );
   io.out(`${state.id} is now ${state.status}.`);
   return EXIT.OK;
+}
+
+const registryFor = (io: Io) => new SessionRegistry(localReviewHome(io.env));
+
+async function sessions(rest: string[], io: Io): Promise<number> {
+  const { values } = parse(rest, { format: { type: 'string' } });
+  const list = await registryFor(io).list();
+  if (str(values.format) === 'json') {
+    io.out(JSON.stringify(list, null, 2));
+    return EXIT.OK;
+  }
+  if (list.length === 0) {
+    io.out('No agent session is running.');
+    return EXIT.OK;
+  }
+  io.out(list.map((x) => `${x.agent} · ${x.branch ?? 'no branch'} · ${x.cwd} (${x.id})`).join('\n'));
+  return EXIT.OK;
+}
+
+async function session(rest: string[], io: Io): Promise<number> {
+  const [action, ...args] = rest;
+  const { values, positionals } = parse(args, {
+    id: { type: 'string' },
+    agent: { type: 'string' },
+    cwd: { type: 'string' },
+    branch: { type: 'string' },
+    pid: { type: 'string' },
+  });
+  const id = str(values.id);
+  if (!id) throw new UsageError('missing --id <session id>');
+  const registry = registryFor(io);
+  switch (action) {
+    case 'register': {
+      const pid = str(values.pid) === undefined ? null : Number(str(values.pid));
+      if (pid !== null && !Number.isInteger(pid)) throw new UsageError('--pid must be a process id');
+      await registry.register({
+        id,
+        agent: requireAgent(str(values.agent), io),
+        cwd: resolve(io.cwd, str(values.cwd) ?? '.'),
+        branch: str(values.branch) ?? null,
+        pid,
+        startedAt: new Date().toISOString(),
+      });
+      io.out(`Session ${id} registered.`);
+      return EXIT.OK;
+    }
+    case 'unregister':
+      await registry.unregister(id);
+      io.out(`Session ${id} unregistered.`);
+      return EXIT.OK;
+    case 'touch': {
+      const file = positionals[0];
+      if (!file) throw new UsageError('missing <file>');
+      await registry.touch(id, resolve(io.cwd, file));
+      return EXIT.OK;
+    }
+    default:
+      throw new UsageError(`unknown session action: ${action ?? '(none)'}`);
+  }
 }
 
 function requireThreadId(positionals: string[]): string {

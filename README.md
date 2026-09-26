@@ -58,6 +58,8 @@ The repository is private for now: this needs git access to it. To get a newer v
 
 Then, in any session, run **`/local-review:review`** (or ask Claude to handle your review comments). Claude reads the threads waiting for it, changes the code, and replies in each thread: **addressed** when done, **needs-info** when it asks you a question. Its replies show up live in VS Code. Only you resolve threads.
 
+**Sessions register themselves.** Every Claude session started with the plugin registers with Local Review (hooks at session start and end), with its folder and git branch, and records the files it writes. VS Code shows the sessions of your workspace in the status bar (**Claude · feature-x**), and **Local Review: Show Agent Sessions** lists every running session. A session that ends or crashes disappears within seconds. The registry lives in `~/.local-review/sessions/` (or `$LOCAL_REVIEW_HOME`).
+
 `lr` on its own:
 
 ```sh
@@ -69,18 +71,18 @@ lr set-status <thread-id> needs-info --agent Claude
 
 ## Architecture
 
-| Folder                      | Purpose                                                                                                                | May depend on |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------- |
-| `packages/core`             | Data model, journals, stores, re-anchoring                                                                             | nothing       |
-| `packages/cli`              | `lr`, the entry point for every agent                                                                                  | `core`        |
-| `packages/vscode-extension` | The VS Code extension                                                                                                  | `core`        |
-| `adapters/claude-code`      | Everything specific to Claude Code: the plugin (manifest, skill; the bundled `lr` goes to `plugin/bin/` at build time) | `core`, `cli` |
+| Folder                      | Purpose                                                                                                                                                                                   | May depend on |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| `packages/core`             | Data model, journals, stores, re-anchoring                                                                                                                                                | nothing       |
+| `packages/cli`              | `lr`, the entry point for every agent                                                                                                                                                     | `core`        |
+| `packages/vscode-extension` | The VS Code extension                                                                                                                                                                     | `core`        |
+| `adapters/claude-code`      | Everything specific to Claude Code: the plugin (manifest, skill, hooks) and the hooks' source; its bundles (`plugin/bin/lr`, `plugin/hooks/local-review-hook.js`) are built and committed | `core`, `cli` |
 
 Neutral packages never depend on an adapter. `npm test` checks these rules (`scripts/check-boundaries.mjs`).
 
 ## Development
 
-To work on the plugin, load it from your checkout instead: `npm run build:claude-plugin`, then `claude --plugin-dir adapters/claude-code/plugin`. The bundled `lr` in `plugin/bin/` is committed, so that the plugin installs from git: `npm test` fails when it is out of date.
+To work on the plugin, load it from your checkout instead: `npm run build:claude-plugin`, then `claude --plugin-dir adapters/claude-code/plugin`. Its bundles (`plugin/bin/lr`, `plugin/hooks/local-review-hook.js`) are committed, so that the plugin installs from git: `npm test` fails when they are out of date.
 
 Requirements: Node ≥ 20 and the `code` command on your PATH.
 

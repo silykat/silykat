@@ -7,3 +7,5 @@ export * from './store';
 export * from './reanchor';
 export * from './agentView';
 export * from './anchorVersion';
+export * from './sessions';
+export * from './routing';

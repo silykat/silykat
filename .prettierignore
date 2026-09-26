@@ -8,3 +8,4 @@ package-lock.json
 *.vsix
 # Generated bundles, committed so that the plugin installs from git
 adapters/claude-code/plugin/bin/
+adapters/claude-code/plugin/hooks/*.js

@@ -5,6 +5,7 @@ import { simulateAgentReply, type SimulateArgs } from './dev/simulateAgentReply'
 import { createLog } from './log';
 import type { LrComment } from './render';
 import { ReviewUi, type SummaryPrompt } from './review';
+import { SessionsUi } from './sessions';
 
 export interface LocalReviewApi {
   readonly controller: vscode.CommentController;
@@ -25,6 +26,10 @@ export interface LocalReviewApi {
   /** Tests only: the "waiting for your reply" status bar text, `undefined` when hidden. */
   awaitingStatusText(): string | undefined;
   awaitingUser: ReviewController['awaitingUser'];
+  /** Tests only: the agent sessions shown, after re-reading the registry. */
+  refreshSessions(): Promise<{ statusText: string | undefined; all: string[]; relevant: string[] }>;
+  /** Tests only: the agent sessions shown right now, as last polled. */
+  shownSessions(): string[];
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<LocalReviewApi> {
@@ -32,7 +37,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
   const review = new ReviewController(log, context.extensionUri);
   const reviewUi = new ReviewUi(review);
   const agentReplies = new AgentRepliesUi(review);
-  context.subscriptions.push(log, review, reviewUi, agentReplies);
+  const sessions = new SessionsUi();
+  context.subscriptions.push(log, review, reviewUi, agentReplies, sessions);
 
   context.subscriptions.push(
     vscode.commands.registerCommand('localReview.commentSelection', () =>
@@ -108,6 +114,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
     },
     awaitingStatusText: () => agentReplies.statusText,
     awaitingUser: () => review.awaitingUser(),
+    shownSessions: () => sessions.sessions.relevant.map((s) => s.id),
+    refreshSessions: async () => {
+      await sessions.refresh();
+      return {
+        statusText: sessions.statusText,
+        all: sessions.sessions.all.map((s) => s.id),
+        relevant: sessions.sessions.relevant.map((s) => s.id),
+      };
+    },
   };
 }
 

@@ -226,3 +226,42 @@ describe('lr show / usage', () => {
     expect(lines.map((l) => JSON.parse(l).type)).toEqual(['thread.created', 'comment.added', 'comment.added']);
   });
 });
+
+describe('lr sessions', () => {
+  it('registers, lists, touches and unregisters sessions in LOCAL_REVIEW_HOME', async () => {
+    const env = { LOCAL_REVIEW_HOME: join(root, 'home') };
+    expect((await lr(['sessions'], { env })).out).toContain('No agent session is running');
+
+    const reg = await lr(
+      ['session', 'register', '--id', 'abc-123', '--agent', 'Claude', '--cwd', 'src', '--branch', 'feature-x'],
+      { env },
+    );
+    expect(reg.code).toBe(EXIT.OK);
+    await lr(['session', 'touch', '--id', 'abc-123', 'src/find.ts'], { env });
+
+    const listed = JSON.parse((await lr(['sessions', '--format', 'json'], { env })).out);
+    expect(listed).toMatchObject([
+      {
+        id: 'abc-123',
+        agent: 'Claude',
+        cwd: join(root, 'src'),
+        branch: 'feature-x',
+        pid: null,
+        touched: [join(root, 'src', 'find.ts')],
+      },
+    ]);
+    expect((await lr(['sessions'], { env })).out).toContain('Claude · feature-x');
+
+    await lr(['session', 'unregister', '--id', 'abc-123'], { env });
+    expect((await lr(['sessions'], { env })).out).toContain('No agent session is running');
+  });
+
+  it('rejects bad input', async () => {
+    const env = { LOCAL_REVIEW_HOME: join(root, 'home') };
+    expect((await lr(['session', 'register', '--agent', 'Claude'], { env })).err).toContain('--id');
+    expect((await lr(['session', 'register', '--id', 'x', '--agent', 'Claude', '--pid', 'abc'], { env })).code).toBe(
+      EXIT.ERROR,
+    );
+    expect((await lr(['session', 'fly', '--id', 'x'], { env })).code).toBe(EXIT.ERROR);
+  });
+});

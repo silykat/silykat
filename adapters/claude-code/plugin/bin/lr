@@ -2,8 +2,8 @@
 "use strict";
 
 // src/cli.ts
-var import_promises2 = require("node:fs/promises");
-var import_node_path4 = require("node:path");
+var import_promises3 = require("node:fs/promises");
+var import_node_path5 = require("node:path");
 var import_node_util = require("node:util");
 
 // ../core/src/types.ts
@@ -588,8 +588,116 @@ function versionTag(anchor) {
   return short ?? anchor.ref;
 }
 
-// src/digest.ts
+// ../core/src/sessions.ts
+var import_promises2 = require("node:fs/promises");
+var import_node_os = require("node:os");
 var import_node_path3 = require("node:path");
+function localReviewHome(env = process.env) {
+  return env.LOCAL_REVIEW_HOME?.trim() || (0, import_node_path3.join)((0, import_node_os.homedir)(), ".local-review");
+}
+var SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/;
+function isProcessAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err.code === "EPERM";
+  }
+}
+var SessionRegistry = class {
+  constructor(home = localReviewHome(), isAlive = isProcessAlive) {
+    this.isAlive = isAlive;
+    this.dir = (0, import_node_path3.join)(home, "sessions");
+  }
+  isAlive;
+  dir;
+  file(id, ext) {
+    if (!SESSION_ID.test(id)) throw new Error(`Invalid session id: ${id}`);
+    return (0, import_node_path3.join)(this.dir, ext === "json" ? `${id}.json` : `${id}.touched.jsonl`);
+  }
+  /** Registers (or refreshes) a session. Written atomically: readers never see half a file. */
+  async register(record) {
+    await (0, import_promises2.mkdir)(this.dir, { recursive: true });
+    const target = this.file(record.id, "json");
+    const tmp = `${target}.${process.pid}.tmp`;
+    await (0, import_promises2.writeFile)(tmp, JSON.stringify(record, null, 2) + "\n");
+    await (0, import_promises2.rename)(tmp, target);
+  }
+  async unregister(id) {
+    await (0, import_promises2.rm)(this.file(id, "json"), { force: true });
+    await (0, import_promises2.rm)(this.file(id, "touched"), { force: true });
+  }
+  /** Records that a session wrote a file. Appended, so concurrent hooks never lose an entry. */
+  async touch(id, absolutePath) {
+    await (0, import_promises2.mkdir)(this.dir, { recursive: true });
+    await (0, import_promises2.appendFile)(
+      this.file(id, "touched"),
+      JSON.stringify({ path: absolutePath, at: (/* @__PURE__ */ new Date()).toISOString() }) + "\n"
+    );
+  }
+  /** Running sessions. Sessions whose process is gone (e.g. after a crash) are removed on the way. */
+  async list() {
+    let names;
+    try {
+      names = (await (0, import_promises2.readdir)(this.dir)).filter((n) => n.endsWith(".json"));
+    } catch (err) {
+      if (err.code === "ENOENT") return [];
+      throw err;
+    }
+    const sessions2 = [];
+    for (const name of names.sort()) {
+      const record = await readRecord((0, import_node_path3.join)(this.dir, name));
+      if (!record || !SESSION_ID.test(record.id)) continue;
+      if (record.pid !== null && !this.isAlive(record.pid)) {
+        await this.unregister(record.id).catch(() => void 0);
+        continue;
+      }
+      sessions2.push({ ...record, touched: await this.readTouched(record.id) });
+    }
+    return sessions2;
+  }
+  async readTouched(id) {
+    let text;
+    try {
+      text = await (0, import_promises2.readFile)(this.file(id, "touched"), "utf8");
+    } catch {
+      return [];
+    }
+    const paths = [];
+    for (const line of text.split("\n")) {
+      try {
+        const { path } = JSON.parse(line);
+        if (typeof path === "string") paths.push(path);
+      } catch {
+      }
+    }
+    const order = /* @__PURE__ */ new Map();
+    for (const p of paths) {
+      order.delete(p);
+      order.set(p, true);
+    }
+    return [...order.keys()];
+  }
+};
+async function readRecord(file) {
+  try {
+    const raw = JSON.parse(await (0, import_promises2.readFile)(file, "utf8"));
+    if (typeof raw.id !== "string" || typeof raw.agent !== "string" || typeof raw.cwd !== "string") return null;
+    return {
+      id: raw.id,
+      agent: raw.agent,
+      cwd: raw.cwd,
+      branch: typeof raw.branch === "string" ? raw.branch : null,
+      pid: typeof raw.pid === "number" ? raw.pid : null,
+      startedAt: typeof raw.startedAt === "string" ? raw.startedAt : ""
+    };
+  } catch {
+    return null;
+  }
+}
+
+// src/digest.ts
+var import_node_path4 = require("node:path");
 function locate(view, fileText) {
   const a = view.thread.anchor;
   if (!a.range) return { view, range: null, code: "", outdated: false };
@@ -631,7 +739,7 @@ function fence(code, path, startLine) {
   const numbered = startLine === null ? code : code.split("\n").map((l, i) => `${startLine + i} | ${l}`).join("\n");
   const longest = Math.max(0, ...(numbered.match(/`+/g) ?? []).map((r) => r.length));
   const ticks = "`".repeat(Math.max(3, longest + 1));
-  return `${ticks}${LANGUAGES[(0, import_node_path3.extname)(path)] ?? ""}
+  return `${ticks}${LANGUAGES[(0, import_node_path4.extname)(path)] ?? ""}
 ${numbered}
 ${ticks}`;
 }
@@ -680,6 +788,12 @@ Usage:
            [--status addressed|needs-info]
   lr set-status <thread-id> addressed|needs-info --agent <name>
 
+Sessions (used by agent integrations to register themselves):
+  lr sessions [--format md|json]          Running agent sessions on this machine
+  lr session register --id <id> --agent <name> --cwd <dir> [--branch <b>] [--pid <n>]
+  lr session unregister --id <id>
+  lr session touch --id <id> <file>       The session wrote this file
+
 Options:
   --root <dir>    Folder holding .local-review/ (default: found from the current directory)
   --agent <name>  Your display name in the threads (default: $LR_AGENT)
@@ -700,6 +814,10 @@ async function runCli(args, io) {
         return await reply(rest, io);
       case "set-status":
         return await setStatus(rest, io);
+      case "sessions":
+        return await sessions(rest, io);
+      case "session":
+        return await session(rest, io);
       case void 0:
       case "help":
       case "--help":
@@ -731,7 +849,7 @@ function parse(rest, options) {
 }
 var str = (v) => typeof v === "string" ? v : void 0;
 function openStore(root, io) {
-  const dir = root ? (0, import_node_path4.resolve)(io.cwd, root) : findStoreRoot(io.cwd);
+  const dir = root ? (0, import_node_path5.resolve)(io.cwd, root) : findStoreRoot(io.cwd);
   if (!dir) throw new Error(`no .local-review/ found from ${io.cwd} (nothing has been commented yet?)`);
   return new Store(dir);
 }
@@ -745,7 +863,7 @@ async function visibleThreads(store) {
 async function readWorkingFile(store, view) {
   if (view.thread.anchor.source !== "worktree") return null;
   try {
-    return await (0, import_promises2.readFile)((0, import_node_path4.join)(store.root, ...view.thread.anchor.path.split("/")), "utf8");
+    return await (0, import_promises3.readFile)((0, import_node_path5.join)(store.root, ...view.thread.anchor.path.split("/")), "utf8");
   } catch {
     return null;
   }
@@ -809,7 +927,7 @@ async function reply(rest, io) {
   let body = str(values.body);
   if (body === "-") body = await io.readStdin();
   const bodyFile = str(values["body-file"]);
-  if (bodyFile) body = await (0, import_promises2.readFile)((0, import_node_path4.resolve)(io.cwd, bodyFile), "utf8");
+  if (bodyFile) body = await (0, import_promises3.readFile)((0, import_node_path5.resolve)(io.cwd, bodyFile), "utf8");
   if (body === void 0 || body.trim() === "") throw new UsageError("reply needs --body, --body-file or --body -");
   const state = await openStore(str(values.root), io).addComment(
     id,
@@ -831,6 +949,62 @@ async function setStatus(rest, io) {
   );
   io.out(`${state.id} is now ${state.status}.`);
   return EXIT.OK;
+}
+var registryFor = (io) => new SessionRegistry(localReviewHome(io.env));
+async function sessions(rest, io) {
+  const { values } = parse(rest, { format: { type: "string" } });
+  const list2 = await registryFor(io).list();
+  if (str(values.format) === "json") {
+    io.out(JSON.stringify(list2, null, 2));
+    return EXIT.OK;
+  }
+  if (list2.length === 0) {
+    io.out("No agent session is running.");
+    return EXIT.OK;
+  }
+  io.out(list2.map((x) => `${x.agent} \xB7 ${x.branch ?? "no branch"} \xB7 ${x.cwd} (${x.id})`).join("\n"));
+  return EXIT.OK;
+}
+async function session(rest, io) {
+  const [action, ...args] = rest;
+  const { values, positionals } = parse(args, {
+    id: { type: "string" },
+    agent: { type: "string" },
+    cwd: { type: "string" },
+    branch: { type: "string" },
+    pid: { type: "string" }
+  });
+  const id = str(values.id);
+  if (!id) throw new UsageError("missing --id <session id>");
+  const registry = registryFor(io);
+  switch (action) {
+    case "register": {
+      const pid = str(values.pid) === void 0 ? null : Number(str(values.pid));
+      if (pid !== null && !Number.isInteger(pid)) throw new UsageError("--pid must be a process id");
+      await registry.register({
+        id,
+        agent: requireAgent(str(values.agent), io),
+        cwd: (0, import_node_path5.resolve)(io.cwd, str(values.cwd) ?? "."),
+        branch: str(values.branch) ?? null,
+        pid,
+        startedAt: (/* @__PURE__ */ new Date()).toISOString()
+      });
+      io.out(`Session ${id} registered.`);
+      return EXIT.OK;
+    }
+    case "unregister":
+      await registry.unregister(id);
+      io.out(`Session ${id} unregistered.`);
+      return EXIT.OK;
+    case "touch": {
+      const file = positionals[0];
+      if (!file) throw new UsageError("missing <file>");
+      await registry.touch(id, (0, import_node_path5.resolve)(io.cwd, file));
+      return EXIT.OK;
+    }
+    default:
+      throw new UsageError(`unknown session action: ${action ?? "(none)"}`);
+  }
 }
 function requireThreadId(positionals) {
   const id = positionals[0];

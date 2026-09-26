@@ -4,7 +4,8 @@
   "workspaces": [
     "packages/core",
     "packages/cli",
-    "packages/vscode-extension"
+    "packages/vscode-extension",
+    "adapters/claude-code"
   ],
   "scripts": {
     "build": "npm run build -w packages/vscode-extension",
@@ -15,7 +16,7 @@
     "install-ext": "npm run package && code --install-extension packages/vscode-extension/dist/local-review.vsix --force",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "build:claude-plugin": "node adapters/claude-code/build.mjs"
+    "build:claude-plugin": "npm run build -w adapters/claude-code"
   },
   "devDependencies": {
     "@types/node": "^22.20.4",

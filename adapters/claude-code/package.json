@@ -1,0 +1,15 @@
+{
+  "name": "@local-review/claude-code",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Claude Code adapter of Local Review: builds the Claude Code plugin (skill, hooks, bundled lr).",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@local-review/cli": "0.1.0",
+    "@local-review/core": "0.1.0"
+  }
+}

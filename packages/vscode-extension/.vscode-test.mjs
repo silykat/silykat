@@ -12,7 +12,11 @@ writeFileSync(
   Array.from({ length: 30 }, (_, i) => `const line${i + 1} = ${i + 1};`).join('\n') + '\n',
 );
 
+// A private Local Review home: the tests' agent sessions never mix with real ones.
+const localReviewHome = mkdtempSync(join(tmpdir(), 'lr-home-'));
+
 export default defineConfig({
+  env: { LOCAL_REVIEW_HOME: localReviewHome },
   files: 'out/test/integration/**/*.test.js',
   workspaceFolder: workspace,
   version: 'stable',

@@ -75,6 +75,11 @@
         "category": "Local Review"
       },
       {
+        "command": "localReview.showSessions",
+        "title": "Show Agent Sessions",
+        "category": "Local Review"
+      },
+      {
         "command": "localReview.reviewMenu",
         "title": "Review Menu",
         "category": "Local Review"
