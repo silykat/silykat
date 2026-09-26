@@ -1,4 +1,5 @@
 import * as assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
@@ -146,6 +147,36 @@ describe('US-06 — the comment follows the code when the file changes', () => {
     await waitFor('VS Code to reload the file', () => (lines0(id)[0] === 22 ? true : undefined), 5000);
     const [update] = await waitFor('the anchor update', () => (anchorUpdates(id).length === 1 ? anchorUpdates(id) : undefined));
     assert.deepEqual(update.anchor.range, { startLine: 23, endLine: 25 });
+  });
+
+  it('survives git stash / git stash pop of edits above and inside the commented code (PM scenario)', async () => {
+    const git = (...args: string[]) =>
+      execFileSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.com', ...args], { cwd: ws, encoding: 'utf8' });
+    const { uri, doc } = await openFresh();
+    git('add', uri.fsPath);
+    git('commit', '-q', '-m', 'fixture', '--', uri.fsPath);
+
+    const id = await commentLines20to22(uri);
+    await edit(uri, (e) => e.insert(uri, new vscode.Position(0, 0), 'a\nb\nc\nd\ne\n'));
+    await edit(uri, (e) => e.replace(uri, new vscode.Range(25, 0, 25, 16), 'const v21 = 2100;')); // edit inside
+    await doc.save();
+    await waitFor('the saved position', () => (anchorUpdates(id).length === 1 ? true : undefined));
+    const saved = managed(id).state.anchor;
+    assert.deepEqual(saved.range, { startLine: 25, endLine: 27 });
+
+    git('stash', '-q');
+    await waitFor('VS Code to reload the stashed file', () => (doc.getText().startsWith('const v1 ') ? true : undefined), 5000);
+    await new Promise((r) => setTimeout(r, 800));
+    // The edited code is gone from the file: nothing is recorded, and the thread is not thrown to line 1.
+    assert.equal(anchorUpdates(id).length, 1, 'no position recorded while the code is missing');
+    assert.notEqual(lines0(id)[0], 0);
+    assert.deepEqual(managed(id).state.anchor, saved);
+
+    git('stash', 'pop', '-q');
+    await waitFor('VS Code to reload the popped file', () => (doc.getText().startsWith('a\n') ? true : undefined), 5000);
+    await new Promise((r) => setTimeout(r, 800));
+    assert.deepEqual(lines0(id), [24, 26], 'back on its code');
+    assert.deepEqual(managed(id).state.anchor, saved);
   });
 
   it('finds its code again when the file changed while VS Code was closed (AC 5)', async () => {

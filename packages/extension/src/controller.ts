@@ -267,7 +267,11 @@ export class ReviewController implements vscode.Disposable {
   trackDocuments(): vscode.Disposable {
     return vscode.Disposable.from(
       vscode.workspace.onDidChangeTextDocument((e) => this.onDocumentChanged(e)),
-      vscode.workspace.onDidSaveTextDocument((doc) => void this.persistPositions(doc)),
+      vscode.workspace.onDidSaveTextDocument((doc) => {
+        // The save records the tracked positions: a pending "clean again" check is superseded.
+        this.cancelSettle(doc);
+        void this.persistPositions(doc);
+      }),
       vscode.workspace.onDidOpenTextDocument((doc) => void this.onDocumentOpened(doc)),
       vscode.workspace.onDidCloseTextDocument((doc) => void this.onDocumentClosed(doc)),
     );
@@ -290,19 +294,39 @@ export class ReviewController implements vscode.Disposable {
       this.liveRanges.set(m.state.id, { startLine: next.start + 1, endLine: next.end + 1 });
       m.thread.range = new vscode.Range(next.start, 0, next.end, 0);
     }
-    // A document that is still clean once the change has settled matches the file on disk
-    // (reloaded after another tool changed it, or reverted): its positions can be recorded.
-    // The dirty flag is only reliable after a moment: right after the first edit of a clean
-    // document, it still says "clean".
+    // A document that is still clean once the change has settled was reloaded from disk
+    // (another tool changed the file, or the user reverted). The dirty flag is only reliable
+    // after a moment: right after the first edit of a clean document, it still says "clean".
     const key = e.document.uri.toString();
     clearTimeout(this.settleTimers.get(key));
     this.settleTimers.set(
       key,
       setTimeout(() => {
         this.settleTimers.delete(key);
-        if (!e.document.isDirty && !e.document.isClosed) void this.persistPositions(e.document);
+        if (!e.document.isDirty && !e.document.isClosed) void this.resyncWithDisk(e.document);
       }, SETTLE_MS),
     );
+  }
+
+  private cancelSettle(doc: vscode.TextDocument): void {
+    const key = doc.uri.toString();
+    clearTimeout(this.settleTimers.get(key));
+    this.settleTimers.delete(key);
+  }
+
+  /**
+   * After a reload from disk, line tracking cannot be trusted: VS Code applies the new content
+   * as ONE replacement between the common first and last lines (e.g. `git stash` of edits above
+   * and inside a thread replaces everything from line 1 down to the thread). So the tracked
+   * position is dropped and the code is searched for in the new content instead. Nothing is
+   * recorded when it is not found: the thread keeps its last recorded position.
+   */
+  private async resyncWithDisk(doc: vscode.TextDocument): Promise<void> {
+    const text = doc.getText();
+    for (const m of this.trackedThreadsOf(doc.uri)) {
+      if (this.liveRanges.delete(m.state.id)) this.adopt(m.root, m.state, m.thread);
+      await this.reanchorFromText(m.root, m.state.id, text);
+    }
   }
 
   private async onDocumentOpened(doc: vscode.TextDocument): Promise<void> {
