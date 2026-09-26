@@ -1,9 +1,17 @@
 import { appendFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { parseJournal, serializeEvents, type ThreadEvent } from './events';
-import { foldThread } from './fold';
-import { newCommentId, newThreadId } from './ids';
-import { SCHEMA_VERSION, STORE_DIR, type Anchor, type Author, type ThreadState, type ThreadStatus } from './types';
+import { parseJournal, parseReviewJournal, serializeEvents, type ReviewEvent, type ThreadEvent } from './events';
+import { foldReview, foldThread } from './fold';
+import { newCommentId, newReviewId, newThreadId } from './ids';
+import {
+  SCHEMA_VERSION,
+  STORE_DIR,
+  type Anchor,
+  type Author,
+  type ReviewState,
+  type ThreadState,
+  type ThreadStatus,
+} from './types';
 
 export interface NewComment {
   author: Author;
@@ -21,8 +29,11 @@ export interface ThreadLoadResult {
 
 export interface LoadResult {
   threads: ThreadState[];
+  reviews: ReviewState[];
   warnings: string[];
 }
+
+type Reviews = ReadonlyMap<string, ReviewState>;
 
 /** File-based store rooted at `<root>/.local-review/`. All writes are appends of whole events. */
 export class Store {
@@ -42,39 +53,94 @@ export class Store {
     return join(this.threadsDir, `${threadId}.jsonl`);
   }
 
+  get reviewsDir(): string {
+    return join(this.dir, 'reviews');
+  }
+
+  reviewFile(reviewId: string): string {
+    if (!REVIEW_ID.test(reviewId)) throw new Error(`Invalid review id: ${reviewId}`);
+    return join(this.reviewsDir, `${reviewId}.jsonl`);
+  }
+
   /** Thread id of a journal file name, or `null` if the name is not a thread journal. */
   static threadIdOf(fileName: string): string | null {
     const id = fileName.endsWith('.jsonl') ? fileName.slice(0, -'.jsonl'.length) : '';
     return THREAD_ID.test(id) ? id : null;
   }
 
-  /** Loads every non-deleted thread. A missing store is simply empty: reading never creates it. */
+  /** Loads every non-deleted thread and every review. A missing store is simply empty: reading never creates it. */
   async loadAll(): Promise<LoadResult> {
-    const warnings: string[] = [];
-    let files: string[];
-    try {
-      files = (await readdir(this.threadsDir)).filter((f) => f.endsWith('.jsonl')).sort();
-    } catch (err) {
-      if (isNotFound(err)) return { threads: [], warnings };
-      throw err;
-    }
-
+    const { reviews, warnings } = await this.loadReviews();
     const threads: ThreadState[] = [];
-    for (const file of files) {
-      const { state, warnings: w } = await this.readJournal(join(this.threadsDir, file), `threads/${file}`);
+    for (const file of await listJournals(this.threadsDir)) {
+      const { state, warnings: w } = await this.readJournal(join(this.threadsDir, file), `threads/${file}`, reviews);
       warnings.push(...w);
       if (state && !state.deleted) threads.push(state);
     }
-    return { threads, warnings };
+    return { threads, reviews: [...reviews.values()], warnings };
   }
 
   async loadThread(threadId: string): Promise<ThreadLoadResult> {
+    const { reviews } = await this.loadReviews();
     try {
-      return await this.readJournal(this.threadFile(threadId), `threads/${threadId}.jsonl`);
+      return await this.readJournal(this.threadFile(threadId), `threads/${threadId}.jsonl`, reviews);
     } catch (err) {
       if (isNotFound(err)) return { state: null, warnings: [] };
       throw err;
     }
+  }
+
+  async loadReviews(): Promise<{ reviews: Map<string, ReviewState>; warnings: string[] }> {
+    const reviews = new Map<string, ReviewState>();
+    const warnings: string[] = [];
+    for (const file of await listJournals(this.reviewsDir)) {
+      const label = `reviews/${file}`;
+      const parsed = parseReviewJournal(await readFile(join(this.reviewsDir, file), 'utf8'), label);
+      warnings.push(...parsed.warnings);
+      const state = foldReview(parsed.events);
+      if (state) reviews.set(state.id, state);
+      else warnings.push(`${label}: no review.started event, file skipped`);
+    }
+    return { reviews, warnings };
+  }
+
+  /** The review in progress, if any. There is at most one per store (V1). */
+  async activeReview(): Promise<ReviewState | null> {
+    const { reviews } = await this.loadReviews();
+    return latestActive(reviews);
+  }
+
+  /** Starts a review, or returns the one already in progress. */
+  async startReview(): Promise<ReviewState> {
+    const active = await this.activeReview();
+    if (active) return active;
+    await this.ensureInitialized();
+    const reviewId = newReviewId();
+    const event: ReviewEvent = {
+      v: SCHEMA_VERSION,
+      type: 'review.started',
+      at: new Date().toISOString(),
+      by: 'user',
+      reviewId,
+    };
+    await appendFile(this.reviewFile(reviewId), serializeEvents([event]), { flag: 'a' });
+    return foldReview([event])!;
+  }
+
+  /** Publishes a review: its draft comments become visible to the agent. */
+  async submitReview(reviewId: string, summary?: string): Promise<ReviewState> {
+    await this.assertActiveReview(reviewId);
+    const text = summary?.trim();
+    const event: ReviewEvent = {
+      v: SCHEMA_VERSION,
+      type: 'review.submitted',
+      at: new Date().toISOString(),
+      by: 'user',
+      ...(text ? { summary: text } : {}),
+    };
+    await appendFile(this.reviewFile(reviewId), serializeEvents([event]), { flag: 'a' });
+    const { reviews } = await this.loadReviews();
+    return reviews.get(reviewId)!;
   }
 
   /**
@@ -88,7 +154,8 @@ export class Store {
     const body = c.body.trim();
     if (body === '') throw new Error('Comment body is empty');
     if (opts.status) assertCanSetStatus(opts.status, c.author);
-    const current = await this.writableThread(threadId);
+    if (c.reviewId !== null) await this.assertCanDraft(c.reviewId, c.author);
+    const current = await this.writableThread(threadId, c.author);
 
     const who = actor(c.author, c.agent);
     const reopens = c.author === 'user' && c.reviewId === null && current.status !== 'open';
@@ -104,7 +171,7 @@ export class Store {
   async setStatus(threadId: string, status: ThreadStatus, by: Author, agent?: string): Promise<ThreadState> {
     assertCanSetStatus(status, by);
     const who = actor(by, agent);
-    await this.writableThread(threadId);
+    await this.writableThread(threadId, by);
     const event: ThreadEvent = {
       v: SCHEMA_VERSION,
       type: 'status.changed',
@@ -118,7 +185,7 @@ export class Store {
   /** Records where the thread's code now is (after the file changed). */
   async updateAnchor(threadId: string, anchor: Anchor, by: Author, agent?: string): Promise<ThreadState> {
     const who = actor(by, agent);
-    await this.writableThread(threadId);
+    await this.writableThread(threadId, by);
     const event: ThreadEvent = {
       v: SCHEMA_VERSION,
       type: 'anchor.updated',
@@ -140,7 +207,7 @@ export class Store {
     const text = body.trim();
     if (text === '') throw new Error('Comment body is empty');
     const who = actor(by, agent);
-    const current = await this.writableThread(threadId);
+    const current = await this.writableThread(threadId, by);
     assertOwnComment(current, commentId, by);
     if (current.comments.find((c) => c.id === commentId)!.body === text) return current;
     const event: ThreadEvent = {
@@ -160,7 +227,7 @@ export class Store {
    */
   async deleteComment(threadId: string, commentId: string, by: Author, agent?: string): Promise<ThreadState> {
     const who = actor(by, agent);
-    const current = await this.writableThread(threadId);
+    const current = await this.writableThread(threadId, by);
     assertOwnComment(current, commentId, by);
     const at = new Date().toISOString();
     const events: ThreadEvent[] = [{ v: SCHEMA_VERSION, type: 'comment.deleted', at, ...who, commentId }];
@@ -174,14 +241,17 @@ export class Store {
    */
   async deleteThread(threadId: string, by: Author): Promise<ThreadState> {
     if (by !== 'user') throw new Error('Only the user can delete a thread');
-    await this.writableThread(threadId);
+    await this.writableThread(threadId, by);
     const event: ThreadEvent = { v: SCHEMA_VERSION, type: 'thread.deleted', at: new Date().toISOString(), by };
     return this.appendAndReload(threadId, [event]);
   }
 
-  private async writableThread(threadId: string): Promise<ThreadState> {
+  /** A thread `by` may write to. Agents never see threads that only hold drafts. */
+  private async writableThread(threadId: string, by: Author): Promise<ThreadState> {
     const { state } = await this.loadThread(threadId);
-    if (!state || state.deleted) throw new Error(`Thread not found: ${threadId}`);
+    if (!state || state.deleted || (by === 'agent' && !state.hasPublished)) {
+      throw new Error(`Thread not found: ${threadId}`);
+    }
     if (state.readOnly) throw new Error(`Thread ${threadId} was written by a newer version and is read-only`);
     return state;
   }
@@ -193,10 +263,23 @@ export class Store {
     return state;
   }
 
-  private async readJournal(file: string, label: string): Promise<ThreadLoadResult> {
+  /** Drafts belong to the user: only the user writes them, and only in the review in progress. */
+  private async assertCanDraft(reviewId: string, by: Author): Promise<void> {
+    if (by !== 'user') throw new Error('Only the user writes draft comments');
+    await this.assertActiveReview(reviewId);
+  }
+
+  private async assertActiveReview(reviewId: string): Promise<void> {
+    const { reviews } = await this.loadReviews();
+    const review = reviews.get(reviewId);
+    if (!review) throw new Error(`Review not found: ${reviewId}`);
+    if (review.state !== 'active') throw new Error(`Review ${reviewId} is already ${review.state}`);
+  }
+
+  private async readJournal(file: string, label: string, reviews: Reviews): Promise<ThreadLoadResult> {
     const text = await readFile(file, 'utf8');
     const parsed = parseJournal(text, label);
-    const state = foldThread(parsed.events, { futureVersion: parsed.futureVersion });
+    const state = foldThread(parsed.events, { futureVersion: parsed.futureVersion, reviews });
     const warnings = [...parsed.warnings];
     if (!state) warnings.push(`${label}: no thread.created event, file skipped`);
     return { state, warnings };
@@ -205,6 +288,7 @@ export class Store {
   async createThread(anchor: Anchor, first: NewComment): Promise<ThreadState> {
     const body = first.body.trim();
     if (body === '') throw new Error('Comment body is empty');
+    if (first.reviewId !== null) await this.assertCanDraft(first.reviewId, first.author);
     await this.ensureInitialized();
 
     const who = actor(first.author, first.agent);
@@ -224,14 +308,15 @@ export class Store {
     ];
     // One write for both events: the thread never exists half-created.
     await appendFile(this.threadFile(threadId), serializeEvents(events), { flag: 'a' });
-    const state = foldThread(events);
+    const { reviews } = await this.loadReviews();
+    const state = foldThread(events, { reviews });
     if (!state) throw new Error('unreachable: freshly created thread failed to fold');
     return state;
   }
 
   private async ensureInitialized(): Promise<void> {
     await mkdir(this.threadsDir, { recursive: true });
-    await mkdir(join(this.dir, 'reviews'), { recursive: true });
+    await mkdir(this.reviewsDir, { recursive: true });
     try {
       await writeFile(join(this.dir, 'schema-version'), `${SCHEMA_VERSION}\n`, { flag: 'wx' });
     } catch (err) {
@@ -241,6 +326,23 @@ export class Store {
 }
 
 const THREAD_ID = /^t_[0-9A-HJKMNP-TV-Z]{26}$/;
+const REVIEW_ID = /^r_[0-9A-HJKMNP-TV-Z]{26}$/;
+
+/** Journal file names of a directory, sorted; empty when the directory does not exist. */
+async function listJournals(dir: string): Promise<string[]> {
+  try {
+    return (await readdir(dir)).filter((f) => f.endsWith('.jsonl')).sort();
+  } catch (err) {
+    if (isNotFound(err)) return [];
+    throw err;
+  }
+}
+
+function latestActive(reviews: Reviews): ReviewState | null {
+  const active = [...reviews.values()].filter((r) => r.state === 'active');
+  active.sort((a, b) => b.startedAt.localeCompare(a.startedAt) || b.id.localeCompare(a.id));
+  return active[0] ?? null;
+}
 
 /** `by` and `agent` fields of an event. Agents must always say who they are. */
 function actor(by: Author, agent: string | undefined): { by: Author; agent?: string } {

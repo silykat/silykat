@@ -57,7 +57,7 @@ export class LrComment implements vscode.Comment {
         : { name: c.agentName ?? DEFAULT_AGENT_NAME, iconPath: ctx.agentIcon };
     this.timestamp = new Date(c.createdAt);
     this.contextValue = commentContextValue(c);
-    this.label = c.editedAt ? 'edited' : undefined;
+    this.label = [c.isDraft ? 'Pending' : '', c.editedAt ? 'edited' : ''].filter(Boolean).join(' · ') || undefined;
   }
 
   /** Switches to the inline editor, on the stored text only (never the rendering prefix). */

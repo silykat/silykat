@@ -192,7 +192,7 @@ describe('Store', () => {
 
   it('treats a missing store as empty and does not create it', async () => {
     const store = new Store(root);
-    expect(await store.loadAll()).toEqual({ threads: [], warnings: [] });
+    expect(await store.loadAll()).toEqual({ threads: [], reviews: [], warnings: [] });
     expect(await readdir(root)).toEqual([]);
   });
 
@@ -416,7 +416,8 @@ describe('Store — user replies (US-03)', () => {
   it('does not reopen for a draft reply (it is published later, with the review)', async () => {
     const t = await store.createThread(anchor(), { author: 'user', body: 'q', reviewId: null });
     await store.setStatus(t.id, 'addressed', 'agent', 'Claude');
-    const s = await store.addComment(t.id, { author: 'user', body: 'draft', reviewId: 'r_1' });
+    const review = await store.startReview();
+    const s = await store.addComment(t.id, { author: 'user', body: 'draft', reviewId: review.id });
     expect(s.status).toBe('addressed');
   });
 
@@ -614,5 +615,88 @@ describe('reanchor — whitespace changes (US-07)', () => {
   it('never matches a blank-only snippet loosely', () => {
     const blank = { ...at(1, 1), snippet: '   ', range: { startLine: 1, endLine: 1 } };
     expect(reanchor(blank, file(BASE))).toEqual({ kind: 'lost' });
+  });
+});
+
+describe('Store — review mode (US-08)', () => {
+  let root: string;
+  let store: Store;
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'lr-core-'));
+    store = new Store(root);
+  });
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it('starts one review at a time', async () => {
+    expect(await store.activeReview()).toBeNull();
+    const r = await store.startReview();
+    expect(r).toMatchObject({ state: 'active' });
+    expect(r.id).toMatch(/^r_/);
+    expect(await store.startReview()).toEqual(r);
+    expect(await store.activeReview()).toEqual(r);
+  });
+
+  it('keeps draft comments as drafts until the review is submitted', async () => {
+    const r = await store.startReview();
+    const t = await store.createThread(anchor(), { author: 'user', body: 'draft one', reviewId: r.id });
+    expect(t).toMatchObject({ onlyDrafts: true, hasPublished: false });
+    expect(t.comments[0]!.isDraft).toBe(true);
+
+    const reloaded = await new Store(root).loadAll();
+    expect(reloaded.threads[0]!.comments[0]!.isDraft).toBe(true);
+    expect(reloaded.reviews.map((x) => x.state)).toEqual(['active']);
+
+    const submitted = await store.submitReview(r.id, '  Overall: looks good  ');
+    expect(submitted).toMatchObject({ state: 'submitted', summary: 'Overall: looks good' });
+    expect(submitted.submittedAt).toBeDefined();
+    const after = (await store.loadThread(t.id)).state!;
+    expect(after).toMatchObject({ onlyDrafts: false, hasPublished: true });
+    expect(after.comments[0]!.isDraft).toBe(false);
+    expect(await store.activeReview()).toBeNull();
+  });
+
+  it('omits an empty summary', async () => {
+    const r = await store.startReview();
+    expect((await store.submitReview(r.id, '   ')).summary).toBeUndefined();
+  });
+
+  it('only accepts drafts from the user, in the review in progress', async () => {
+    const t = await store.createThread(anchor(), { author: 'user', body: 'published', reviewId: null });
+    await expect(
+      store.addComment(t.id, { author: 'user', body: 'x', reviewId: 'r_00000000000000000000000000' }),
+    ).rejects.toThrow(/Review not found/);
+    const r = await store.startReview();
+    await expect(
+      store.addComment(t.id, { author: 'agent', agent: 'Claude', body: 'x', reviewId: r.id }),
+    ).rejects.toThrow(/Only the user/);
+    await store.submitReview(r.id);
+    await expect(store.addComment(t.id, { author: 'user', body: 'late', reviewId: r.id })).rejects.toThrow(
+      /already submitted/,
+    );
+    await expect(store.submitReview(r.id)).rejects.toThrow(/already submitted/);
+  });
+
+  it('hides threads that only hold drafts from the agent (AC 9)', async () => {
+    const r = await store.startReview();
+    const t = await store.createThread(anchor(), { author: 'user', body: 'draft', reviewId: r.id });
+    await expect(
+      store.addComment(t.id, { author: 'agent', agent: 'Claude', body: 'hi', reviewId: null }),
+    ).rejects.toThrow(/Thread not found/);
+    await expect(store.setStatus(t.id, 'addressed', 'agent', 'Claude')).rejects.toThrow(/Thread not found/);
+    await store.submitReview(r.id);
+    expect(
+      (await store.addComment(t.id, { author: 'agent', agent: 'Claude', body: 'hi', reviewId: null })).comments,
+    ).toHaveLength(2);
+  });
+
+  it('reads review journals tolerantly', async () => {
+    const r = await store.startReview();
+    await writeFile(store.reviewFile(r.id), 'garbage\n', { flag: 'a' });
+    const { reviews, warnings } = await store.loadReviews();
+    expect(reviews.get(r.id)!.state).toBe('active');
+    expect(warnings).toHaveLength(1);
+    expect(() => store.reviewFile('../x')).toThrow(/Invalid review id/);
   });
 });

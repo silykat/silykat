@@ -31,23 +31,47 @@ const THREAD_EVENT_TYPES: ReadonlySet<string> = new Set<ThreadEventType>([
   'thread.deleted',
 ]);
 
-export function serializeEvents(events: readonly ThreadEvent[]): string {
+/** Events of a review journal (`reviews/<id>.jsonl`). */
+export type ReviewEvent = BaseEvent &
+  (
+    | { type: 'review.started'; reviewId: string }
+    /** `summary` is the optional overall comment, like a GitHub review body. */
+    | { type: 'review.submitted'; summary?: string }
+    | { type: 'review.discarded' }
+  );
+
+const REVIEW_EVENT_TYPES: ReadonlySet<string> = new Set<ReviewEvent['type']>([
+  'review.started',
+  'review.submitted',
+  'review.discarded',
+]);
+
+export function serializeEvents(events: readonly (ThreadEvent | ReviewEvent)[]): string {
   return events.map((e) => JSON.stringify(e) + '\n').join('');
 }
 
-export interface ParsedJournal {
-  events: ThreadEvent[];
+export interface ParsedJournal<E = ThreadEvent> {
+  events: E[];
   warnings: string[];
   /** At least one event comes from a newer schema version. */
   futureVersion: boolean;
 }
 
 /**
- * Parses a JSONL journal. Invalid lines are skipped with a warning; a trailing
+ * Parses a thread journal. Invalid lines are skipped with a warning; a trailing
  * line without `\n` is an interrupted write and is ignored silently.
  */
-export function parseJournal(text: string, source = 'journal'): ParsedJournal {
-  const events: ThreadEvent[] = [];
+export function parseJournal(text: string, source = 'journal'): ParsedJournal<ThreadEvent> {
+  return parseEvents<ThreadEvent>(text, source, THREAD_EVENT_TYPES);
+}
+
+/** Parses a review journal, with the same tolerance as `parseJournal`. */
+export function parseReviewJournal(text: string, source = 'review'): ParsedJournal<ReviewEvent> {
+  return parseEvents<ReviewEvent>(text, source, REVIEW_EVENT_TYPES);
+}
+
+function parseEvents<E>(text: string, source: string, types: ReadonlySet<string>): ParsedJournal<E> {
+  const events: E[] = [];
   const warnings: string[] = [];
   let futureVersion = false;
 
@@ -77,11 +101,11 @@ export function parseJournal(text: string, source = 'journal'): ParsedJournal {
       raw.by = 'agent';
       raw.agent ??= 'Claude';
     }
-    if (!THREAD_EVENT_TYPES.has(raw.type)) {
+    if (!types.has(raw.type)) {
       warnings.push(`${source}:${i + 1}: unknown event type "${raw.type}", line skipped`);
       return;
     }
-    events.push(raw as unknown as ThreadEvent);
+    events.push(raw as unknown as E);
   });
 
   return { events, warnings, futureVersion };

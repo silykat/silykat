@@ -3,6 +3,7 @@ import { ReviewController, type ConfirmHandler } from './controller';
 import { simulateAgentReply, type SimulateArgs } from './dev/simulateAgentReply';
 import { createLog } from './log';
 import type { LrComment } from './render';
+import { ReviewUi, type SummaryPrompt } from './review';
 
 export interface LocalReviewApi {
   readonly controller: vscode.CommentController;
@@ -10,12 +11,18 @@ export interface LocalReviewApi {
   listThreads: ReviewController['listThreads'];
   /** Tests only: answer confirmation dialogs without showing them. */
   setConfirmHandler(handler: ConfirmHandler | undefined): void;
+  /** Tests only: answer the review summary prompt without showing it (`undefined` = Esc). */
+  setSummaryPrompt(prompt: SummaryPrompt | undefined): void;
+  /** Tests only: the review status bar text, `undefined` when hidden. */
+  reviewStatusText(): string | undefined;
+  reviewsInProgress: ReviewController['reviewsInProgress'];
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<LocalReviewApi> {
   const log = createLog();
   const review = new ReviewController(log, context.extensionUri);
-  context.subscriptions.push(log, review);
+  const reviewUi = new ReviewUi(review);
+  context.subscriptions.push(log, review, reviewUi);
 
   context.subscriptions.push(
     vscode.commands.registerCommand('localReview.commentSelection', () =>
@@ -23,6 +30,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
       vscode.commands.executeCommand('workbench.action.addComment'),
     ),
     vscode.commands.registerCommand('localReview.submitComment', (reply: vscode.CommentReply) =>
+      review.submitNewComment(reply),
+    ),
+    vscode.commands.registerCommand('localReview.commentNow', (reply: vscode.CommentReply) =>
       review.submitNewComment(reply),
     ),
     vscode.commands.registerCommand('localReview.reply', (reply: vscode.CommentReply) => review.reply(reply)),
@@ -51,6 +61,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
   );
 
   const defaultConfirm = review.confirm;
+  const defaultSummaryPrompt = reviewUi.promptSummary;
   await review.reload();
   log.info('Local Review activated');
 
@@ -61,6 +72,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
     setConfirmHandler: (handler) => {
       review.confirm = handler ?? defaultConfirm;
     },
+    setSummaryPrompt: (prompt) => {
+      reviewUi.promptSummary = prompt ?? defaultSummaryPrompt;
+    },
+    reviewStatusText: () => reviewUi.statusText,
+    reviewsInProgress: () => review.reviewsInProgress(),
   };
 }
 

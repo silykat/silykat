@@ -2,14 +2,21 @@ import { readFile } from 'node:fs/promises';
 import { userInfo } from 'node:os';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import { buildAnchorContext, reanchor, type Anchor, type LineRange, type ThreadState } from '@local-review/core';
+import {
+  buildAnchorContext,
+  reanchor,
+  type Anchor,
+  type LineRange,
+  type ReviewState,
+  type ThreadState,
+} from '@local-review/core';
 import { ensureExcluded, gitUserName } from './git';
 import type { Log } from './log';
 import { toLineRange, toZeroBasedLines } from './range';
 import { applyThreadState, awaitsUser, bodyText, LrComment, threadRange, type RenderContext } from './render';
 import { Roots, type Root } from './roots';
 import { applyChanges, REMOVED } from './tracking';
-import { watchThreads } from './watcher';
+import { watchStore } from './watcher';
 
 export const CONTROLLER_ID = 'local-review';
 
@@ -40,6 +47,11 @@ export class ReviewController implements vscode.Disposable {
   private readonly settleTimers = new Map<string, NodeJS.Timeout>();
   /** Threads whose code is no longer in the file (US-07). Derived state: never written. */
   private readonly outdated = new Set<string>();
+  /** The review in progress in each root, by root path (US-08). */
+  private readonly activeReviews = new Map<string, ReviewState>();
+  private readonly changed = new vscode.EventEmitter<void>();
+  /** Fires when threads, drafts or reviews change (e.g. for the status bar). */
+  readonly onDidChange = this.changed.event;
   private watchers: vscode.Disposable[] = [];
   confirm: ConfirmHandler = modalConfirm;
   private ctx: RenderContext;
@@ -65,6 +77,7 @@ export class ReviewController implements vscode.Disposable {
     this.managed.clear();
     this.liveRanges.clear();
     this.outdated.clear();
+    this.activeReviews.clear();
     this.disposeWatchers();
 
     const folders = (vscode.workspace.workspaceFolders ?? []).filter((f) => f.uri.scheme === 'file');
@@ -72,10 +85,16 @@ export class ReviewController implements vscode.Disposable {
     this.ctx = { ...this.ctx, userName: await this.resolveUserName() };
 
     for (const root of this.roots.all()) {
-      this.watchers.push(watchThreads(root.path, (threadId) => void this.refreshThread(root, threadId)));
+      this.watchers.push(
+        watchStore(root.path, {
+          onThread: (threadId) => void this.refreshThread(root, threadId),
+          onReviews: () => void this.refreshReviews(root),
+        }),
+      );
       try {
-        const { threads, warnings } = await root.store.loadAll();
+        const { threads, reviews, warnings } = await root.store.loadAll();
         warnings.forEach((w) => this.log.warn(`${root.path}: ${w}`));
+        this.setActiveReview(root, latestActive(reviews));
         threads.forEach((state) => this.render(root, state));
         this.log.info(`${root.path}: ${threads.length} thread(s) loaded`);
         // Files may have changed while VS Code was closed: find the code again.
@@ -84,10 +103,11 @@ export class ReviewController implements vscode.Disposable {
         this.log.error(`${root.path}: failed to load threads`, err);
       }
     }
+    this.updateReviewContext();
   }
 
-  /** Handler of the "Comment" button under a new thread's input. */
-  async submitNewComment(reply: vscode.CommentReply): Promise<void> {
+  /** Handler of the "Comment" / "Comment Now" buttons (or "Add to Review" with `draft`) under a new thread's input. */
+  async submitNewComment(reply: vscode.CommentReply, opts: { draft?: boolean } = {}): Promise<void> {
     const { thread } = reply;
     const text = reply.text.trim();
     if (text === '' || this.byThread.has(thread)) return;
@@ -111,7 +131,8 @@ export class ReviewController implements vscode.Disposable {
         sha: null,
         ...buildAnchorContext(doc.getText(), toLineRange(thread.range.start, thread.range.end)),
       };
-      const state = await root.store.createThread(anchor, { author: 'user', body: text, reviewId: null });
+      const reviewId = opts.draft ? (await this.ensureReview(root)).id : null;
+      const state = await root.store.createThread(anchor, { author: 'user', body: text, reviewId });
       this.adopt(root, state, thread);
       await this.excludeFromGit(root);
     } catch (err) {
@@ -120,20 +141,116 @@ export class ReviewController implements vscode.Disposable {
     }
   }
 
-  /** Handler of the "Reply" button under an existing thread. */
-  async reply(reply: vscode.CommentReply): Promise<void> {
+  /** Handler of the "Reply" button (or "Add to Review" with `draft`) under an existing thread. */
+  async reply(reply: vscode.CommentReply, opts: { draft?: boolean } = {}): Promise<void> {
     const text = reply.text.trim();
     const threadId = this.byThread.get(reply.thread);
     const managed = threadId ? this.managed.get(threadId) : undefined;
     if (text === '' || !threadId || !managed) return;
 
     try {
-      const state = await managed.root.store.addComment(threadId, { author: 'user', body: text, reviewId: null });
+      const reviewId = opts.draft ? (await this.ensureReview(managed.root)).id : null;
+      const state = await managed.root.store.addComment(threadId, { author: 'user', body: text, reviewId });
       this.adopt(managed.root, state, reply.thread);
     } catch (err) {
       this.log.error('Failed to save the reply', err);
       void vscode.window.showErrorMessage(`Local Review: the reply could not be saved (${String(err)}).`);
     }
+  }
+
+  /** "Add to Review" under a thread's input: a draft, in the review in progress (started if needed). */
+  async addToReview(reply: vscode.CommentReply): Promise<void> {
+    if (this.byThread.has(reply.thread)) await this.reply(reply, { draft: true });
+    else await this.submitNewComment(reply, { draft: true });
+  }
+
+  /** Roots with a review in progress. */
+  reviewsInProgress(): { root: Root; review: ReviewState; drafts: number }[] {
+    return this.roots.all().flatMap((root) => {
+      const review = this.activeReviews.get(root.path);
+      return review ? [{ root, review, drafts: this.draftCount(root) }] : [];
+    });
+  }
+
+  /** Starts a review in a root (the one of the active editor by default), or returns the one in progress. */
+  async ensureReview(root?: Root): Promise<ReviewState> {
+    const target = root ?? this.defaultRoot();
+    if (!target) throw new Error('No workspace folder');
+    const existing = this.activeReviews.get(target.path);
+    if (existing) return existing;
+    const review = await target.store.startReview();
+    this.setActiveReview(target, review);
+    this.updateReviewContext();
+    return review;
+  }
+
+  /** Publishes the review in progress of a root. Returns how many comments were published. */
+  async submitReview(root: Root, summary?: string): Promise<number> {
+    const review = this.activeReviews.get(root.path);
+    if (!review) return 0;
+    const published = this.draftCount(root);
+    await root.store.submitReview(review.id, summary);
+    this.setActiveReview(root, null);
+    this.updateReviewContext();
+    await this.refreshRoot(root);
+    return published;
+  }
+
+  /** Threads of a root holding at least one draft comment. */
+  pendingThreads(root?: Root): { id: string; state: ThreadState }[] {
+    return [...this.managed.values()]
+      .filter((m) => (!root || m.root === root) && m.state.comments.some((c) => c.isDraft))
+      .map((m) => ({ id: m.state.id, state: m.state }));
+  }
+
+  draftCount(root?: Root): number {
+    return this.pendingThreads(root).reduce((n, t) => n + t.state.comments.filter((c) => c.isDraft).length, 0);
+  }
+
+  /** Opens a thread's file, scrolls to it and expands it. */
+  async reveal(threadId: string): Promise<void> {
+    const m = this.managed.get(threadId);
+    if (!m) return;
+    const editor = await vscode.window.showTextDocument(vscode.Uri.file(this.fsPathOf(m)), { preview: false });
+    if (m.thread.range) {
+      editor.revealRange(m.thread.range, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+      editor.selection = new vscode.Selection(m.thread.range.start, m.thread.range.start);
+    }
+    m.thread.collapsibleState = vscode.CommentThreadCollapsibleState.Expanded;
+  }
+
+  /** A review journal changed on disk (e.g. submitted from another window). */
+  private async refreshReviews(root: Root): Promise<void> {
+    try {
+      const { reviews } = await root.store.loadReviews();
+      this.setActiveReview(root, latestActive([...reviews.values()]));
+      this.updateReviewContext();
+      await this.refreshRoot(root);
+    } catch (err) {
+      this.log.error(`${root.path}: failed to reload reviews`, err);
+    }
+  }
+
+  /** Re-reads every thread of a root: their draft state follows the reviews. */
+  private async refreshRoot(root: Root): Promise<void> {
+    const ids = [...this.managed.values()].filter((m) => m.root === root).map((m) => m.state.id);
+    for (const id of ids) await this.refreshThread(root, id);
+  }
+
+  private setActiveReview(root: Root, review: ReviewState | null): void {
+    if (review) this.activeReviews.set(root.path, review);
+    else this.activeReviews.delete(root.path);
+  }
+
+  private updateReviewContext(): void {
+    void vscode.commands.executeCommand('setContext', 'localReview.reviewActive', this.activeReviews.size > 0);
+    this.changed.fire();
+  }
+
+  /** Root of the active editor, else the first one. */
+  private defaultRoot(): Root | undefined {
+    const active = vscode.window.activeTextEditor?.document.uri;
+    return (active?.scheme === 'file' ? this.roots.forFile(active.fsPath) : undefined) ?? this.roots.all()[0];
   }
 
   /** "Resolve" / "Reopen" from the thread header. Only the user resolves (D06). */
@@ -196,11 +313,17 @@ export class ReviewController implements vscode.Disposable {
     const managed = this.managed.get(comment.threadId);
     if (!managed || !comment.isUserComment || managed.state.readOnly) return;
     const isLast = managed.state.comments.length === 1;
-    const confirmed = await this.confirm(
-      'Delete this comment?',
-      isLast ? 'It is the only comment of the thread: the thread will be deleted too.' : 'It will no longer be shown.',
-      'Delete',
-    );
+    const isDraft = managed.state.comments.find((c) => c.id === comment.commentId)?.isDraft ?? false;
+    // A draft was never seen by anyone: deleting it needs no confirmation.
+    const confirmed =
+      isDraft ||
+      (await this.confirm(
+        'Delete this comment?',
+        isLast
+          ? 'It is the only comment of the thread: the thread will be deleted too.'
+          : 'It will no longer be shown.',
+        'Delete',
+      ));
     if (!confirmed) return;
     try {
       const state = await managed.root.store.deleteComment(comment.threadId, comment.commentId, 'user');
@@ -218,11 +341,13 @@ export class ReviewController implements vscode.Disposable {
     const managed = threadId ? this.managed.get(threadId) : undefined;
     if (!threadId || !managed || managed.state.readOnly) return;
     const n = managed.state.comments.length;
-    const confirmed = await this.confirm(
-      'Delete this thread?',
-      `Its ${n} comment${n > 1 ? 's' : ''}, including the agent's replies, will no longer be shown.`,
-      'Delete Thread',
-    );
+    const confirmed =
+      managed.state.onlyDrafts ||
+      (await this.confirm(
+        'Delete this thread?',
+        `Its ${n} comment${n > 1 ? 's' : ''}, including the agent's replies, will no longer be shown.`,
+        'Delete Thread',
+      ));
     if (!confirmed) return;
     try {
       await managed.root.store.deleteThread(threadId, 'user');
@@ -490,6 +615,7 @@ export class ReviewController implements vscode.Disposable {
   }
 
   dispose(): void {
+    this.changed.dispose();
     this.settleTimers.forEach(clearTimeout);
     this.disposeWatchers();
     this.controller.dispose();
@@ -500,6 +626,7 @@ export class ReviewController implements vscode.Disposable {
     this.managed.delete(threadId);
     this.liveRanges.delete(threadId);
     this.outdated.delete(threadId);
+    this.changed.fire();
   }
 
   private disposeWatchers(): void {
@@ -541,6 +668,7 @@ export class ReviewController implements vscode.Disposable {
     applyThreadState(thread, state, this.ctx, { outdated });
     this.managed.set(state.id, { state, root, thread });
     this.byThread.set(thread, state.id);
+    this.changed.fire();
   }
 
   private async excludeFromGit(root: Root): Promise<void> {
@@ -577,4 +705,10 @@ function isBlank(doc: vscode.TextDocument, start: number, end: number): boolean 
     if (!doc.lineAt(line).isEmptyOrWhitespace) return false;
   }
   return true;
+}
+
+function latestActive(reviews: readonly ReviewState[]): ReviewState | null {
+  const active = reviews.filter((r) => r.state === 'active');
+  active.sort((a, b) => b.startedAt.localeCompare(a.startedAt) || b.id.localeCompare(a.id));
+  return active[0] ?? null;
 }

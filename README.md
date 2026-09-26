@@ -33,6 +33,8 @@ Threads follow the code: when lines are added or removed above a thread, or insi
 
 When a thread's code disappears (rewritten or deleted elsewhere, stashed away, or the file is gone), the thread is marked **⚠️ Outdated**, like on GitHub: it moves to line 1 instead of staying on lines that are not its code, and quotes the original code. You can still reply, resolve or delete it. Whitespace-only changes (re-indentation, spacing) do not make a thread outdated, and it attaches again by itself if its code comes back (e.g. `git stash pop`).
 
+**Review mode.** Instead of **Comment**, click **Start Review**: the comment is saved as a **Pending** draft, and the status bar shows **Review · N**. While the review is in progress, **Add to Review** adds more drafts, and **Comment Now** still publishes right away. Click the status bar to **Submit Review**, with an optional summary, or to **Show Pending Comments**. Drafts survive a restart, and the agent does not see them until the review is submitted.
+
 Until the first agent integration ships, **Local Review (dev): Simulate Agent Reply** writes a reply as the agent from a separate process, through the same path a real integration will use.
 
 ## Development

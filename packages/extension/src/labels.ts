@@ -7,7 +7,8 @@ export const DEFAULT_AGENT_NAME = 'Claude';
 
 /** Status label shown in the thread header; `undefined` for resolved threads. */
 export function threadLabel(state: ThreadState, outdated = false): string | undefined {
-  const status = statusLabel(state);
+  // Nobody but the user sees a draft-only thread yet: its status means nothing so far.
+  const status = state.onlyDrafts ? 'Pending' : statusLabel(state);
   if (!outdated) return status;
   return status ? `⚠️ Outdated · ${status}` : '⚠️ Outdated';
 }

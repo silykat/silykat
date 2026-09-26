@@ -1,4 +1,4 @@
-import type { ThreadEvent } from './events';
+import type { ReviewEvent, ThreadEvent } from './events';
 import type { CommentState, ReviewState, ThreadState } from './types';
 
 export interface FoldOptions {
@@ -85,5 +85,24 @@ export function foldThread(events: readonly ThreadEvent[], opts: FoldOptions = {
   state.lastAgentName = [...state.comments].reverse().find((c) => c.agentName)?.agentName ?? null;
   state.hasPublished = state.comments.some((c) => !c.isDraft);
   state.onlyDrafts = state.comments.length > 0 && !state.hasPublished;
+  return state;
+}
+
+/** Rebuilds a review's state from its journal. Returns `null` without `review.started`. */
+export function foldReview(events: readonly ReviewEvent[]): ReviewState | null {
+  const first = events[0];
+  if (!first || first.type !== 'review.started') return null;
+  const state: ReviewState = { id: first.reviewId, state: 'active', startedAt: first.at };
+  for (const e of events.slice(1)) {
+    // Once submitted or discarded, a review is closed for good.
+    if (state.state !== 'active') break;
+    if (e.type === 'review.submitted') {
+      state.state = 'submitted';
+      state.submittedAt = e.at;
+      if (e.summary) state.summary = e.summary;
+    } else if (e.type === 'review.discarded') {
+      state.state = 'discarded';
+    }
+  }
   return state;
 }
