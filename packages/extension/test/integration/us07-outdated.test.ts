@@ -52,7 +52,10 @@ describe('US-07 — a comment becomes outdated when its code disappears', () => 
     const doc = await vscode.workspace.openTextDocument(uri);
     await vscode.window.showTextDocument(doc);
     const thread = api.controller.createCommentThread(uri, new vscode.Range(12, 0, 14, 5), []);
-    await vscode.commands.executeCommand('localReview.submitComment', { thread, text: 'Throw instead of returning null' });
+    await vscode.commands.executeCommand('localReview.submitComment', {
+      thread,
+      text: 'Throw instead of returning null',
+    });
     return { id: api.listThreads().find((t) => t.thread === thread)!.id, path, doc };
   }
 
@@ -81,7 +84,13 @@ describe('US-07 — a comment becomes outdated when its code disappears', () => 
 
   it('flags the thread as outdated when its code is rewritten elsewhere (AC 1)', async () => {
     const { id, path, doc } = await threadOnIfBlock();
-    const rewritten = [...FILE.slice(0, 10), 'export function find(id: string) {', '  return db.getOrThrow(id);', '}', '// end'];
+    const rewritten = [
+      ...FILE.slice(0, 10),
+      'export function find(id: string) {',
+      '  return db.getOrThrow(id);',
+      '}',
+      '// end',
+    ];
     await rewriteOutside(path, doc, rewritten);
 
     const t = managed(id);

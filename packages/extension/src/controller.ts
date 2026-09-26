@@ -255,7 +255,8 @@ export class ReviewController implements vscode.Disposable {
       return;
     }
 
-    const turnedToUser = awaitsUser(state) && (!awaitsUser(existing.state) || state.comments.length > existing.state.comments.length);
+    const turnedToUser =
+      awaitsUser(state) && (!awaitsUser(existing.state) || state.comments.length > existing.state.comments.length);
     this.adopt(root, state, existing.thread);
     // Bring the thread to the user's attention when the agent hands the ball back.
     if (turnedToUser) existing.thread.collapsibleState = vscode.CommentThreadCollapsibleState.Expanded;
@@ -422,7 +423,8 @@ export class ReviewController implements vscode.Disposable {
     const result = reanchor(m.state.anchor, text);
     if (!result) return;
     if (result.kind === 'lost') {
-      if (!this.outdated.has(threadId)) this.log.info(`${m.state.anchor.path}: code of thread ${threadId} not found, outdated`);
+      if (!this.outdated.has(threadId))
+        this.log.info(`${m.state.anchor.path}: code of thread ${threadId} not found, outdated`);
       this.setOutdated(threadId, true);
       return;
     }
@@ -471,7 +473,13 @@ export class ReviewController implements vscode.Disposable {
   }
 
   /** Snapshot for tests and diagnostics. */
-  listThreads(): { id: string; rootPath: string; state: ThreadState; thread: vscode.CommentThread; outdated: boolean }[] {
+  listThreads(): {
+    id: string;
+    rootPath: string;
+    state: ThreadState;
+    thread: vscode.CommentThread;
+    outdated: boolean;
+  }[] {
     return [...this.managed.entries()].map(([id, m]) => ({
       id,
       rootPath: m.root.path,

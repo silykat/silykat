@@ -105,7 +105,13 @@ export class Store {
     assertCanSetStatus(status, by);
     const who = actor(by, agent);
     await this.writableThread(threadId);
-    const event: ThreadEvent = { v: SCHEMA_VERSION, type: 'status.changed', at: new Date().toISOString(), ...who, status };
+    const event: ThreadEvent = {
+      v: SCHEMA_VERSION,
+      type: 'status.changed',
+      at: new Date().toISOString(),
+      ...who,
+      status,
+    };
     return this.appendAndReload(threadId, [event]);
   }
 
@@ -113,19 +119,38 @@ export class Store {
   async updateAnchor(threadId: string, anchor: Anchor, by: Author, agent?: string): Promise<ThreadState> {
     const who = actor(by, agent);
     await this.writableThread(threadId);
-    const event: ThreadEvent = { v: SCHEMA_VERSION, type: 'anchor.updated', at: new Date().toISOString(), ...who, anchor };
+    const event: ThreadEvent = {
+      v: SCHEMA_VERSION,
+      type: 'anchor.updated',
+      at: new Date().toISOString(),
+      ...who,
+      anchor,
+    };
     return this.appendAndReload(threadId, [event]);
   }
 
   /** Edits a comment. Only its author can edit it. */
-  async editComment(threadId: string, commentId: string, body: string, by: Author, agent?: string): Promise<ThreadState> {
+  async editComment(
+    threadId: string,
+    commentId: string,
+    body: string,
+    by: Author,
+    agent?: string,
+  ): Promise<ThreadState> {
     const text = body.trim();
     if (text === '') throw new Error('Comment body is empty');
     const who = actor(by, agent);
     const current = await this.writableThread(threadId);
     assertOwnComment(current, commentId, by);
     if (current.comments.find((c) => c.id === commentId)!.body === text) return current;
-    const event: ThreadEvent = { v: SCHEMA_VERSION, type: 'comment.edited', at: new Date().toISOString(), ...who, commentId, body: text };
+    const event: ThreadEvent = {
+      v: SCHEMA_VERSION,
+      type: 'comment.edited',
+      at: new Date().toISOString(),
+      ...who,
+      commentId,
+      body: text,
+    };
     return this.appendAndReload(threadId, [event]);
   }
 

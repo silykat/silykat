@@ -53,9 +53,9 @@ describe('shiftSpan', () => {
     expect(shiftSpan({ start: 19, end: 19 }, remove(19, 20))).toBe(REMOVED); // delete the line (Cmd+Shift+K)
     expect(shiftSpan(SPAN, remove(19, 22))).toBe(REMOVED);
     expect(shiftSpan(SPAN, { startLine: 18, startCharacter: 4, endLine: 23, endCharacter: 2, text: '' })).toBe(REMOVED);
-    expect(shiftSpan(SPAN, { startLine: 19, startCharacter: 0, endLine: 22, endCharacter: 0, text: 'other\ncode\n' })).toBe(
-      REMOVED,
-    ); // pasted over
+    expect(
+      shiftSpan(SPAN, { startLine: 19, startCharacter: 0, endLine: 22, endCharacter: 0, text: 'other\ncode\n' }),
+    ).toBe(REMOVED); // pasted over
   });
 
   it('follows a deletion that starts above and ends inside', () => {

@@ -35,7 +35,8 @@ export function reanchor(anchor: Anchor, fileText: string): ReanchorResult | nul
   const normalized = snippet.map(normalize);
   // A snippet made only of blank lines would match anywhere once normalized.
   if (normalized.every((l) => l === '')) return { kind: 'lost' };
-  const looseAt = (i: number) => i >= 0 && i + n <= lines.length && normalized.every((l, k) => normalize(lines[i + k]!) === l);
+  const looseAt = (i: number) =>
+    i >= 0 && i + n <= lines.length && normalized.every((l, k) => normalize(lines[i + k]!) === l);
   const fuzzy = closest(anchor, lines, n, stored, looseAt);
   return fuzzy !== undefined ? { kind: 'fuzzy', range: toRange(fuzzy) } : { kind: 'lost' };
 }

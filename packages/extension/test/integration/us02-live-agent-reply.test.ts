@@ -93,14 +93,22 @@ describe('US-02 — see the agent’s reply appear in the thread (default agent:
   it('labels an addressed thread (AC 4)', async () => {
     const id = await newThread(6);
     await simulate(id, 'Done: it now throws `NotFoundError`.', 'addressed');
-    await waitFor('the addressed label', () => (threadById(id)?.thread.label?.startsWith('✅') ? true : undefined), LIVE_DEADLINE_MS);
+    await waitFor(
+      'the addressed label',
+      () => (threadById(id)?.thread.label?.startsWith('✅') ? true : undefined),
+      LIVE_DEADLINE_MS,
+    );
     assert.equal(threadById(id)!.thread.label, '✅ Addressed by Claude — please verify');
   });
 
   it('labels a reply without status change', async () => {
     const id = await newThread(7);
     await simulate(id, 'Noted.', 'none');
-    await waitFor('the reply', () => (threadById(id)?.thread.comments.length === 2 ? true : undefined), LIVE_DEADLINE_MS);
+    await waitFor(
+      'the reply',
+      () => (threadById(id)?.thread.comments.length === 2 ? true : undefined),
+      LIVE_DEADLINE_MS,
+    );
     assert.equal(threadById(id)!.thread.label, '💬 Claude replied');
   });
 
@@ -120,7 +128,11 @@ describe('US-02 — see the agent’s reply appear in the thread (default agent:
   it('keeps the reply and the status after a reload (AC 7)', async () => {
     const id = await newThread(9);
     await simulate(id, 'Why this choice?', 'needs-info');
-    await waitFor('the reply', () => (threadById(id)?.thread.comments.length === 2 ? true : undefined), LIVE_DEADLINE_MS);
+    await waitFor(
+      'the reply',
+      () => (threadById(id)?.thread.comments.length === 2 ? true : undefined),
+      LIVE_DEADLINE_MS,
+    );
     await api.reload();
     const t = threadById(id)!;
     assert.deepEqual(
@@ -140,7 +152,10 @@ describe('US-02 — see the agent’s reply appear in the thread (default agent:
     );
     assert.equal(thread.comments[1]!.author.name, 'Codex');
     assert.equal(thread.label, '❓ Codex is waiting for your reply');
-    assert.deepEqual(threadById(id)!.state.comments.map((c) => c.author), ['user', 'agent']);
+    assert.deepEqual(
+      threadById(id)!.state.comments.map((c) => c.author),
+      ['user', 'agent'],
+    );
   });
 
   it('reports a failure of the external process', async () => {

@@ -30,7 +30,9 @@ export async function simulateAgentReply(
     .listThreads()
     .filter((t) => t.state.hasPublished && t.state.status !== 'resolved' && !t.state.readOnly);
   if (candidates.length === 0) {
-    void vscode.window.showInformationMessage(`Local Review: no thread for ${agent} to reply to. Leave a comment first.`);
+    void vscode.window.showInformationMessage(
+      `Local Review: no thread for ${agent} to reply to. Leave a comment first.`,
+    );
     return false;
   }
 
@@ -69,7 +71,11 @@ export async function simulateAgentReply(
       await vscode.window.showQuickPick(
         [
           { label: '$(question) Question', description: `${agent} needs your reply`, value: 'needs-info' as const },
-          { label: '$(check) Addressed', description: `${agent} says it is done — please verify`, value: 'addressed' as const },
+          {
+            label: '$(check) Addressed',
+            description: `${agent} says it is done — please verify`,
+            value: 'addressed' as const,
+          },
           { label: '$(comment) Reply only', description: 'No status change', value: 'none' as const },
         ],
         { title: 'Simulate Agent Reply (3/3)', placeHolder: 'Thread status after the reply' },
@@ -78,7 +84,18 @@ export async function simulateAgentReply(
   if (!status) return false;
 
   const script = vscode.Uri.joinPath(extensionUri, 'dist', 'fake-agent.js').fsPath;
-  const result = await runScript(script, ['--root', target.rootPath, '--thread', target.id, '--body', body, '--status', status, '--agent', agent]);
+  const result = await runScript(script, [
+    '--root',
+    target.rootPath,
+    '--thread',
+    target.id,
+    '--body',
+    body,
+    '--status',
+    status,
+    '--agent',
+    agent,
+  ]);
   if (result.code !== 0) {
     void vscode.window.showErrorMessage(`Local Review: simulated reply failed. ${result.stderr.trim()}`);
     return false;

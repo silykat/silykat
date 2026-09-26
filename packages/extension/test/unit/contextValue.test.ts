@@ -50,7 +50,12 @@ describe('thread header actions', () => {
 });
 
 describe('comment actions', () => {
-  const COMMENT_ACTIONS = ['localReview.editComment', 'localReview.deleteComment', 'localReview.saveEdit', 'localReview.cancelEdit'];
+  const COMMENT_ACTIONS = [
+    'localReview.editComment',
+    'localReview.deleteComment',
+    'localReview.saveEdit',
+    'localReview.cancelEdit',
+  ];
 
   it('offers edit and delete on the user’s comments only', () => {
     for (const command of COMMENT_ACTIONS) {

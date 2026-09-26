@@ -30,10 +30,21 @@ function anchor(overrides: Partial<Anchor> = {}): Anchor {
 }
 
 const created = (a = anchor()): ThreadEvent => ({
-  v: 1, type: 'thread.created', at: '2026-09-26T10:00:00.000Z', by: 'user', threadId: 't_1', anchor: a,
+  v: 1,
+  type: 'thread.created',
+  at: '2026-09-26T10:00:00.000Z',
+  by: 'user',
+  threadId: 't_1',
+  anchor: a,
 });
 const added = (id: string, by: 'user' | 'agent', body: string, reviewId: string | null = null): ThreadEvent => ({
-  v: 1, type: 'comment.added', at: '2026-09-26T10:01:00.000Z', by, commentId: id, body, reviewId,
+  v: 1,
+  type: 'comment.added',
+  at: '2026-09-26T10:01:00.000Z',
+  by,
+  commentId: id,
+  body,
+  reviewId,
 });
 
 describe('ids', () => {
@@ -130,7 +141,11 @@ describe('foldThread', () => {
     expect(s.lastAuthor).toBe('agent');
     expect(s.anchor.range).toEqual({ startLine: 15, endLine: 17 });
 
-    const d = foldThread([created(), added('c_1', 'user', 'hi'), { v: 1, type: 'thread.deleted', at: 't', by: 'user' }])!;
+    const d = foldThread([
+      created(),
+      added('c_1', 'user', 'hi'),
+      { v: 1, type: 'thread.deleted', at: 't', by: 'user' },
+    ])!;
     expect(d.deleted).toBe(true);
   });
 
@@ -185,7 +200,10 @@ describe('Store', () => {
     const store = new Store(root);
     const state = await store.createThread(anchor(), { author: 'user', body: '  Hello **world**  ', reviewId: null });
 
-    const lines = (await readFile(store.threadFile(state.id), 'utf8')).trimEnd().split('\n').map((l) => JSON.parse(l));
+    const lines = (await readFile(store.threadFile(state.id), 'utf8'))
+      .trimEnd()
+      .split('\n')
+      .map((l) => JSON.parse(l));
     expect(lines.map((l) => l.type)).toEqual(['thread.created', 'comment.added']);
     expect(lines[0].anchor.range).toEqual({ startLine: 10, endLine: 12 });
     expect(lines[1]).toMatchObject({ by: 'user', body: 'Hello **world**', reviewId: null });
@@ -203,9 +221,9 @@ describe('Store', () => {
   });
 
   it('rejects an empty body', async () => {
-    await expect(new Store(root).createThread(anchor(), { author: 'user', body: '   ', reviewId: null })).rejects.toThrow(
-      /empty/,
-    );
+    await expect(
+      new Store(root).createThread(anchor(), { author: 'user', body: '   ', reviewId: null }),
+    ).rejects.toThrow(/empty/);
   });
 
   it('skips unreadable threads with warnings but loads the others', async () => {
@@ -234,7 +252,11 @@ describe('Store — replies and statuses', () => {
 
   it('adds an agent reply and its status in a single write', async () => {
     const t = await newThread();
-    const s = await store.addComment(t.id, { author: 'agent', agent: 'Claude', body: 'Which error?', reviewId: null }, { status: 'needs-info' });
+    const s = await store.addComment(
+      t.id,
+      { author: 'agent', agent: 'Claude', body: 'Which error?', reviewId: null },
+      { status: 'needs-info' },
+    );
     expect(s.comments.map((c) => [c.author, c.body])).toEqual([
       ['user', 'Why null here?'],
       ['agent', 'Which error?'],
@@ -243,16 +265,28 @@ describe('Store — replies and statuses', () => {
     expect(s.lastAuthor).toBe('agent');
 
     const lines = (await readFile(store.threadFile(t.id), 'utf8')).trimEnd().split('\n');
-    expect(lines.map((l) => JSON.parse(l).type)).toEqual(['thread.created', 'comment.added', 'comment.added', 'status.changed']);
+    expect(lines.map((l) => JSON.parse(l).type)).toEqual([
+      'thread.created',
+      'comment.added',
+      'comment.added',
+      'status.changed',
+    ]);
   });
 
   it('records the agent name on its comments and events', async () => {
     const t = await newThread();
-    const s = await store.addComment(t.id, { author: 'agent', agent: 'Codex', body: 'Why?', reviewId: null }, { status: 'needs-info' });
+    const s = await store.addComment(
+      t.id,
+      { author: 'agent', agent: 'Codex', body: 'Why?', reviewId: null },
+      { status: 'needs-info' },
+    );
     expect(s.comments[1]).toMatchObject({ author: 'agent', agentName: 'Codex' });
     expect(s.comments[0]!.agentName).toBeUndefined();
     expect(s.lastAgentName).toBe('Codex');
-    const events = (await readFile(store.threadFile(t.id), 'utf8')).trimEnd().split('\n').map((l) => JSON.parse(l));
+    const events = (await readFile(store.threadFile(t.id), 'utf8'))
+      .trimEnd()
+      .split('\n')
+      .map((l) => JSON.parse(l));
     expect(events.slice(2).map((e) => [e.by, e.agent])).toEqual([
       ['agent', 'Codex'],
       ['agent', 'Codex'],
@@ -262,7 +296,9 @@ describe('Store — replies and statuses', () => {
   it('requires agents to give their name', async () => {
     const t = await newThread();
     await expect(store.addComment(t.id, { author: 'agent', body: 'x', reviewId: null })).rejects.toThrow(/name/);
-    await expect(store.addComment(t.id, { author: 'agent', agent: '  ', body: 'x', reviewId: null })).rejects.toThrow(/name/);
+    await expect(store.addComment(t.id, { author: 'agent', agent: '  ', body: 'x', reviewId: null })).rejects.toThrow(
+      /name/,
+    );
     await expect(store.setStatus(t.id, 'addressed', 'agent')).rejects.toThrow(/name/);
   });
 
@@ -270,7 +306,15 @@ describe('Store — replies and statuses', () => {
     const t = await newThread();
     await writeFile(
       store.threadFile(t.id),
-      JSON.stringify({ v: 1, type: 'comment.added', at: 't', by: 'claude', commentId: 'c_x', body: 'old', reviewId: null }) + '\n',
+      JSON.stringify({
+        v: 1,
+        type: 'comment.added',
+        at: 't',
+        by: 'claude',
+        commentId: 'c_x',
+        body: 'old',
+        reviewId: null,
+      }) + '\n',
       { flag: 'a' },
     );
     const s = (await store.loadThread(t.id)).state!;
@@ -293,7 +337,11 @@ describe('Store — replies and statuses', () => {
     const t = await newThread();
     await expect(store.setStatus(t.id, 'resolved', 'agent')).rejects.toThrow(/Only the user/);
     await expect(
-      store.addComment(t.id, { author: 'agent', agent: 'Claude', body: 'done', reviewId: null }, { status: 'resolved' }),
+      store.addComment(
+        t.id,
+        { author: 'agent', agent: 'Claude', body: 'done', reviewId: null },
+        { status: 'resolved' },
+      ),
     ).rejects.toThrow(/Only the user/);
     expect((await store.loadThread(t.id)).state!.comments).toHaveLength(1);
   });
@@ -305,7 +353,9 @@ describe('Store — replies and statuses', () => {
 
     const t = await newThread();
     await writeFile(store.threadFile(t.id), JSON.stringify({ v: 99, type: 'future' }) + '\n', { flag: 'a' });
-    await expect(store.addComment(t.id, { author: 'agent', agent: 'Claude', body: 'x', reviewId: null })).rejects.toThrow(/read-only/);
+    await expect(
+      store.addComment(t.id, { author: 'agent', agent: 'Claude', body: 'x', reviewId: null }),
+    ).rejects.toThrow(/read-only/);
   });
 
   it('rejects ids that could escape the store', async () => {
@@ -453,7 +503,10 @@ describe('Store — edit and delete (US-05)', () => {
     const s = await store.deleteThread(t.id, 'user');
     expect(s.deleted).toBe(true);
     expect((await store.loadAll()).threads).toEqual([]);
-    const types = (await readFile(store.threadFile(t.id), 'utf8')).trimEnd().split('\n').map((l) => JSON.parse(l).type);
+    const types = (await readFile(store.threadFile(t.id), 'utf8'))
+      .trimEnd()
+      .split('\n')
+      .map((l) => JSON.parse(l).type);
     expect(types).toEqual(['thread.created', 'comment.added', 'comment.added', 'thread.deleted']);
   });
 
@@ -461,9 +514,9 @@ describe('Store — edit and delete (US-05)', () => {
     const t = await withAgentReply();
     await expect(store.deleteThread(t.id, 'agent')).rejects.toThrow(/Only the user/);
     await store.deleteThread(t.id, 'user');
-    await expect(store.addComment(t.id, { author: 'agent', agent: 'Claude', body: 'late', reviewId: null })).rejects.toThrow(
-      /not found/,
-    );
+    await expect(
+      store.addComment(t.id, { author: 'agent', agent: 'Claude', body: 'late', reviewId: null }),
+    ).rejects.toThrow(/not found/);
   });
 });
 
@@ -541,7 +594,10 @@ describe('reanchor — whitespace changes (US-07)', () => {
   it('tolerates re-indentation and spacing changes', () => {
     const reformatted = ['function a() {', '    if (x){', '        return   null;', '    }', '}'];
     expect(reanchor(at(2, 4), file(reformatted))).toEqual({ kind: 'fuzzy', range: { startLine: 2, endLine: 4 } });
-    expect(reanchor(at(2, 4), file(['// moved', ...reformatted]))).toEqual({ kind: 'fuzzy', range: { startLine: 3, endLine: 5 } });
+    expect(reanchor(at(2, 4), file(['// moved', ...reformatted]))).toEqual({
+      kind: 'fuzzy',
+      range: { startLine: 3, endLine: 5 },
+    });
   });
 
   it('still prefers an exact match over a whitespace-only one', () => {
@@ -550,7 +606,9 @@ describe('reanchor — whitespace changes (US-07)', () => {
   });
 
   it('reports real code changes as lost', () => {
-    expect(reanchor(at(2, 4), file(['function a() {', '  if (y) {', '    return 0;', '  }', '}']))).toEqual({ kind: 'lost' });
+    expect(reanchor(at(2, 4), file(['function a() {', '  if (y) {', '    return 0;', '  }', '}']))).toEqual({
+      kind: 'lost',
+    });
   });
 
   it('never matches a blank-only snippet loosely', () => {

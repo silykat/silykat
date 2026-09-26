@@ -40,7 +40,11 @@ describe('US-05 — edit / delete my comments and threads', () => {
 
   async function withAgentReply(line: number): Promise<string> {
     const id = await newThread(line);
-    await vscode.commands.executeCommand('localReview.dev.simulateAgentReply', { threadId: id, body: 'Which name?', status: 'needs-info' });
+    await vscode.commands.executeCommand('localReview.dev.simulateAgentReply', {
+      threadId: id,
+      body: 'Which name?',
+      status: 'needs-info',
+    });
     await waitFor('the agent reply', () => (managed(id)!.thread.comments.length === 2 ? true : undefined));
     return id;
   }
@@ -111,7 +115,11 @@ describe('US-05 — edit / delete my comments and threads', () => {
     const c = comments(id)[0]!;
     await vscode.commands.executeCommand('localReview.editComment', c);
     c.body = 'half-typed edit';
-    await vscode.commands.executeCommand('localReview.dev.simulateAgentReply', { threadId: id, body: 'Hi', status: 'none' });
+    await vscode.commands.executeCommand('localReview.dev.simulateAgentReply', {
+      threadId: id,
+      body: 'Hi',
+      status: 'none',
+    });
     await waitFor('the agent reply', () => (comments(id).length === 2 ? true : undefined));
     assert.equal(comments(id)[0]!.mode, vscode.CommentMode.Editing);
     assert.equal(text(comments(id)[0]!), 'half-typed edit');

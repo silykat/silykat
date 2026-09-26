@@ -93,7 +93,9 @@ describe('US-06 — the comment follows the code when the file changes', () => {
     const id = await commentLines20to22(uri);
     await edit(uri, (e) => e.insert(uri, new vscode.Position(0, 0), 'a\nb\nc\nd\ne\n'));
     await doc.save();
-    const [update] = await waitFor('the anchor update', () => (anchorUpdates(id).length === 1 ? anchorUpdates(id) : undefined));
+    const [update] = await waitFor('the anchor update', () =>
+      anchorUpdates(id).length === 1 ? anchorUpdates(id) : undefined,
+    );
     assert.deepEqual(update.anchor.range, { startLine: 25, endLine: 27 });
     assert.equal(update.anchor.snippet, LINES.slice(19, 22).join('\n'));
 
@@ -145,13 +147,18 @@ describe('US-06 — the comment follows the code when the file changes', () => {
     const id = await commentLines20to22(uri);
     writeFileSync(uri.fsPath, ['// added', '// by', '// git stash', ...LINES].join('\n') + '\n');
     await waitFor('VS Code to reload the file', () => (lines0(id)[0] === 22 ? true : undefined), 5000);
-    const [update] = await waitFor('the anchor update', () => (anchorUpdates(id).length === 1 ? anchorUpdates(id) : undefined));
+    const [update] = await waitFor('the anchor update', () =>
+      anchorUpdates(id).length === 1 ? anchorUpdates(id) : undefined,
+    );
     assert.deepEqual(update.anchor.range, { startLine: 23, endLine: 25 });
   });
 
   it('survives git stash / git stash pop of edits above and inside the commented code (PM scenario)', async () => {
     const git = (...args: string[]) =>
-      execFileSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.com', ...args], { cwd: ws, encoding: 'utf8' });
+      execFileSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.com', ...args], {
+        cwd: ws,
+        encoding: 'utf8',
+      });
     const { uri, doc } = await openFresh();
     git('add', uri.fsPath);
     git('commit', '-q', '-m', 'fixture', '--', uri.fsPath);
@@ -165,7 +172,11 @@ describe('US-06 — the comment follows the code when the file changes', () => {
     assert.deepEqual(saved.range, { startLine: 25, endLine: 27 });
 
     git('stash', '-q');
-    await waitFor('VS Code to reload the stashed file', () => (doc.getText().startsWith('const v1 ') ? true : undefined), 5000);
+    await waitFor(
+      'VS Code to reload the stashed file',
+      () => (doc.getText().startsWith('const v1 ') ? true : undefined),
+      5000,
+    );
     await new Promise((r) => setTimeout(r, 800));
     // The edited code is gone from the file: nothing is recorded, and the thread is not left on
     // its old lines. It is outdated (US-07): shown on line 1 with the "Outdated" label.
@@ -175,7 +186,11 @@ describe('US-06 — the comment follows the code when the file changes', () => {
     assert.deepEqual(managed(id).state.anchor, saved);
 
     git('stash', 'pop', '-q');
-    await waitFor('VS Code to reload the popped file', () => (doc.getText().startsWith('a\n') ? true : undefined), 5000);
+    await waitFor(
+      'VS Code to reload the popped file',
+      () => (doc.getText().startsWith('a\n') ? true : undefined),
+      5000,
+    );
     await new Promise((r) => setTimeout(r, 800));
     assert.equal(managed(id).outdated, false);
     assert.deepEqual(lines0(id), [24, 26], 'back on its code');
@@ -188,7 +203,13 @@ describe('US-06 — the comment follows the code when the file changes', () => {
     const path = join(ws, rel);
     writeFileSync(path, LINES.join('\n') + '\n');
     const t = await new Store(ws).createThread(
-      { path: rel, source: 'worktree', ref: null, sha: null, ...buildAnchorContext(LINES.join('\n'), { startLine: 20, endLine: 22 }) },
+      {
+        path: rel,
+        source: 'worktree',
+        ref: null,
+        sha: null,
+        ...buildAnchorContext(LINES.join('\n'), { startLine: 20, endLine: 22 }),
+      },
       { author: 'user', body: 'Why a constant here?', reviewId: null },
     );
     writeFileSync(path, ['// one', '// two', '// three', '// four', ...LINES].join('\n') + '\n');

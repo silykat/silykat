@@ -36,4 +36,3 @@ function statusLabel(state: ThreadState): string | undefined {
       return state.lastAuthor === 'agent' ? `💬 ${agent} replied` : `Waiting for ${agent}`;
   }
 }
-

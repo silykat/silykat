@@ -13,8 +13,7 @@ describe('US-01 — direct comment on lines', () => {
   let uri: vscode.Uri;
 
   const storeDir = () => join(ws, '.local-review');
-  const threadFiles = () =>
-    existsSync(join(storeDir(), 'threads')) ? readdirSync(join(storeDir(), 'threads')) : [];
+  const threadFiles = () => (existsSync(join(storeDir(), 'threads')) ? readdirSync(join(storeDir(), 'threads')) : []);
   const journal = (file: string) =>
     readFileSync(join(storeDir(), 'threads', file), 'utf8')
       .trimEnd()
@@ -90,10 +89,16 @@ describe('US-01 — direct comment on lines', () => {
 
   it('keeps .local-review out of git status (AC 8)', async () => {
     await comment(new vscode.Range(0, 0, 0, 0), 'git hygiene');
-    const status = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: ws, encoding: 'utf8' });
+    const status = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], {
+      cwd: ws,
+      encoding: 'utf8',
+    });
     assert.ok(status.includes('sample.ts'), status);
     assert.ok(!status.includes('.local-review'), status);
-    const exclude = execFileSync('git', ['rev-parse', '--git-path', 'info/exclude'], { cwd: ws, encoding: 'utf8' }).trim();
+    const exclude = execFileSync('git', ['rev-parse', '--git-path', 'info/exclude'], {
+      cwd: ws,
+      encoding: 'utf8',
+    }).trim();
     const lines = readFileSync(join(ws, exclude), 'utf8').split('\n');
     assert.equal(lines.filter((l) => l === '/.local-review/').length, 1);
   });

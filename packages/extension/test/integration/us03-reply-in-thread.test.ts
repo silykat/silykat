@@ -38,7 +38,10 @@ describe('US-03 — reply to the agent in the thread', () => {
 
   async function agentSays(id: string, body: string, status: 'needs-info' | 'addressed' | 'none') {
     const before = managed(id).state.comments.length;
-    assert.equal(await vscode.commands.executeCommand('localReview.dev.simulateAgentReply', { threadId: id, body, status }), true);
+    assert.equal(
+      await vscode.commands.executeCommand('localReview.dev.simulateAgentReply', { threadId: id, body, status }),
+      true,
+    );
     await waitFor('the agent reply', () => (managed(id).state.comments.length > before ? true : undefined));
   }
 
@@ -78,7 +81,9 @@ describe('US-03 — reply to the agent in the thread', () => {
     assert.equal(t.thread.comments[2]!.contextValue, 'author-user');
     assert.equal(t.thread.label, 'Waiting for Claude');
     assert.deepEqual(
-      journal(id).slice(-2).map((e) => [e.type, e.by, e.status]),
+      journal(id)
+        .slice(-2)
+        .map((e) => [e.type, e.by, e.status]),
       [
         ['comment.added', 'user', undefined],
         ['status.changed', 'user', 'open'],

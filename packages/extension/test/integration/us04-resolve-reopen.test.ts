@@ -23,7 +23,9 @@ describe('US-04 — resolve / reopen a thread', () => {
 
   const managed = (id: string) => api.listThreads().find((t) => t.id === id)!;
   const lastEvent = (id: string) => {
-    const lines = readFileSync(join(ws, '.local-review', 'threads', `${id}.jsonl`), 'utf8').trimEnd().split('\n');
+    const lines = readFileSync(join(ws, '.local-review', 'threads', `${id}.jsonl`), 'utf8')
+      .trimEnd()
+      .split('\n');
     return JSON.parse(lines[lines.length - 1]!);
   };
 
@@ -59,12 +61,19 @@ describe('US-04 — resolve / reopen a thread', () => {
     assert.equal(t.thread.collapsibleState, vscode.CommentThreadCollapsibleState.Collapsed);
     assert.equal(t.thread.label, undefined);
     assert.equal(t.thread.contextValue, 'lr resolved');
-    assert.deepEqual([lastEvent(id).type, lastEvent(id).by, lastEvent(id).status], ['status.changed', 'user', 'resolved']);
+    assert.deepEqual(
+      [lastEvent(id).type, lastEvent(id).by, lastEvent(id).status],
+      ['status.changed', 'user', 'resolved'],
+    );
   });
 
   it('can resolve a thread the agent is waiting on', async () => {
     const id = await newThread(4);
-    await vscode.commands.executeCommand('localReview.dev.simulateAgentReply', { threadId: id, body: 'Which name?', status: 'needs-info' });
+    await vscode.commands.executeCommand('localReview.dev.simulateAgentReply', {
+      threadId: id,
+      body: 'Which name?',
+      status: 'needs-info',
+    });
     await waitFor('the agent question', () => (managed(id).state.status === 'needs-info' ? true : undefined));
     await resolve(id);
     assert.equal(managed(id).state.status, 'resolved');
@@ -85,7 +94,10 @@ describe('US-04 — resolve / reopen a thread', () => {
   it('reopens a resolved thread when the user replies (AC 3)', async () => {
     const id = await newThread(6);
     await resolve(id);
-    await vscode.commands.executeCommand('localReview.reply', { thread: managed(id).thread, text: 'Actually, one more thing' });
+    await vscode.commands.executeCommand('localReview.reply', {
+      thread: managed(id).thread,
+      text: 'Actually, one more thing',
+    });
     assert.equal(managed(id).state.status, 'open');
     assert.equal(managed(id).thread.state, vscode.CommentThreadState.Unresolved);
   });

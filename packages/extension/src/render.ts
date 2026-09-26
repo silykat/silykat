@@ -52,7 +52,9 @@ export class LrComment implements vscode.Comment {
     this.displayBody = prefix + c.body;
     this.body = untrustedMarkdown(this.displayBody);
     this.author =
-      c.author === 'user' ? { name: ctx.userName } : { name: c.agentName ?? DEFAULT_AGENT_NAME, iconPath: ctx.agentIcon };
+      c.author === 'user'
+        ? { name: ctx.userName }
+        : { name: c.agentName ?? DEFAULT_AGENT_NAME, iconPath: ctx.agentIcon };
     this.timestamp = new Date(c.createdAt);
     this.contextValue = commentContextValue(c);
     this.label = c.editedAt ? 'edited' : undefined;

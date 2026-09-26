@@ -49,10 +49,10 @@ npm run install-ext        # build the .vsix and install it into VS Code
 
 After `install-ext`, run **Developer: Reload Window** in VS Code.
 
-| Package | Purpose |
-|---|---|
-| `packages/core` | Data model, JSONL journal, storage. No dependency on `vscode` |
-| `packages/extension` | VS Code extension |
+| Package              | Purpose                                                       |
+| -------------------- | ------------------------------------------------------------- |
+| `packages/core`      | Data model, JSONL journal, storage. No dependency on `vscode` |
+| `packages/extension` | VS Code extension                                             |
 
 ## License
 

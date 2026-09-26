@@ -2,7 +2,8 @@
 import { readFileSync } from 'node:fs';
 
 const files = ['extension.js', 'fake-agent.js'];
-const forbidden = /require\(["'](?:node:)?(?:http|https|http2|net|tls|dgram|undici)["']\)|\bfetch\s*\(|\bWebSocket\b|\bXMLHttpRequest\b/g;
+const forbidden =
+  /require\(["'](?:node:)?(?:http|https|http2|net|tls|dgram|undici)["']\)|\bfetch\s*\(|\bWebSocket\b|\bXMLHttpRequest\b/g;
 let failed = false;
 for (const file of files) {
   const bundle = readFileSync(new URL(`../dist/${file}`, import.meta.url), 'utf8');
