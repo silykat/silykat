@@ -17,7 +17,7 @@ async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs = 
   }
 }
 
-describe('US-03 — reply to the agent in the thread', () => {
+describe('Reply to the agent in the thread', () => {
   let api: LocalReviewApi;
   let ws: string;
   let uri: vscode.Uri;
@@ -68,7 +68,7 @@ describe('US-03 — reply to the agent in the thread', () => {
     assert.deepEqual(t.canReply, { name: t.comments[0]!.author.name });
   });
 
-  it('adds the reply and hands a question back to the agent (AC 1–2)', async () => {
+  it('adds the reply and hands a question back to the agent', async () => {
     const id = await newThread(4);
     await agentSays(id, 'Which error should it throw?', 'needs-info');
     await userReplies(id, 'A `NotFoundError`.');
@@ -91,7 +91,7 @@ describe('US-03 — reply to the agent in the thread', () => {
     );
   });
 
-  it('hands an addressed thread back to the agent too (AC 3)', async () => {
+  it('hands an addressed thread back to the agent too', async () => {
     const id = await newThread(5);
     await agentSays(id, 'Done.', 'addressed');
     await userReplies(id, 'Not quite: the test still fails.');
@@ -99,7 +99,7 @@ describe('US-03 — reply to the agent in the thread', () => {
     assert.equal(managed(id).thread.label, 'Waiting for Claude');
   });
 
-  it('keeps the order over several back-and-forths (AC 4)', async () => {
+  it('keeps the order over several back-and-forths', async () => {
     const id = await newThread(6);
     for (let round = 1; round <= 3; round++) {
       await agentSays(id, `agent ${round}`, 'needs-info');
@@ -125,7 +125,7 @@ describe('US-03 — reply to the agent in the thread', () => {
     assert.equal(journal(id).length, 2);
   });
 
-  it('loses no message when the user replies while agent processes write (AC 5)', async () => {
+  it('loses no message when the user replies while agent processes write', async () => {
     const id = await newThread(8);
     const script = join(extensionPath, 'dist', 'fake-agent.js');
     const N = 10;

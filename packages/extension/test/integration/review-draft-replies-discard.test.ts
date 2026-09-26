@@ -16,7 +16,7 @@ async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs = 
   }
 }
 
-describe('US-09 — discard a review, and draft replies', () => {
+describe('Discard a review, and draft replies', () => {
   let api: LocalReviewApi;
   let ws: string;
   let uri: vscode.Uri;
@@ -79,7 +79,7 @@ describe('US-09 — discard a review, and draft replies', () => {
     api.setSummaryPrompt(undefined);
   });
 
-  it('adds a draft reply to a published thread; the agent still sees the old messages only (AC 1)', async () => {
+  it('adds a draft reply to a published thread; the agent still sees the old messages only', async () => {
     const id = await questionThread(3);
     await vscode.commands.executeCommand('localReview.startReview');
     await vscode.commands.executeCommand('localReview.addToReview', {
@@ -120,7 +120,7 @@ describe('US-09 — discard a review, and draft replies', () => {
     assert.equal(managed(id)!.state.status, 'open');
   });
 
-  it('discards the review: drafts and draft-only threads go, published threads stay (AC 2)', async () => {
+  it('discards the review: drafts and draft-only threads go, published threads stay', async () => {
     const published = await questionThread(6);
     const draftOnly = await onNewThread('localReview.startReview', 8, 'draft thread');
     await vscode.commands.executeCommand('localReview.addToReview', {
@@ -154,7 +154,7 @@ describe('US-09 — discard a review, and draft replies', () => {
     assert.equal(api.reviewStatusText(), '$(comment-draft) Review · 1');
   });
 
-  it('says there is nothing to submit when the review holds no draft (AC 3)', async () => {
+  it('says there is nothing to submit when the review holds no draft', async () => {
     await vscode.commands.executeCommand('localReview.startReview');
     assert.equal(await vscode.commands.executeCommand<number>('localReview.submitReview'), 0);
     assert.equal(api.reviewsInProgress().length, 1);

@@ -76,7 +76,7 @@ describe('comment actions', () => {
   });
 });
 
-describe('draft-only threads (US-08)', () => {
+describe('draft-only threads', () => {
   const inputMenu: MenuItem[] = manifest.contributes.menus['comments/commentThread/context'];
   const regexShown = (command: string, contextValue: string) =>
     inputMenu
@@ -102,7 +102,7 @@ describe('draft-only threads (US-08)', () => {
   });
 });
 
-describe('buttons of a published thread (US-09)', () => {
+describe('buttons of a published thread', () => {
   const inputMenu: MenuItem[] = manifest.contributes.menus['comments/commentThread/context'];
   /** Commands shown under an existing thread's input, for a context value and review state. */
   const buttons = (contextValue: string, reviewActive: boolean) =>

@@ -16,7 +16,7 @@ async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs = 
   }
 }
 
-describe('US-04 — resolve / reopen a thread', () => {
+describe('Resolve / reopen a thread', () => {
   let api: LocalReviewApi;
   let ws: string;
   let uri: vscode.Uri;
@@ -51,7 +51,7 @@ describe('US-04 — resolve / reopen a thread', () => {
     await api.reload();
   });
 
-  it('resolves and collapses the thread (AC 1)', async () => {
+  it('resolves and collapses the thread', async () => {
     const id = await newThread(3);
     await resolve(id);
 
@@ -79,7 +79,7 @@ describe('US-04 — resolve / reopen a thread', () => {
     assert.equal(managed(id).state.status, 'resolved');
   });
 
-  it('reopens it as waiting for the agent (AC 2)', async () => {
+  it('reopens it as waiting for the agent', async () => {
     const id = await newThread(5);
     await resolve(id);
     await reopen(id);
@@ -91,7 +91,7 @@ describe('US-04 — resolve / reopen a thread', () => {
     assert.equal(t.thread.label, 'Waiting for Claude');
   });
 
-  it('reopens a resolved thread when the user replies (AC 3)', async () => {
+  it('reopens a resolved thread when the user replies', async () => {
     const id = await newThread(6);
     await resolve(id);
     await vscode.commands.executeCommand('localReview.reply', {
@@ -102,7 +102,7 @@ describe('US-04 — resolve / reopen a thread', () => {
     assert.equal(managed(id).thread.state, vscode.CommentThreadState.Unresolved);
   });
 
-  it('does not let the simulated agent reply to, or resolve, a resolved thread (AC 4)', async () => {
+  it('does not let the simulated agent reply to, or resolve, a resolved thread', async () => {
     const id = await newThread(7);
     await resolve(id);
     const ok = await vscode.commands.executeCommand('localReview.dev.simulateAgentReply', {
@@ -114,7 +114,7 @@ describe('US-04 — resolve / reopen a thread', () => {
     assert.equal(managed(id).state.comments.length, 1);
   });
 
-  it('keeps the resolved state after a reload (AC 5)', async () => {
+  it('keeps the resolved state after a reload', async () => {
     const id = await newThread(8);
     await resolve(id);
     await api.reload();

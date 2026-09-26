@@ -13,7 +13,7 @@ describe('threadLabel', () => {
     );
   });
 
-  it('flags outdated threads, keeping the status (AC 1)', () => {
+  it('flags outdated threads, keeping the status', () => {
     expect(threadLabel(state({}), true)).toBe('⚠️ Outdated · Waiting for Claude');
     expect(threadLabel(state({ status: 'resolved' }), true)).toBe('⚠️ Outdated');
     expect(threadLabel(state({ status: 'resolved' }), false)).toBeUndefined();
@@ -21,7 +21,7 @@ describe('threadLabel', () => {
 });
 
 describe('outdatedQuote', () => {
-  it('quotes the original code in a fenced block (AC 2)', () => {
+  it('quotes the original code in a fenced block', () => {
     expect(outdatedQuote('return null;')).toBe(
       '*This code is no longer in the file:*\n\n```\nreturn null;\n```\n\n---\n\n',
     );

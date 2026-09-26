@@ -19,7 +19,7 @@ async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs = 
   }
 }
 
-describe('US-06 — the comment follows the code when the file changes', () => {
+describe('The comment follows the code when the file changes', () => {
   let api: LocalReviewApi;
   let ws: string;
   let n = 0;
@@ -78,7 +78,7 @@ describe('US-06 — the comment follows the code when the file changes', () => {
     await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor');
   });
 
-  it('moves immediately with lines inserted above, without writing yet (AC 1)', async () => {
+  it('moves immediately with lines inserted above, without writing yet', async () => {
     const { uri } = await openFresh();
     const id = await commentLines20to22(uri);
     await edit(uri, (e) => e.insert(uri, new vscode.Position(0, 0), 'a\nb\nc\nd\ne\n'));
@@ -88,7 +88,7 @@ describe('US-06 — the comment follows the code when the file changes', () => {
     assert.deepEqual(anchorUpdates(id), [], 'nothing is persisted while the file is unsaved');
   });
 
-  it('records the new position on save and keeps it after a reload (AC 2)', async () => {
+  it('records the new position on save and keeps it after a reload', async () => {
     const { uri, doc } = await openFresh();
     const id = await commentLines20to22(uri);
     await edit(uri, (e) => e.insert(uri, new vscode.Position(0, 0), 'a\nb\nc\nd\ne\n'));
@@ -104,7 +104,7 @@ describe('US-06 — the comment follows the code when the file changes', () => {
     assert.deepEqual(managed(id).state.anchor.range, { startLine: 25, endLine: 27 });
   });
 
-  it('goes back to its place when the edits are discarded (AC 3)', async () => {
+  it('goes back to its place when the edits are discarded', async () => {
     const { uri } = await openFresh();
     const id = await commentLines20to22(uri);
     await edit(uri, (e) => e.insert(uri, new vscode.Position(0, 0), 'a\nb\nc\n'));
@@ -116,7 +116,7 @@ describe('US-06 — the comment follows the code when the file changes', () => {
     assert.deepEqual(anchorUpdates(id), []);
   });
 
-  it('is back at its place when the file is closed without saving, then reopened (AC 3)', async () => {
+  it('is back at its place when the file is closed without saving, then reopened', async () => {
     const { uri } = await openFresh();
     const id = await commentLines20to22(uri);
     await edit(uri, (e) => e.insert(uri, new vscode.Position(0, 0), 'a\nb\nc\n'));
@@ -128,7 +128,7 @@ describe('US-06 — the comment follows the code when the file changes', () => {
     assert.deepEqual(anchorUpdates(id), []);
   });
 
-  it('stays attached when editing inside the commented lines (AC 4)', async () => {
+  it('stays attached when editing inside the commented lines', async () => {
     const { uri, doc } = await openFresh();
     const id = await commentLines20to22(uri);
     await edit(uri, (e) => e.insert(uri, new vscode.Position(20, 3), 'X\nY\n')); // inside line 21
@@ -142,7 +142,7 @@ describe('US-06 — the comment follows the code when the file changes', () => {
     assert.deepEqual(lines0(id), [19, 20]);
   });
 
-  it('follows code moved by another tool while the file is open (AC 5)', async () => {
+  it('follows code moved by another tool while the file is open', async () => {
     const { uri } = await openFresh();
     const id = await commentLines20to22(uri);
     writeFileSync(uri.fsPath, ['// added', '// by', '// git stash', ...LINES].join('\n') + '\n');
@@ -153,7 +153,7 @@ describe('US-06 — the comment follows the code when the file changes', () => {
     assert.deepEqual(update.anchor.range, { startLine: 23, endLine: 25 });
   });
 
-  it('survives git stash / git stash pop of edits above and inside the commented code (PM scenario)', async () => {
+  it('survives git stash / git stash pop of edits above and inside the commented code', async () => {
     const git = (...args: string[]) =>
       execFileSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.com', ...args], {
         cwd: ws,
@@ -179,7 +179,7 @@ describe('US-06 — the comment follows the code when the file changes', () => {
     );
     await new Promise((r) => setTimeout(r, 800));
     // The edited code is gone from the file: nothing is recorded, and the thread is not left on
-    // its old lines. It is outdated (US-07): shown on line 1 with the "Outdated" label.
+    // its old lines. It is outdated: shown on line 1 with the "Outdated" label.
     assert.equal(anchorUpdates(id).length, 1, 'no position recorded while the code is missing');
     assert.equal(managed(id).outdated, true);
     assert.deepEqual(lines0(id), [0, 0]);
@@ -197,7 +197,7 @@ describe('US-06 — the comment follows the code when the file changes', () => {
     assert.deepEqual(managed(id).state.anchor, saved);
   });
 
-  it('finds its code again when the file changed while VS Code was closed (AC 5)', async () => {
+  it('finds its code again when the file changed while VS Code was closed', async () => {
     // A thread on a file that VS Code never opens.
     const rel = `us06-closed-${++n}.ts`;
     const path = join(ws, rel);

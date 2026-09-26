@@ -7,7 +7,7 @@ import type { LocalReviewApi } from '../../src/extension';
 
 const EXTENSION_ID = 'local.local-review';
 
-describe('US-08 — review mode: drafts, then submit', () => {
+describe('Review mode: drafts, then submit', () => {
   let api: LocalReviewApi;
   let ws: string;
   let uri: vscode.Uri;
@@ -51,7 +51,7 @@ describe('US-08 — review mode: drafts, then submit', () => {
 
   after(() => api.setSummaryPrompt(undefined));
 
-  it('"Start Review" saves the comment as a draft and shows "Review · 1" (AC 1, 2)', async () => {
+  it('"Start Review" saves the comment as a draft and shows "Review · 1"', async () => {
     assert.equal(api.reviewStatusText(), undefined, 'no review yet');
     const id = await onNewThread('localReview.startReview', 3, 'First remark');
 
@@ -67,7 +67,7 @@ describe('US-08 — review mode: drafts, then submit', () => {
     );
   });
 
-  it('adds to the review, or comments now, while it is in progress (AC 3)', async () => {
+  it('adds to the review, or comments now, while it is in progress', async () => {
     await onNewThread('localReview.startReview', 3, 'draft 1');
     const draft = await onNewThread('localReview.addToReview', 5, 'draft 2');
     const direct = await onNewThread('localReview.commentNow', 7, 'right now');
@@ -87,7 +87,7 @@ describe('US-08 — review mode: drafts, then submit', () => {
     assert.equal(api.reviewStatusText(), '$(comment-draft) Review · 2');
   });
 
-  it('keeps the counter in line with the drafts (AC 4)', async () => {
+  it('keeps the counter in line with the drafts', async () => {
     await onNewThread('localReview.startReview', 3, 'one');
     const two = await onNewThread('localReview.addToReview', 5, 'two');
     assert.equal(api.reviewStatusText(), '$(comment-draft) Review · 2');
@@ -96,7 +96,7 @@ describe('US-08 — review mode: drafts, then submit', () => {
     assert.equal(api.reviewStatusText(), '$(comment-draft) Review · 1');
   });
 
-  it('goes to a pending comment (AC 5)', async () => {
+  it('goes to a pending comment', async () => {
     const id = await onNewThread('localReview.startReview', 12, 'look here');
     await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     await vscode.commands.executeCommand('localReview.revealThread', id);
@@ -106,7 +106,7 @@ describe('US-08 — review mode: drafts, then submit', () => {
     assert.equal(managed(id).thread.collapsibleState, vscode.CommentThreadCollapsibleState.Expanded);
   });
 
-  it('submits the review with a summary: drafts are published (AC 6)', async () => {
+  it('submits the review with a summary: drafts are published', async () => {
     const a = await onNewThread('localReview.startReview', 3, 'one');
     const b = await onNewThread('localReview.addToReview', 5, 'two');
     api.setSummaryPrompt(async () => '  Looks good overall  ');
@@ -130,7 +130,7 @@ describe('US-08 — review mode: drafts, then submit', () => {
     assert.equal(api.reviewStatusText(), undefined, 'no review in progress any more');
   });
 
-  it('cancels the submission when the summary is dismissed with Esc (AC 7)', async () => {
+  it('cancels the submission when the summary is dismissed with Esc', async () => {
     const id = await onNewThread('localReview.startReview', 3, 'one');
     api.setSummaryPrompt(async () => undefined);
     assert.equal(await vscode.commands.executeCommand<number>('localReview.submitReview'), 0);
@@ -138,7 +138,7 @@ describe('US-08 — review mode: drafts, then submit', () => {
     assert.equal(api.reviewStatusText(), '$(comment-draft) Review · 1');
   });
 
-  it('keeps the review and its drafts after a restart (AC 8)', async () => {
+  it('keeps the review and its drafts after a restart', async () => {
     const id = await onNewThread('localReview.startReview', 3, 'survive me');
     await api.reload();
     assert.equal(managed(id).state.comments[0]!.isDraft, true);
@@ -146,7 +146,7 @@ describe('US-08 — review mode: drafts, then submit', () => {
     assert.equal(api.reviewsInProgress().length, 1);
   });
 
-  it('hides drafts from the agent until the review is submitted (AC 9)', async () => {
+  it('hides drafts from the agent until the review is submitted', async () => {
     const id = await onNewThread('localReview.startReview', 3, 'secret for now');
     const viaCommand = await vscode.commands.executeCommand('localReview.dev.simulateAgentReply', {
       threadId: id,

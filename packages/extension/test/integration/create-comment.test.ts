@@ -7,7 +7,7 @@ import type { LocalReviewApi } from '../../src/extension';
 
 const EXTENSION_ID = 'local.local-review';
 
-describe('US-01 — direct comment on lines', () => {
+describe('Direct comment on lines', () => {
   let api: LocalReviewApi;
   let ws: string;
   let uri: vscode.Uri;
@@ -40,7 +40,7 @@ describe('US-01 — direct comment on lines', () => {
     await api.reload();
   });
 
-  it('stores a direct comment with its anchor and snippet (AC 1, 4)', async () => {
+  it('stores a direct comment with its anchor and snippet', async () => {
     const thread = await comment(new vscode.Range(9, 0, 11, 5), 'Hello **world**');
 
     const files = threadFiles();
@@ -61,20 +61,20 @@ describe('US-01 — direct comment on lines', () => {
     assert.equal(body.isTrusted, false);
   });
 
-  it('ignores an empty comment (AC 5)', async () => {
+  it('ignores an empty comment', async () => {
     const thread = await comment(new vscode.Range(2, 0, 2, 0), '   ');
     assert.deepEqual(threadFiles(), []);
     thread.dispose();
   });
 
-  it('cancel closes the new thread without writing anything (AC 5)', async () => {
+  it('cancel closes the new thread without writing anything', async () => {
     const thread = api.controller.createCommentThread(uri, new vscode.Range(3, 0, 3, 0), []);
     await vscode.commands.executeCommand('localReview.cancelNewThread', { thread, text: 'draft text' });
     assert.deepEqual(threadFiles(), []);
     assert.equal(api.listThreads().length, 0);
   });
 
-  it('comes back on the same lines after a reload (AC 7)', async () => {
+  it('comes back on the same lines after a reload', async () => {
     await comment(new vscode.Range(9, 0, 11, 5), 'persist me');
     await api.reload();
 
@@ -87,7 +87,7 @@ describe('US-01 — direct comment on lines', () => {
     assert.equal(threads[0]!.thread.collapsibleState, vscode.CommentThreadCollapsibleState.Expanded);
   });
 
-  it('keeps .local-review out of git status (AC 8)', async () => {
+  it('keeps .local-review out of git status', async () => {
     await comment(new vscode.Range(0, 0, 0, 0), 'git hygiene');
     const status = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], {
       cwd: ws,
@@ -103,7 +103,7 @@ describe('US-01 — direct comment on lines', () => {
     assert.equal(lines.filter((l) => l === '/.local-review/').length, 1);
   });
 
-  it('creates two separate threads for two places (AC 9)', async () => {
+  it('creates two separate threads for two places', async () => {
     await comment(new vscode.Range(1, 0, 1, 0), 'first');
     await comment(new vscode.Range(20, 0, 22, 0), 'second');
     assert.equal(threadFiles().length, 2);

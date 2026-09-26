@@ -2,7 +2,7 @@ import type { ThreadState } from '@local-review/core';
 
 // Pure (no `vscode` import) so that labels can be unit-tested.
 
-/** Name shown for the agent until the user plugs in and names their own (D22, D23). */
+/** Name shown for the agent until the user plugs in and names their own. */
 export const DEFAULT_AGENT_NAME = 'Claude';
 
 /** Status label shown in the thread header; `undefined` for resolved threads. */

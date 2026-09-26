@@ -26,7 +26,7 @@ async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs = 
   }
 }
 
-describe('US-07 — a comment becomes outdated when its code disappears', () => {
+describe('A comment becomes outdated when its code disappears', () => {
   let api: LocalReviewApi;
   let ws: string;
   let n = 0;
@@ -82,7 +82,7 @@ describe('US-07 — a comment becomes outdated when its code disappears', () => 
     await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor');
   });
 
-  it('flags the thread as outdated when its code is rewritten elsewhere (AC 1)', async () => {
+  it('flags the thread as outdated when its code is rewritten elsewhere', async () => {
     const { id, path, doc } = await threadOnIfBlock();
     const rewritten = [
       ...FILE.slice(0, 10),
@@ -99,7 +99,7 @@ describe('US-07 — a comment becomes outdated when its code disappears', () => 
     assert.deepEqual(anchorUpdates(id), [], 'the recorded anchor is kept as is');
   });
 
-  it('shows it on line 1, off its former lines, quoting the original code (AC 2, 6)', async () => {
+  it('shows it on line 1, off its former lines, quoting the original code', async () => {
     const { id, path, doc } = await threadOnIfBlock();
     await rewriteOutside(path, doc, ['// everything', '// was deleted']);
     const t = managed(id);
@@ -109,7 +109,7 @@ describe('US-07 — a comment becomes outdated when its code disappears', () => 
     assert.ok(first.endsWith('Throw instead of returning null'));
   });
 
-  it('can still be replied to, resolved and deleted (AC 3)', async () => {
+  it('can still be replied to, resolved and deleted', async () => {
     const { id, path, doc } = await threadOnIfBlock();
     await rewriteOutside(path, doc, ['// gone']);
     await vscode.commands.executeCommand('localReview.reply', { thread: managed(id).thread, text: 'Never mind' });
@@ -133,7 +133,7 @@ describe('US-07 — a comment becomes outdated when its code disappears', () => 
     assert.ok(text(managed(id).thread.comments[0]!).startsWith('*This code is no longer in the file:*'));
   });
 
-  it('is not outdated after whitespace-only changes, and records the new text (AC 4)', async () => {
+  it('is not outdated after whitespace-only changes, and records the new text', async () => {
     const { id, path, doc } = await threadOnIfBlock();
     const reindented = [...FILE.slice(0, 10), ...CODE.map((l) => '\t' + l.replace(/ {2}/g, '\t')), '// end'];
     await rewriteOutside(path, doc, ['// new first line', ...reindented]);
@@ -143,7 +143,7 @@ describe('US-07 — a comment becomes outdated when its code disappears', () => 
     assert.equal(t.state.anchor.snippet.split('\n')[0], '\t\tif (!user) {');
   });
 
-  it('comes back on its lines when its code comes back (AC 5)', async () => {
+  it('comes back on its lines when its code comes back', async () => {
     const { id, path, doc } = await threadOnIfBlock();
     await rewriteOutside(path, doc, ['// gone']);
     assert.equal(managed(id).outdated, true);
@@ -155,7 +155,7 @@ describe('US-07 — a comment becomes outdated when its code disappears', () => 
     assert.ok(!text(t.thread.comments[0]!).includes('no longer in the file'));
   });
 
-  it('is outdated when its line is deleted in the editor, and stays so after saving (PM scenario)', async () => {
+  it('is outdated when its line is deleted in the editor, and stays so after saving', async () => {
     const path = join(ws, `us07-${++n}.ts`);
     writeFileSync(path, FILE.join('\n') + '\n');
     const uri = vscode.Uri.file(path);

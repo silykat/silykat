@@ -14,7 +14,7 @@ const inputBoxSummary: SummaryPrompt = () =>
     }),
   );
 
-/** Review mode UI (US-08): status bar item, submit, pending comments. */
+/** Review mode UI: status bar item, submit, pending comments. */
 export class ReviewUi implements vscode.Disposable {
   private readonly statusBar = vscode.window.createStatusBarItem(
     'localReview.review',

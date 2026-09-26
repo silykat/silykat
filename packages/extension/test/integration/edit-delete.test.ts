@@ -16,7 +16,7 @@ async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs = 
   }
 }
 
-describe('US-05 — edit / delete my comments and threads', () => {
+describe('Edit / delete my comments and threads', () => {
   let api: LocalReviewApi;
   let ws: string;
   let uri: vscode.Uri;
@@ -70,7 +70,7 @@ describe('US-05 — edit / delete my comments and threads', () => {
 
   after(() => api.setConfirmHandler(undefined));
 
-  it('edits my comment, then saves it and marks it edited (AC 1)', async () => {
+  it('edits my comment, then saves it and marks it edited', async () => {
     const id = await newThread(3);
     const c = comments(id)[0]!;
     await vscode.commands.executeCommand('localReview.editComment', c);
@@ -90,7 +90,7 @@ describe('US-05 — edit / delete my comments and threads', () => {
     assert.equal(text(comments(id)[0]!), 'Rename it to `userCount`');
   });
 
-  it('cancels an edit without writing anything (AC 1)', async () => {
+  it('cancels an edit without writing anything', async () => {
     const id = await newThread(4);
     const c = comments(id)[0]!;
     await vscode.commands.executeCommand('localReview.editComment', c);
@@ -125,7 +125,7 @@ describe('US-05 — edit / delete my comments and threads', () => {
     assert.equal(text(comments(id)[0]!), 'half-typed edit');
   });
 
-  it('deletes my comment after confirmation (AC 2)', async () => {
+  it('deletes my comment after confirmation', async () => {
     const id = await withAgentReply(7);
     await vscode.commands.executeCommand('localReview.reply', { thread: managed(id)!.thread, text: 'typo reply' });
     await vscode.commands.executeCommand('localReview.deleteComment', comments(id)[2]!);
@@ -142,7 +142,7 @@ describe('US-05 — edit / delete my comments and threads', () => {
     assert.deepEqual(events(id), ['thread.created', 'comment.added']);
   });
 
-  it('never edits or deletes the agent’s comments (AC 3)', async () => {
+  it('never edits or deletes the agent’s comments', async () => {
     const id = await withAgentReply(9);
     const agentComment = comments(id)[1]!;
     assert.equal(agentComment.contextValue, 'author-agent');
@@ -153,7 +153,7 @@ describe('US-05 — edit / delete my comments and threads', () => {
     assert.equal(confirmations.length, 0);
   });
 
-  it('removes the thread with its only comment (AC 4)', async () => {
+  it('removes the thread with its only comment', async () => {
     const id = await newThread(10);
     await vscode.commands.executeCommand('localReview.deleteComment', comments(id)[0]!);
     assert.match(confirmations[0]!, /thread will be deleted too/);
@@ -163,7 +163,7 @@ describe('US-05 — edit / delete my comments and threads', () => {
     assert.equal(managed(id), undefined);
   });
 
-  it('deletes a whole thread, agent replies included (AC 5)', async () => {
+  it('deletes a whole thread, agent replies included', async () => {
     const id = await withAgentReply(11);
     await vscode.commands.executeCommand('localReview.deleteThread', managed(id)!.thread);
     assert.match(confirmations[0]!, /2 comments/);

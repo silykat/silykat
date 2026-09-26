@@ -369,7 +369,7 @@ describe('Store — replies and statuses', () => {
   });
 });
 
-describe('Store — user replies (US-03)', () => {
+describe('Store — user replies', () => {
   let root: string;
   let store: Store;
   beforeEach(async () => {
@@ -421,7 +421,7 @@ describe('Store — user replies (US-03)', () => {
     expect(s.status).toBe('addressed');
   });
 
-  it('loses nothing when the user and the agent write at the same time (AC 5)', async () => {
+  it('loses nothing when the user and the agent write at the same time', async () => {
     const t = await store.createThread(anchor(), { author: 'user', body: 'q', reviewId: null });
     const user = new Store(root);
     const agent = new Store(root);
@@ -444,7 +444,7 @@ describe('Store — user replies (US-03)', () => {
   });
 });
 
-describe('Store — edit and delete (US-05)', () => {
+describe('Store — edit and delete', () => {
   let root: string;
   let store: Store;
   beforeEach(async () => {
@@ -521,7 +521,7 @@ describe('Store — edit and delete (US-05)', () => {
   });
 });
 
-describe('reanchor (US-06)', () => {
+describe('reanchor', () => {
   const file = (lines: string[]) => lines.join('\n') + '\n';
   const BASE = ['import x', '', 'function a() {', '  return null;', '}', '', 'function b() {', '  return 1;', '}'];
   const at = (startLine: number, endLine: number, text = file(BASE)) => ({
@@ -561,7 +561,7 @@ describe('reanchor (US-06)', () => {
   });
 });
 
-describe('Store.updateAnchor (US-06)', () => {
+describe('Store.updateAnchor', () => {
   let root: string;
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), 'lr-core-'));
@@ -581,7 +581,7 @@ describe('Store.updateAnchor (US-06)', () => {
   });
 });
 
-describe('reanchor — whitespace changes (US-07)', () => {
+describe('reanchor — whitespace changes', () => {
   const file = (lines: string[]) => lines.join('\n') + '\n';
   const BASE = ['function a() {', '  if (x) {', '    return null;', '  }', '}'];
   const at = (startLine: number, endLine: number) => ({
@@ -618,7 +618,7 @@ describe('reanchor — whitespace changes (US-07)', () => {
   });
 });
 
-describe('Store — review mode (US-08)', () => {
+describe('Store — review mode', () => {
   let root: string;
   let store: Store;
   beforeEach(async () => {
@@ -678,7 +678,7 @@ describe('Store — review mode (US-08)', () => {
     await expect(store.submitReview(r.id)).rejects.toThrow(/already submitted/);
   });
 
-  it('hides threads that only hold drafts from the agent (AC 9)', async () => {
+  it('hides threads that only hold drafts from the agent', async () => {
     const r = await store.startReview();
     const t = await store.createThread(anchor(), { author: 'user', body: 'draft', reviewId: r.id });
     await expect(
@@ -701,7 +701,7 @@ describe('Store — review mode (US-08)', () => {
   });
 });
 
-describe('Store — discard and draft replies (US-09)', () => {
+describe('Store — discard and draft replies', () => {
   let root: string;
   let store: Store;
   beforeEach(async () => {

@@ -130,7 +130,7 @@ export class Store {
   /**
    * Publishes a review: its draft comments become visible to the agent. A draft reply in a thread
    * the agent was done with (`needs-info`, `addressed`, `resolved`) hands it back to the agent,
-   * like a direct reply does (D12).
+   * like a direct reply does.
    */
   async submitReview(reviewId: string, summary?: string): Promise<ReviewState> {
     await this.assertActiveReview(reviewId);
@@ -172,7 +172,7 @@ export class Store {
    * observe the comment without its status.
    *
    * A published reply from the user hands the thread back to the agent: unless a status is
-   * given, a thread that is `needs-info`, `addressed` or `resolved` goes back to `open` (D12).
+   * given, a thread that is `needs-info`, `addressed` or `resolved` goes back to `open`.
    */
   async addComment(threadId: string, c: NewComment, opts: { status?: ThreadStatus } = {}): Promise<ThreadState> {
     const body = c.body.trim();
@@ -382,7 +382,7 @@ function assertOwnComment(thread: ThreadState, commentId: string, by: Author): v
   if (comment.author !== by) throw new Error('You can only change your own comments');
 }
 
-/** Only the user resolves a thread (D06). */
+/** Only the user resolves a thread. */
 function assertCanSetStatus(status: ThreadStatus, by: Author): void {
   if (status === 'resolved' && by !== 'user') throw new Error('Only the user can resolve a thread');
 }

@@ -6,7 +6,7 @@ import * as vscode from 'vscode';
 import type { LocalReviewApi } from '../../src/extension';
 
 const EXTENSION_ID = 'local.local-review';
-const LIVE_DEADLINE_MS = 1000; // AC 2: "in less than a second"
+const LIVE_DEADLINE_MS = 1000; // "in less than a second"
 
 async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs: number): Promise<T> {
   const start = Date.now();
@@ -18,7 +18,7 @@ async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs: n
   }
 }
 
-describe('US-02 — see the agent’s reply appear in the thread (default agent: Claude)', () => {
+describe('See the agent’s reply appear in the thread (default agent: Claude)', () => {
   let api: LocalReviewApi;
   let ws: string;
   let uri: vscode.Uri;
@@ -59,12 +59,12 @@ describe('US-02 — see the agent’s reply appear in the thread (default agent:
     await api.reload();
   });
 
-  it('shows a thread without Claude reply as "Waiting for Claude" (AC 5)', async () => {
+  it('shows a thread without Claude reply as "Waiting for Claude"', async () => {
     const id = await newThread(4);
     assert.equal(threadById(id)!.thread.label, 'Waiting for Claude');
   });
 
-  it('shows a question from Claude live, as Claude, and expands the thread (AC 1–3)', async () => {
+  it('shows a question from Claude live, as Claude, and expands the thread', async () => {
     const id = await newThread(5);
     threadById(id)!.thread.collapsibleState = vscode.CommentThreadCollapsibleState.Collapsed;
 
@@ -90,7 +90,7 @@ describe('US-02 — see the agent’s reply appear in the thread (default agent:
     assert.ok(elapsed < LIVE_DEADLINE_MS, `reply took ${elapsed} ms`);
   });
 
-  it('labels an addressed thread (AC 4)', async () => {
+  it('labels an addressed thread', async () => {
     const id = await newThread(6);
     await simulate(id, 'Done: it now throws `NotFoundError`.', 'addressed');
     await waitFor(
@@ -112,7 +112,7 @@ describe('US-02 — see the agent’s reply appear in the thread (default agent:
     assert.equal(threadById(id)!.thread.label, '💬 Claude replied');
   });
 
-  it('renders Claude’s markdown as untrusted (AC 6)', async () => {
+  it('renders Claude’s markdown as untrusted', async () => {
     const id = await newThread(8);
     await simulate(id, '`code` and a [link](command:workbench.action.quit)', 'none');
     const thread = await waitFor(
@@ -125,7 +125,7 @@ describe('US-02 — see the agent’s reply appear in the thread (default agent:
     assert.equal(body.supportHtml, false);
   });
 
-  it('keeps the reply and the status after a reload (AC 7)', async () => {
+  it('keeps the reply and the status after a reload', async () => {
     const id = await newThread(9);
     await simulate(id, 'Why this choice?', 'needs-info');
     await waitFor(
@@ -142,7 +142,7 @@ describe('US-02 — see the agent’s reply appear in the thread (default agent:
     assert.equal(t.thread.label, '❓ Claude is waiting for your reply');
   });
 
-  it('shows the name of whichever agent replied (LLM-agnostic, D22)', async () => {
+  it('shows the name of whichever agent replied (LLM-agnostic)', async () => {
     const id = await newThread(10);
     await simulate(id, 'Which error type?', 'needs-info', 'Codex');
     const thread = await waitFor(

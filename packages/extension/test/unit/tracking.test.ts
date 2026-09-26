@@ -18,7 +18,7 @@ const remove = (fromLine: number, toLine: number): TextChange => ({
 });
 
 describe('shiftSpan', () => {
-  it('moves down with lines inserted above (AC 1)', () => {
+  it('moves down with lines inserted above', () => {
     expect(shiftSpan(SPAN, insert(0, 0, 'a\nb\nc\nd\ne\n'))).toEqual({ start: 24, end: 26 });
   });
 
@@ -35,12 +35,12 @@ describe('shiftSpan', () => {
     expect(shiftSpan(SPAN, insert(20, 4, 'abc'))).toEqual(SPAN);
   });
 
-  it('grows with lines inserted inside (AC 4)', () => {
+  it('grows with lines inserted inside', () => {
     expect(shiftSpan(SPAN, insert(20, 3, 'X\nY\n'))).toEqual({ start: 19, end: 23 });
     expect(shiftSpan(SPAN, insert(21, 10, '\nmore'))).toEqual({ start: 19, end: 22 });
   });
 
-  it('shrinks with some of its lines deleted, down to a single line (AC 4)', () => {
+  it('shrinks with some of its lines deleted, down to a single line', () => {
     expect(shiftSpan(SPAN, remove(20, 21))).toEqual({ start: 19, end: 20 });
     expect(shiftSpan(SPAN, remove(19, 21))).toEqual({ start: 19, end: 19 }); // first two of three lines
     expect(shiftSpan(SPAN, { startLine: 19, startCharacter: 0, endLine: 21, endCharacter: 5, text: '' })).toEqual({
@@ -49,7 +49,7 @@ describe('shiftSpan', () => {
     }); // ends inside the last line: its tail is still there
   });
 
-  it('is removed when all its lines are deleted or replaced (US-07)', () => {
+  it('is removed when all its lines are deleted or replaced', () => {
     expect(shiftSpan({ start: 19, end: 19 }, remove(19, 20))).toBe(REMOVED); // delete the line (Cmd+Shift+K)
     expect(shiftSpan(SPAN, remove(19, 22))).toBe(REMOVED);
     expect(shiftSpan(SPAN, { startLine: 18, startCharacter: 4, endLine: 23, endCharacter: 2, text: '' })).toBe(REMOVED);

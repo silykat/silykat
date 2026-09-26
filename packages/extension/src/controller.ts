@@ -42,12 +42,12 @@ export class ReviewController implements vscode.Disposable {
   private readonly managed = new Map<string, Managed>();
   private readonly byThread = new WeakMap<vscode.CommentThread, string>();
   private readonly excludedRoots = new Set<string>();
-  /** Positions of threads in documents with unsaved edits; persisted on save (US-06). */
+  /** Positions of threads in documents with unsaved edits; persisted on save. */
   private readonly liveRanges = new Map<string, LineRange>();
   private readonly settleTimers = new Map<string, NodeJS.Timeout>();
-  /** Threads whose code is no longer in the file (US-07). Derived state: never written. */
+  /** Threads whose code is no longer in the file. Derived state: never written. */
   private readonly outdated = new Set<string>();
-  /** The review in progress in each root, by root path (US-08). */
+  /** The review in progress in each root, by root path. */
   private readonly activeReviews = new Map<string, ReviewState>();
   private readonly changed = new vscode.EventEmitter<void>();
   /** Fires when threads, drafts or reviews change (e.g. for the status bar). */
@@ -265,7 +265,7 @@ export class ReviewController implements vscode.Disposable {
     return (active?.scheme === 'file' ? this.roots.forFile(active.fsPath) : undefined) ?? this.roots.all()[0];
   }
 
-  /** "Resolve" / "Reopen" from the thread header. Only the user resolves (D06). */
+  /** "Resolve" / "Reopen" from the thread header. Only the user resolves. */
   async setThreadStatus(thread: vscode.CommentThread, status: 'resolved' | 'open'): Promise<void> {
     const threadId = this.byThread.get(thread);
     const managed = threadId ? this.managed.get(threadId) : undefined;
@@ -404,7 +404,7 @@ export class ReviewController implements vscode.Disposable {
     if (!this.byThread.has(thread)) thread.dispose();
   }
 
-  /** Keeps thread positions in sync with document edits (US-06). */
+  /** Keeps thread positions in sync with document edits. */
   trackDocuments(): vscode.Disposable {
     return vscode.Disposable.from(
       vscode.workspace.onDidChangeTextDocument((e) => this.onDocumentChanged(e)),
