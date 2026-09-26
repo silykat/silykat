@@ -36,6 +36,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
       review.submitNewComment(reply),
     ),
     vscode.commands.registerCommand('localReview.reply', (reply: vscode.CommentReply) => review.reply(reply)),
+    vscode.commands.registerCommand('localReview.replyNow', (reply: vscode.CommentReply) => review.reply(reply)),
     vscode.commands.registerCommand('localReview.resolveThread', (thread: vscode.CommentThread) =>
       review.setThreadStatus(thread, 'resolved'),
     ),

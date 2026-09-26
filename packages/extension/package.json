@@ -54,6 +54,12 @@
         "icon": "$(check)"
       },
       {
+        "command": "localReview.discardReview",
+        "title": "Discard Review",
+        "category": "Local Review",
+        "icon": "$(trash)"
+      },
+      {
         "command": "localReview.showPendingComments",
         "title": "Show Pending Comments",
         "category": "Local Review"
@@ -71,6 +77,10 @@
       {
         "command": "localReview.reply",
         "title": "Reply"
+      },
+      {
+        "command": "localReview.replyNow",
+        "title": "Reply Now"
       },
       {
         "command": "localReview.cancelNewThread",
@@ -188,6 +198,14 @@
         {
           "command": "localReview.revealThread",
           "when": "false"
+        },
+        {
+          "command": "localReview.replyNow",
+          "when": "false"
+        },
+        {
+          "command": "localReview.discardReview",
+          "when": "localReview.reviewActive"
         }
       ],
       "editor/context": [
@@ -224,14 +242,24 @@
           "group": "inline@3"
         },
         {
+          "command": "localReview.addToReview",
+          "when": "commentController == local-review && !commentThreadIsEmpty && !commentIsEmpty && commentThread =~ /^lr draft /",
+          "group": "inline@1"
+        },
+        {
           "command": "localReview.reply",
-          "when": "commentController == local-review && !commentThreadIsEmpty && !commentIsEmpty && commentThread =~ /^lr (open|needs-info|addressed|resolved)$/",
+          "when": "commentController == local-review && !commentThreadIsEmpty && !commentIsEmpty && commentThread =~ /^lr (open|needs-info|addressed|resolved)$/ && !localReview.reviewActive",
           "group": "inline@1"
         },
         {
           "command": "localReview.addToReview",
-          "when": "commentController == local-review && !commentThreadIsEmpty && !commentIsEmpty && commentThread =~ /^lr draft /",
+          "when": "commentController == local-review && !commentThreadIsEmpty && !commentIsEmpty && commentThread =~ /^lr (open|needs-info|addressed|resolved)$/ && localReview.reviewActive",
           "group": "inline@1"
+        },
+        {
+          "command": "localReview.replyNow",
+          "when": "commentController == local-review && !commentThreadIsEmpty && !commentIsEmpty && commentThread =~ /^lr (open|needs-info|addressed|resolved)$/ && localReview.reviewActive",
+          "group": "inline@2"
         }
       ],
       "comments/commentThread/title": [

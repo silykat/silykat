@@ -34,6 +34,7 @@ export class ReviewUi implements vscode.Disposable {
         review.addToReview(reply),
       ),
       vscode.commands.registerCommand('localReview.submitReview', () => this.submit()),
+      vscode.commands.registerCommand('localReview.discardReview', () => this.discard()),
       vscode.commands.registerCommand('localReview.showPendingComments', () => this.showPending()),
       vscode.commands.registerCommand('localReview.reviewMenu', () => this.menu()),
       vscode.commands.registerCommand('localReview.revealThread', (threadId: string) => review.reveal(threadId)),
@@ -84,6 +85,7 @@ export class ReviewUi implements vscode.Disposable {
       [
         { label: '$(check) Submit Review', run: () => this.submit() },
         { label: '$(list-unordered) Show Pending Comments', run: () => this.showPending() },
+        { label: '$(trash) Discard Review', run: () => this.discard() },
       ],
       { title: 'Local Review: review in progress' },
     );
@@ -106,6 +108,31 @@ export class ReviewUi implements vscode.Disposable {
       return n;
     } catch (err) {
       void vscode.window.showErrorMessage(`Local Review: the review could not be submitted (${String(err)}).`);
+      return 0;
+    }
+  }
+
+  /** "Discard Review": deletes every draft of the review, after confirmation. */
+  async discard(): Promise<number> {
+    const root = await this.pickRoot();
+    if (!root) return 0;
+    const n = this.review.draftCount(root);
+    const confirmed =
+      n === 0 ||
+      (await this.review.confirm(
+        `Delete ${n} pending comment${n === 1 ? '' : 's'}?`,
+        'The review is discarded. Threads that only hold pending comments disappear; published threads are kept.',
+        'Discard Review',
+      ));
+    if (!confirmed) return 0;
+    try {
+      const dropped = await this.review.discardReview(root);
+      void vscode.window.showInformationMessage(
+        `Local Review: review discarded (${dropped} pending comment${dropped === 1 ? '' : 's'} deleted).`,
+      );
+      return dropped;
+    } catch (err) {
+      void vscode.window.showErrorMessage(`Local Review: the review could not be discarded (${String(err)}).`);
       return 0;
     }
   }

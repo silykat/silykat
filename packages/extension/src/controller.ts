@@ -196,6 +196,18 @@ export class ReviewController implements vscode.Disposable {
     return published;
   }
 
+  /** Abandons the review in progress of a root: its drafts are dropped. Returns how many. */
+  async discardReview(root: Root): Promise<number> {
+    const review = this.activeReviews.get(root.path);
+    if (!review) return 0;
+    const dropped = this.draftCount(root);
+    await root.store.discardReview(review.id);
+    this.setActiveReview(root, null);
+    this.updateReviewContext();
+    await this.refreshRoot(root);
+    return dropped;
+  }
+
   /** Threads of a root holding at least one draft comment. */
   pendingThreads(root?: Root): { id: string; state: ThreadState }[] {
     return [...this.managed.values()]

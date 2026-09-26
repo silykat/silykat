@@ -700,3 +700,58 @@ describe('Store — review mode (US-08)', () => {
     expect(() => store.reviewFile('../x')).toThrow(/Invalid review id/);
   });
 });
+
+describe('Store — discard and draft replies (US-09)', () => {
+  let root: string;
+  let store: Store;
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'lr-core-'));
+    store = new Store(root);
+  });
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it('drops the drafts of a discarded review; draft-only threads disappear', async () => {
+    const published = await store.createThread(anchor(), { author: 'user', body: 'published', reviewId: null });
+    const r = await store.startReview();
+    await store.addComment(published.id, { author: 'user', body: 'draft reply', reviewId: r.id });
+    const draftOnly = await store.createThread(anchor(), { author: 'user', body: 'draft', reviewId: r.id });
+
+    expect(await store.discardReview(r.id)).toMatchObject({ state: 'discarded' });
+    const { threads } = await store.loadAll();
+    expect(threads.map((t) => t.id)).toEqual([published.id]);
+    expect(threads[0]!.comments.map((c) => c.body)).toEqual(['published']);
+    expect((await store.loadThread(draftOnly.id)).state!.deleted).toBe(true);
+    expect(await store.activeReview()).toBeNull();
+    await expect(store.discardReview(r.id)).rejects.toThrow(/already discarded/);
+  });
+
+  it('keeps a draft reply hidden in a published thread until submit, then hands the thread back', async () => {
+    const t = await store.createThread(anchor(), { author: 'user', body: 'q', reviewId: null });
+    await store.addComment(
+      t.id,
+      { author: 'agent', agent: 'Claude', body: 'Which one?', reviewId: null },
+      { status: 'needs-info' },
+    );
+    const r = await store.startReview();
+    const drafted = await store.addComment(t.id, { author: 'user', body: 'This one', reviewId: r.id });
+    expect(drafted.status).toBe('needs-info'); // nothing changes for the agent yet
+    expect(drafted.comments.map((c) => c.isDraft)).toEqual([false, false, true]);
+    expect(drafted.hasPublished).toBe(true);
+
+    await store.submitReview(r.id);
+    const after = (await store.loadThread(t.id)).state!;
+    expect(after.status).toBe('open');
+    expect(after.comments.map((c) => c.isDraft)).toEqual([false, false, false]);
+  });
+
+  it('does not touch the status of threads without replies in the review', async () => {
+    const t = await store.createThread(anchor(), { author: 'user', body: 'q', reviewId: null });
+    await store.setStatus(t.id, 'addressed', 'agent', 'Claude');
+    const r = await store.startReview();
+    await store.createThread(anchor(), { author: 'user', body: 'other', reviewId: r.id });
+    await store.submitReview(r.id);
+    expect((await store.loadThread(t.id)).state!.status).toBe('addressed');
+  });
+});

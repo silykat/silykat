@@ -101,3 +101,35 @@ describe('draft-only threads (US-08)', () => {
     expect(regexShown('localReview.reply', published)).toBe(true);
   });
 });
+
+describe('buttons of a published thread (US-09)', () => {
+  const inputMenu: MenuItem[] = manifest.contributes.menus['comments/commentThread/context'];
+  /** Commands shown under an existing thread's input, for a context value and review state. */
+  const buttons = (contextValue: string, reviewActive: boolean) =>
+    inputMenu
+      .filter((m) => m.when.includes('!commentThreadIsEmpty'))
+      .filter((m) => new RegExp(/commentThread =~ \/(.+?)\/(\s|$)/.exec(m.when)![1]!).test(contextValue))
+      .filter((m) =>
+        m.when.includes('!localReview.reviewActive')
+          ? !reviewActive
+          : m.when.includes('localReview.reviewActive')
+            ? reviewActive
+            : true,
+      )
+      .sort((a, b) => ((a as { group?: string }).group ?? '').localeCompare((b as { group?: string }).group ?? ''))
+      .map((m) => m.command);
+  const published = threadContextValue({ status: 'needs-info', readOnly: false, onlyDrafts: false });
+  const draftOnly = threadContextValue({ status: 'open', readOnly: false, onlyDrafts: true });
+
+  it('offers "Reply" when no review is in progress', () => {
+    expect(buttons(published, false)).toEqual(['localReview.reply']);
+  });
+
+  it('offers "Add to Review" first, then "Reply Now", during a review', () => {
+    expect(buttons(published, true)).toEqual(['localReview.addToReview', 'localReview.replyNow']);
+  });
+
+  it('only offers "Add to Review" on a draft-only thread', () => {
+    expect(buttons(draftOnly, true)).toEqual(['localReview.addToReview']);
+  });
+});

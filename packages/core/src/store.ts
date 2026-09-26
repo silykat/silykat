@@ -127,9 +127,14 @@ export class Store {
     return foldReview([event])!;
   }
 
-  /** Publishes a review: its draft comments become visible to the agent. */
+  /**
+   * Publishes a review: its draft comments become visible to the agent. A draft reply in a thread
+   * the agent was done with (`needs-info`, `addressed`, `resolved`) hands it back to the agent,
+   * like a direct reply does (D12).
+   */
   async submitReview(reviewId: string, summary?: string): Promise<ReviewState> {
     await this.assertActiveReview(reviewId);
+    const { threads: before } = await this.loadAll();
     const text = summary?.trim();
     const event: ReviewEvent = {
       v: SCHEMA_VERSION,
@@ -137,6 +142,25 @@ export class Store {
       at: new Date().toISOString(),
       by: 'user',
       ...(text ? { summary: text } : {}),
+    };
+    await appendFile(this.reviewFile(reviewId), serializeEvents([event]), { flag: 'a' });
+
+    for (const t of before) {
+      const repliesInReview = t.comments.some((c) => c.reviewId === reviewId && c.author === 'user');
+      if (repliesInReview && t.status !== 'open' && !t.readOnly) await this.setStatus(t.id, 'open', 'user');
+    }
+    const { reviews } = await this.loadReviews();
+    return reviews.get(reviewId)!;
+  }
+
+  /** Abandons a review: its draft comments are dropped, and threads holding only drafts disappear. */
+  async discardReview(reviewId: string): Promise<ReviewState> {
+    await this.assertActiveReview(reviewId);
+    const event: ReviewEvent = {
+      v: SCHEMA_VERSION,
+      type: 'review.discarded',
+      at: new Date().toISOString(),
+      by: 'user',
     };
     await appendFile(this.reviewFile(reviewId), serializeEvents([event]), { flag: 'a' });
     const { reviews } = await this.loadReviews();

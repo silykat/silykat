@@ -80,6 +80,9 @@ export function foldThread(events: readonly ThreadEvent[], opts: FoldOptions = {
     }
   }
 
+  // A thread never exists without comments: once its drafts are discarded, it is gone.
+  if (state.comments.length === 0) state.deleted = true;
+
   const last = state.comments[state.comments.length - 1];
   state.lastAuthor = last ? last.author : null;
   state.lastAgentName = [...state.comments].reverse().find((c) => c.agentName)?.agentName ?? null;
