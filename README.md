@@ -68,6 +68,8 @@ claude --dangerously-load-development-channels plugin:local-review@local-review
 
 An alias saves typing it, e.g. in `~/.zshrc`: `alias claude-lr='claude --dangerously-load-development-channels plugin:local-review@local-review'`. Claude Code then shows a warning about development channels at each launch: pick **I am using this for local development**. The first time Claude handles comments on its own, it asks to use the `local-review:review` skill: allow it for good.
 
+This works with Claude Code in a terminal (the `claude` command line). The Claude Code panel of VS Code cannot be launched with a channel yet: there, ask Claude with `/local-review:review` when you have published.
+
 A session launched without the channel still receives the comments, but only sees them when you ask it (`/local-review:review`). VS Code tells you so once, with the command to relaunch it, and marks the session with a warning sign in the status bar. Deliveries go to each session's inbox, next to its registry entry.
 
 `lr` on its own:
