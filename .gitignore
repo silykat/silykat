@@ -34,8 +34,8 @@ npm-debug.log*
 .claude/settings.local.json
 CLAUDE.local.md
 
-# Claude skill: CLI bundled at build time from packages/cli (step 2)
-skill/*/scripts/*.mjs
+# Claude Code plugin: CLI bundled at build time from packages/cli
+adapters/claude-code/plugin/bin/
 
 # local-review data when dogfooding the extension on this repository
 .local-review/

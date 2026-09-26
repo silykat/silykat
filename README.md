@@ -43,6 +43,39 @@ When a thread's code disappears (rewritten or deleted elsewhere, stashed away, o
 
 Until the first agent integration ships, **Local Review (dev): Simulate Agent Reply** writes a reply as the agent from a separate process, through the same path a real integration will use.
 
+## Agent integration (Claude Code)
+
+Agents read and answer the threads with **`lr`**, an agent-neutral command line (`packages/cli`). The Claude Code plugin (`adapters/claude-code/plugin`) ships `lr` and a skill that tells Claude how to handle a review.
+
+For now, load the plugin from this repository:
+
+```sh
+npm install && npm run build:claude-plugin
+claude --plugin-dir /path/to/local-review/adapters/claude-code/plugin
+```
+
+Then, in the session, run **`/local-review:review`** (or ask Claude to handle your review comments). Claude reads the threads waiting for it, changes the code, and replies in each thread: **addressed** when done, **needs-info** when it asks you a question. Its replies show up live in VS Code. Only you resolve threads.
+
+`lr` on its own:
+
+```sh
+lr status                                    # how many threads wait for the agent
+lr list                                      # those threads, with their current code
+lr reply <thread-id> --agent Claude --status addressed --body -   # body on stdin
+lr set-status <thread-id> needs-info --agent Claude
+```
+
+## Architecture
+
+| Folder                      | Purpose                                                                                                                | May depend on |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------- |
+| `packages/core`             | Data model, journals, stores, re-anchoring                                                                             | nothing       |
+| `packages/cli`              | `lr`, the entry point for every agent                                                                                  | `core`        |
+| `packages/vscode-extension` | The VS Code extension                                                                                                  | `core`        |
+| `adapters/claude-code`      | Everything specific to Claude Code: the plugin (manifest, skill; the bundled `lr` goes to `plugin/bin/` at build time) | `core`, `cli` |
+
+Neutral packages never depend on an adapter. `npm test` checks these rules (`scripts/check-boundaries.mjs`).
+
 ## Development
 
 Requirements: Node ≥ 20 and the `code` command on your PATH.
@@ -56,11 +89,6 @@ npm run install-ext        # build the .vsix and install it into VS Code
 ```
 
 After `install-ext`, run **Developer: Reload Window** in VS Code.
-
-| Package                     | Purpose                                                       |
-| --------------------------- | ------------------------------------------------------------- |
-| `packages/core`             | Data model, JSONL journal, storage. No dependency on `vscode` |
-| `packages/vscode-extension` | VS Code extension                                             |
 
 ## License
 
