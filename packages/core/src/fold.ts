@@ -24,6 +24,7 @@ export function foldThread(events: readonly ThreadEvent[], opts: FoldOptions = {
     deleted: false,
     readOnly: opts.futureVersion ?? false,
     lastAuthor: null,
+    lastAgentName: null,
     hasPublished: false,
     onlyDrafts: false,
   };
@@ -38,6 +39,7 @@ export function foldThread(events: readonly ThreadEvent[], opts: FoldOptions = {
         const c: CommentState = {
           id: e.commentId,
           author: e.by,
+          ...(e.by === 'agent' && e.agent ? { agentName: e.agent } : {}),
           body: e.body,
           createdAt: e.at,
           reviewId: e.reviewId,
@@ -80,6 +82,7 @@ export function foldThread(events: readonly ThreadEvent[], opts: FoldOptions = {
 
   const last = state.comments[state.comments.length - 1];
   state.lastAuthor = last ? last.author : null;
+  state.lastAgentName = [...state.comments].reverse().find((c) => c.agentName)?.agentName ?? null;
   state.hasPublished = state.comments.some((c) => !c.isDraft);
   state.onlyDrafts = state.comments.length > 0 && !state.hasPublished;
   return state;

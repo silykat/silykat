@@ -31,7 +31,7 @@ function anchor(overrides: Partial<Anchor> = {}): Anchor {
 const created = (a = anchor()): ThreadEvent => ({
   v: 1, type: 'thread.created', at: '2026-09-26T10:00:00.000Z', by: 'user', threadId: 't_1', anchor: a,
 });
-const added = (id: string, by: 'user' | 'claude', body: string, reviewId: string | null = null): ThreadEvent => ({
+const added = (id: string, by: 'user' | 'agent', body: string, reviewId: string | null = null): ThreadEvent => ({
   v: 1, type: 'comment.added', at: '2026-09-26T10:01:00.000Z', by, commentId: id, body, reviewId,
 });
 
@@ -118,15 +118,15 @@ describe('foldThread', () => {
     const s = foldThread([
       created(),
       added('c_1', 'user', 'hi'),
-      added('c_2', 'claude', 'why?'),
+      added('c_2', 'agent', 'why?'),
       { v: 1, type: 'comment.edited', at: 't', by: 'user', commentId: 'c_1', body: 'hello' },
-      { v: 1, type: 'status.changed', at: 't', by: 'claude', status: 'needs-info' },
+      { v: 1, type: 'status.changed', at: 't', by: 'agent', status: 'needs-info' },
       { v: 1, type: 'anchor.updated', at: 't', by: 'user', anchor: moved },
     ])!;
     expect(s.comments.map((c) => c.body)).toEqual(['hello', 'why?']);
     expect(s.comments[0]!.editedAt).toBe('t');
     expect(s.status).toBe('needs-info');
-    expect(s.lastAuthor).toBe('claude');
+    expect(s.lastAuthor).toBe('agent');
     expect(s.anchor.range).toEqual({ startLine: 15, endLine: 17 });
 
     const d = foldThread([created(), added('c_1', 'user', 'hi'), { v: 1, type: 'thread.deleted', at: 't', by: 'user' }])!;
@@ -137,8 +137,8 @@ describe('foldThread', () => {
     const s = foldThread([
       created(),
       added('c_1', 'user', 'hi'),
-      { v: 1, type: 'comment.edited', at: 't', by: 'claude', commentId: 'c_1', body: 'hacked' },
-      { v: 1, type: 'comment.deleted', at: 't', by: 'claude', commentId: 'c_1' },
+      { v: 1, type: 'comment.edited', at: 't', by: 'agent', commentId: 'c_1', body: 'hacked' },
+      { v: 1, type: 'comment.deleted', at: 't', by: 'agent', commentId: 'c_1' },
     ])!;
     expect(s.comments.map((c) => c.body)).toEqual(['hi']);
   });
@@ -231,49 +231,80 @@ describe('Store — replies and statuses', () => {
 
   const newThread = () => store.createThread(anchor(), { author: 'user', body: 'Why null here?', reviewId: null });
 
-  it('adds a Claude reply and its status in a single write', async () => {
+  it('adds an agent reply and its status in a single write', async () => {
     const t = await newThread();
-    const s = await store.addComment(t.id, { author: 'claude', body: 'Which error?', reviewId: null }, { status: 'needs-info' });
+    const s = await store.addComment(t.id, { author: 'agent', agent: 'Claude', body: 'Which error?', reviewId: null }, { status: 'needs-info' });
     expect(s.comments.map((c) => [c.author, c.body])).toEqual([
       ['user', 'Why null here?'],
-      ['claude', 'Which error?'],
+      ['agent', 'Which error?'],
     ]);
     expect(s.status).toBe('needs-info');
-    expect(s.lastAuthor).toBe('claude');
+    expect(s.lastAuthor).toBe('agent');
 
     const lines = (await readFile(store.threadFile(t.id), 'utf8')).trimEnd().split('\n');
     expect(lines.map((l) => JSON.parse(l).type)).toEqual(['thread.created', 'comment.added', 'comment.added', 'status.changed']);
   });
 
+  it('records the agent name on its comments and events', async () => {
+    const t = await newThread();
+    const s = await store.addComment(t.id, { author: 'agent', agent: 'Codex', body: 'Why?', reviewId: null }, { status: 'needs-info' });
+    expect(s.comments[1]).toMatchObject({ author: 'agent', agentName: 'Codex' });
+    expect(s.comments[0]!.agentName).toBeUndefined();
+    expect(s.lastAgentName).toBe('Codex');
+    const events = (await readFile(store.threadFile(t.id), 'utf8')).trimEnd().split('\n').map((l) => JSON.parse(l));
+    expect(events.slice(2).map((e) => [e.by, e.agent])).toEqual([
+      ['agent', 'Codex'],
+      ['agent', 'Codex'],
+    ]);
+  });
+
+  it('requires agents to give their name', async () => {
+    const t = await newThread();
+    await expect(store.addComment(t.id, { author: 'agent', body: 'x', reviewId: null })).rejects.toThrow(/name/);
+    await expect(store.addComment(t.id, { author: 'agent', agent: '  ', body: 'x', reviewId: null })).rejects.toThrow(/name/);
+    await expect(store.setStatus(t.id, 'addressed', 'agent')).rejects.toThrow(/name/);
+  });
+
+  it('reads pre-release journals written with by: "claude" as the agent Claude', async () => {
+    const t = await newThread();
+    await writeFile(
+      store.threadFile(t.id),
+      JSON.stringify({ v: 1, type: 'comment.added', at: 't', by: 'claude', commentId: 'c_x', body: 'old', reviewId: null }) + '\n',
+      { flag: 'a' },
+    );
+    const s = (await store.loadThread(t.id)).state!;
+    expect(s.comments[1]).toMatchObject({ author: 'agent', agentName: 'Claude', body: 'old' });
+  });
+
   it('adds a reply without changing the status', async () => {
     const t = await newThread();
-    const s = await store.addComment(t.id, { author: 'claude', body: 'Noted.', reviewId: null });
+    const s = await store.addComment(t.id, { author: 'agent', agent: 'Claude', body: 'Noted.', reviewId: null });
     expect(s.status).toBe('open');
   });
 
   it('sets a status on its own', async () => {
     const t = await newThread();
-    expect((await store.setStatus(t.id, 'addressed', 'claude')).status).toBe('addressed');
+    expect((await store.setStatus(t.id, 'addressed', 'agent', 'Claude')).status).toBe('addressed');
     expect((await store.loadThread(t.id)).state!.status).toBe('addressed');
   });
 
-  it('never lets Claude resolve a thread', async () => {
+  it('never lets an agent resolve a thread', async () => {
     const t = await newThread();
-    await expect(store.setStatus(t.id, 'resolved', 'claude')).rejects.toThrow(/Only the user/);
+    await expect(store.setStatus(t.id, 'resolved', 'agent')).rejects.toThrow(/Only the user/);
     await expect(
-      store.addComment(t.id, { author: 'claude', body: 'done', reviewId: null }, { status: 'resolved' }),
+      store.addComment(t.id, { author: 'agent', agent: 'Claude', body: 'done', reviewId: null }, { status: 'resolved' }),
     ).rejects.toThrow(/Only the user/);
     expect((await store.loadThread(t.id)).state!.comments).toHaveLength(1);
   });
 
   it('refuses to write to unknown, deleted or read-only threads', async () => {
     await expect(
-      store.addComment('t_00000000000000000000000000', { author: 'claude', body: 'x', reviewId: null }),
+      store.addComment('t_00000000000000000000000000', { author: 'agent', agent: 'Claude', body: 'x', reviewId: null }),
     ).rejects.toThrow(/not found/);
 
     const t = await newThread();
     await writeFile(store.threadFile(t.id), JSON.stringify({ v: 99, type: 'future' }) + '\n', { flag: 'a' });
-    await expect(store.addComment(t.id, { author: 'claude', body: 'x', reviewId: null })).rejects.toThrow(/read-only/);
+    await expect(store.addComment(t.id, { author: 'agent', agent: 'Claude', body: 'x', reviewId: null })).rejects.toThrow(/read-only/);
   });
 
   it('rejects ids that could escape the store', async () => {

@@ -18,7 +18,7 @@ async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs: n
   }
 }
 
-describe('US-02 — see Claude’s reply appear in the thread', () => {
+describe('US-02 — see the agent’s reply appear in the thread (default agent: Claude)', () => {
   let api: LocalReviewApi;
   let ws: string;
   let uri: vscode.Uri;
@@ -34,11 +34,12 @@ describe('US-02 — see Claude’s reply appear in the thread', () => {
     return managed.id;
   }
 
-  async function simulate(threadId: string, body: string, status: 'needs-info' | 'addressed' | 'none') {
-    const ok = await vscode.commands.executeCommand<boolean>('localReview.dev.simulateClaudeReply', {
+  async function simulate(threadId: string, body: string, status: 'needs-info' | 'addressed' | 'none', agent?: string) {
+    const ok = await vscode.commands.executeCommand<boolean>('localReview.dev.simulateAgentReply', {
       threadId,
       body,
       status,
+      agent,
     });
     assert.equal(ok, true, 'simulated reply failed');
   }
@@ -124,13 +125,26 @@ describe('US-02 — see Claude’s reply appear in the thread', () => {
     const t = threadById(id)!;
     assert.deepEqual(
       t.state.comments.map((c) => c.author),
-      ['user', 'claude'],
+      ['user', 'agent'],
     );
     assert.equal(t.thread.label, '❓ Claude is waiting for your reply');
   });
 
+  it('shows the name of whichever agent replied (LLM-agnostic, D22)', async () => {
+    const id = await newThread(10);
+    await simulate(id, 'Which error type?', 'needs-info', 'Codex');
+    const thread = await waitFor(
+      'the Codex reply',
+      () => (threadById(id)?.thread.comments.length === 2 ? threadById(id)!.thread : undefined),
+      LIVE_DEADLINE_MS,
+    );
+    assert.equal(thread.comments[1]!.author.name, 'Codex');
+    assert.equal(thread.label, '❓ Codex is waiting for your reply');
+    assert.deepEqual(threadById(id)!.state.comments.map((c) => c.author), ['user', 'agent']);
+  });
+
   it('reports a failure of the external process', async () => {
-    const script = join(extensionPath, 'dist', 'fake-claude.js');
+    const script = join(extensionPath, 'dist', 'fake-agent.js');
     const result = await new Promise<{ code: number | null; stderr: string }>((resolve) => {
       const child = fork(script, ['--root', ws, '--thread', 't_00000000000000000000000000', '--body', 'x'], {
         stdio: ['ignore', 'ignore', 'pipe', 'ipc'],

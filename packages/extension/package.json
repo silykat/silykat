@@ -1,7 +1,7 @@
 {
   "name": "local-review",
   "displayName": "Local Review",
-  "description": "GitHub-style code review between you and Claude Code, 100% local.",
+  "description": "GitHub-style code review between you and your AI coding agent, 100% local.",
   "version": "0.1.0",
   "publisher": "local",
   "private": true,
@@ -39,8 +39,8 @@
         "title": "Cancel"
       },
       {
-        "command": "localReview.dev.simulateClaudeReply",
-        "title": "Simulate Claude Reply",
+        "command": "localReview.dev.simulateAgentReply",
+        "title": "Simulate Agent Reply",
         "category": "Local Review (dev)"
       }
     ],

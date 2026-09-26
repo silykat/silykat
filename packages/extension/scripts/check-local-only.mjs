@@ -1,7 +1,7 @@
 // Fails the build if the bundle can reach the network: the extension must stay 100 % local.
 import { readFileSync } from 'node:fs';
 
-const files = ['extension.js', 'fake-claude.js'];
+const files = ['extension.js', 'fake-agent.js'];
 const forbidden = /require\(["'](?:node:)?(?:http|https|http2|net|tls|dgram|undici)["']\)|\bfetch\s*\(|\bWebSocket\b|\bXMLHttpRequest\b/g;
 let failed = false;
 for (const file of files) {

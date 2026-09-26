@@ -1,7 +1,8 @@
 export const SCHEMA_VERSION = 1;
 export const STORE_DIR = '.local-review';
 
-export type Author = 'user' | 'claude';
+/** Who wrote an event. `agent` is any AI coding agent (Claude, Codex…), named by the event's `agent` field. */
+export type Author = 'user' | 'agent';
 export type ThreadStatus = 'open' | 'needs-info' | 'addressed' | 'resolved';
 
 /** 1-based, inclusive on both ends. */
@@ -39,6 +40,8 @@ export interface Anchor {
 export interface CommentState {
   id: string;
   author: Author;
+  /** Display name of the agent, for agent comments. */
+  agentName?: string;
   body: string;
   createdAt: string;
   editedAt?: string;
@@ -56,6 +59,8 @@ export interface ThreadState {
   /** Written by a newer schema version: never write to it. */
   readOnly: boolean;
   lastAuthor: Author | null;
+  /** Name of the agent that commented last in this thread, if any. */
+  lastAgentName: string | null;
   hasPublished: boolean;
   onlyDrafts: boolean;
 }

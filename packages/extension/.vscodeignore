@@ -1,6 +1,6 @@
 **
 !dist/extension.js
-!dist/fake-claude.js
+!dist/fake-agent.js
 !media/**
 !package.json
 !README.md

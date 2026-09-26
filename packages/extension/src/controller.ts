@@ -30,7 +30,7 @@ export class ReviewController implements vscode.Disposable {
     private readonly log: Log,
     extensionUri: vscode.Uri,
   ) {
-    this.ctx = { userName: 'Me', claudeIcon: vscode.Uri.joinPath(extensionUri, 'media', 'claude.svg') };
+    this.ctx = { userName: 'Me', agentIcon: vscode.Uri.joinPath(extensionUri, 'media', 'agent.svg') };
     this.controller = vscode.comments.createCommentController(CONTROLLER_ID, 'Local Review');
     this.controller.options = {
       prompt: 'Comment',
@@ -123,7 +123,7 @@ export class ReviewController implements vscode.Disposable {
 
     const turnedToUser = awaitsUser(state) && (!awaitsUser(existing.state) || state.comments.length > existing.state.comments.length);
     this.adopt(root, state, existing.thread);
-    // Bring the thread to the user's attention when Claude hands the ball back.
+    // Bring the thread to the user's attention when the agent hands the ball back.
     if (turnedToUser) existing.thread.collapsibleState = vscode.CommentThreadCollapsibleState.Expanded;
   }
 

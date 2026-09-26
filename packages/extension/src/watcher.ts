@@ -5,7 +5,7 @@ import { STORE_DIR, Store } from '@local-review/core';
 const DEBOUNCE_MS = 100;
 
 /**
- * Watches a store's thread journals, including writes made by other processes (Claude).
+ * Watches a store's thread journals, including writes made by other processes (the agent).
  * Calls `onThreadChanged` once per burst of events on the same journal.
  */
 export function watchThreads(rootPath: string, onThreadChanged: (threadId: string) => void): vscode.Disposable {

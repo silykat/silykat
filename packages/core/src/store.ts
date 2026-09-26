@@ -7,6 +7,8 @@ import { SCHEMA_VERSION, STORE_DIR, type Anchor, type Author, type ThreadState, 
 
 export interface NewComment {
   author: Author;
+  /** Required when `author` is `agent`: the agent's display name (e.g. "Claude"). */
+  agent?: string;
   body: string;
   reviewId: string | null;
 }
@@ -85,18 +87,20 @@ export class Store {
     if (opts.status) assertCanSetStatus(opts.status, c.author);
     await this.writableThread(threadId);
 
+    const who = actor(c.author, c.agent);
     const at = new Date().toISOString();
     const events: ThreadEvent[] = [
-      { v: SCHEMA_VERSION, type: 'comment.added', at, by: c.author, commentId: newCommentId(), body, reviewId: c.reviewId },
+      { v: SCHEMA_VERSION, type: 'comment.added', at, ...who, commentId: newCommentId(), body, reviewId: c.reviewId },
     ];
-    if (opts.status) events.push({ v: SCHEMA_VERSION, type: 'status.changed', at, by: c.author, status: opts.status });
+    if (opts.status) events.push({ v: SCHEMA_VERSION, type: 'status.changed', at, ...who, status: opts.status });
     return this.appendAndReload(threadId, events);
   }
 
-  async setStatus(threadId: string, status: ThreadStatus, by: Author): Promise<ThreadState> {
+  async setStatus(threadId: string, status: ThreadStatus, by: Author, agent?: string): Promise<ThreadState> {
     assertCanSetStatus(status, by);
+    const who = actor(by, agent);
     await this.writableThread(threadId);
-    const event: ThreadEvent = { v: SCHEMA_VERSION, type: 'status.changed', at: new Date().toISOString(), by, status };
+    const event: ThreadEvent = { v: SCHEMA_VERSION, type: 'status.changed', at: new Date().toISOString(), ...who, status };
     return this.appendAndReload(threadId, [event]);
   }
 
@@ -128,15 +132,16 @@ export class Store {
     if (body === '') throw new Error('Comment body is empty');
     await this.ensureInitialized();
 
+    const who = actor(first.author, first.agent);
     const threadId = newThreadId();
     const at = new Date().toISOString();
     const events: ThreadEvent[] = [
-      { v: SCHEMA_VERSION, type: 'thread.created', at, by: first.author, threadId, anchor },
+      { v: SCHEMA_VERSION, type: 'thread.created', at, ...who, threadId, anchor },
       {
         v: SCHEMA_VERSION,
         type: 'comment.added',
         at,
-        by: first.author,
+        ...who,
         commentId: newCommentId(),
         body,
         reviewId: first.reviewId,
@@ -161,6 +166,14 @@ export class Store {
 }
 
 const THREAD_ID = /^t_[0-9A-HJKMNP-TV-Z]{26}$/;
+
+/** `by` and `agent` fields of an event. Agents must always say who they are. */
+function actor(by: Author, agent: string | undefined): { by: Author; agent?: string } {
+  if (by === 'user') return { by };
+  const name = agent?.trim();
+  if (!name) throw new Error('An agent must give its name');
+  return { by, agent: name };
+}
 
 /** Only the user resolves a thread (D06). */
 function assertCanSetStatus(status: ThreadStatus, by: Author): void {

@@ -4,6 +4,8 @@ interface BaseEvent {
   v: number;
   at: string;
   by: Author;
+  /** Agent display name; set on every event written by an agent. */
+  agent?: string;
 }
 
 export type ThreadEvent = BaseEvent &
@@ -69,6 +71,11 @@ export function parseJournal(text: string, source = 'journal'): ParsedJournal {
     if (raw.v > SCHEMA_VERSION) {
       futureVersion = true;
       return;
+    }
+    // Journals written before the format became agent-agnostic (pre-release) used `by: "claude"`.
+    if (raw.by === 'claude') {
+      raw.by = 'agent';
+      raw.agent ??= 'Claude';
     }
     if (!THREAD_EVENT_TYPES.has(raw.type)) {
       warnings.push(`${source}:${i + 1}: unknown event type "${raw.type}", line skipped`);

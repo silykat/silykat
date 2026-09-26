@@ -2,10 +2,10 @@
 
 Skills & VSCode extension for local code review.
 
-A GitHub-style code review between you and Claude Code, running 100% locally:
+A GitHub-style code review between you and your AI coding agent, running 100% locally. It is LLM-agnostic: Claude Code is the first supported agent.
 
 - **VS Code extension** (`packages/extension`): select lines in a file or a diff and comment on them, either as a direct comment or as part of a review.
-- **Claude Code skill** (coming soon): Claude reads the comments, updates the code and replies in the threads.
+- **Agent integration** (coming soon): the agent reads the comments, updates the code and replies in the threads. It starts with a Claude Code skill, built on an agent-neutral CLI.
 
 Comments are stored in `.local-review/` at the root of the reviewed project. That folder is automatically excluded from git through `.git/info/exclude`. No data ever leaves your machine.
 
@@ -21,9 +21,9 @@ The shortcut can be changed in `settings.json`:
 
 For any other key combination, set it to `"none"` and bind the `localReview.commentSelection` command in `keybindings.json`.
 
-Claude's replies appear live in the thread, with a status label: **Waiting for Claude**, **💬 Claude replied**, **❓ Claude is waiting for your reply** or **✅ Addressed by Claude — please verify**.
+The agent's replies appear live in the thread, signed with the agent's name, with a status label: **Waiting for Claude**, **💬 Claude replied**, **❓ Claude is waiting for your reply** or **✅ Addressed by Claude — please verify**. Until an agent is plugged in, the default agent name is Claude.
 
-Until the Claude skill ships, **Local Review (dev): Simulate Claude Reply** writes a reply as Claude from a separate process, through the same path the skill will use.
+Until the first agent integration ships, **Local Review (dev): Simulate Agent Reply** writes a reply as the agent from a separate process, through the same path a real integration will use.
 
 ## Development
 

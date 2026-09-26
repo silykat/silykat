@@ -1,5 +1,5 @@
 import * as esbuild from 'esbuild';
-import { globSync } from 'node:fs';
+import { globSync, rmSync } from 'node:fs';
 
 const production = process.argv.includes('--production');
 const tests = process.argv.includes('--tests');
@@ -17,8 +17,8 @@ await esbuild.build({
   ...common,
   entryPoints: {
     extension: 'src/extension.ts',
-    // Spawned as a separate process by "Simulate Claude Reply".
-    'fake-claude': 'src/dev/fake-claude.ts',
+    // Spawned as a separate process by "Simulate Agent Reply".
+    'fake-agent': 'src/dev/fake-agent.ts',
   },
   outdir: 'dist',
   sourcemap: !production,
@@ -26,6 +26,8 @@ await esbuild.build({
 });
 
 if (tests) {
+  // Stale compiled tests (renamed or deleted sources) would still run: start clean.
+  rmSync('out', { recursive: true, force: true });
   await esbuild.build({
     ...common,
     entryPoints: globSync('test/integration/**/*.test.ts'),
