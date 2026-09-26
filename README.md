@@ -2,28 +2,32 @@
 
 Skills & VSCode extension for local code review.
 
-Une code review « façon GitHub », 100 % locale, entre vous et Claude Code :
+A GitHub-style code review between you and Claude Code, running 100% locally:
 
-- **Extension VS Code** (`packages/extension`) : sélectionner des lignes (dans un fichier ou un diff) et les commenter, soit en commentaire direct, soit en mode review.
-- **Skill Claude Code** (à venir) : Claude lit les commentaires, modifie le code et répond dans les fils.
+- **VS Code extension** (`packages/extension`): select lines in a file or a diff and comment on them, either as a direct comment or as part of a review.
+- **Claude Code skill** (coming soon): Claude reads the comments, updates the code and replies in the threads.
 
-Les commentaires sont stockés dans `.local-review/` à la racine du projet commenté. Ce dossier est exclu de git automatiquement via `.git/info/exclude`. Aucune donnée ne quitte la machine.
+Comments are stored in `.local-review/` at the root of the reviewed project. That folder is automatically excluded from git through `.git/info/exclude`. No data ever leaves your machine.
 
-## Développement
+## Development
 
-Prérequis : Node ≥ 20 et la commande `code` dans le PATH.
+Requirements: Node ≥ 20 and the `code` command on your PATH.
 
 ```sh
 npm install
-npm run typecheck          # TypeScript, tous les packages
-npm test                   # tests unitaires (vitest)
-npm run test:integration   # tests d'intégration dans une instance VS Code dédiée
-npm run install-ext        # construit le .vsix et l'installe dans VS Code
+npm run typecheck          # TypeScript, all packages
+npm test                   # unit tests (vitest)
+npm run test:integration   # integration tests in a dedicated VS Code instance
+npm run install-ext        # build the .vsix and install it into VS Code
 ```
 
-Après `install-ext`, lancez **Developer: Reload Window** dans VS Code.
+After `install-ext`, run **Developer: Reload Window** in VS Code.
 
-| Package | Rôle |
+| Package | Purpose |
 |---|---|
-| `packages/core` | Modèle de données, journal JSONL, stockage. Aucune dépendance à `vscode` |
-| `packages/extension` | Extension VS Code |
+| `packages/core` | Data model, JSONL journal, storage. No dependency on `vscode` |
+| `packages/extension` | VS Code extension |
+
+## License
+
+[MIT](LICENSE)
