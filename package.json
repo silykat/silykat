@@ -3,17 +3,19 @@
   "private": true,
   "workspaces": [
     "packages/core",
+    "packages/cli",
     "packages/vscode-extension"
   ],
   "scripts": {
     "build": "npm run build -w packages/vscode-extension",
     "typecheck": "npm run typecheck --workspaces",
-    "test": "npm run test --workspaces",
-    "test:integration": "npm run test:integration -w packages/vscode-extension",
+    "test": "npm run test --workspaces && node scripts/check-boundaries.mjs",
+    "test:integration": "npm run build -w packages/cli && npm run test:integration -w packages/vscode-extension",
     "package": "npm run package -w packages/vscode-extension",
     "install-ext": "npm run package && code --install-extension packages/vscode-extension/dist/local-review.vsix --force",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "build:claude-plugin": "node adapters/claude-code/build.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.20.4",

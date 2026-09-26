@@ -5,3 +5,5 @@ export * from './events';
 export * from './fold';
 export * from './store';
 export * from './reanchor';
+export * from './agentView';
+export * from './anchorVersion';

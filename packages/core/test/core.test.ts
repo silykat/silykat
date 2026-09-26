@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   buildAnchorContext,
   foldThread,
+  agentView,
+  findStoreRoot,
   parseJournal,
   reanchor,
   serializeEvents,
@@ -753,5 +755,53 @@ describe('Store — discard and draft replies', () => {
     await store.createThread(anchor(), { author: 'user', body: 'other', reviewId: r.id });
     await store.submitReview(r.id);
     expect((await store.loadThread(t.id)).state!.status).toBe('addressed');
+  });
+});
+
+describe('agent view', () => {
+  let root: string;
+  let store: Store;
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'lr-core-'));
+    store = new Store(root);
+  });
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it('shows published comments only, and whose turn it is', async () => {
+    const t = await store.createThread(anchor(), { author: 'user', body: 'q', reviewId: null });
+    expect(agentView(t)).toMatchObject({ needsAgent: true, waitsForUser: false });
+
+    const answered = await store.addComment(
+      t.id,
+      { author: 'agent', agent: 'Claude', body: 'a', reviewId: null },
+      { status: 'needs-info' },
+    );
+    expect(agentView(answered)).toMatchObject({ needsAgent: false, waitsForUser: true });
+
+    const r = await store.startReview();
+    const withDraft = await store.addComment(t.id, { author: 'user', body: 'draft', reviewId: r.id });
+    const view = agentView(withDraft)!;
+    expect(view.comments.map((c) => c.body)).toEqual(['q', 'a']);
+    expect(view.needsAgent).toBe(false); // the draft is not published yet
+  });
+
+  it('hides draft-only, resolved-for-action and deleted threads', async () => {
+    const r = await store.startReview();
+    const draftOnly = await store.createThread(anchor(), { author: 'user', body: 'draft', reviewId: r.id });
+    expect(agentView(draftOnly)).toBeNull();
+
+    const t = await store.createThread(anchor(), { author: 'user', body: 'q', reviewId: null });
+    const resolved = await store.setStatus(t.id, 'resolved', 'user');
+    expect(agentView(resolved)).toMatchObject({ needsAgent: false, waitsForUser: false });
+    expect(agentView(await store.deleteThread(t.id, 'user'))).toBeNull();
+  });
+
+  it('finds the store from a subdirectory', async () => {
+    await store.createThread(anchor(), { author: 'user', body: 'q', reviewId: null });
+    await mkdir(join(root, 'src', 'deep'), { recursive: true });
+    expect(findStoreRoot(join(root, 'src', 'deep'))).toBe(root);
+    expect(findStoreRoot(tmpdir())).toBeNull();
   });
 });
