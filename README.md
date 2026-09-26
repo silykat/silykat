@@ -70,6 +70,8 @@ An alias saves typing it, e.g. in `~/.zshrc`: `alias claude-lr='claude --dangero
 
 This works with Claude Code in a terminal (the `claude` command line). The Claude Code panel of VS Code cannot be launched with a channel yet: there, ask Claude with `/local-review:review` when you have published.
 
+**The right session gets them.** With several sessions running (e.g. one per git worktree), each comment goes to the session that wrote the file, wherever that session works (a spec written in a separate folder goes back to its author); otherwise to the session working closest to the file. When several sessions could be the one, VS Code asks, proposing the last one used for that folder; Esc keeps the comments waiting. With no session around, the comments wait, the status bar shows how many, and they go to the next session started on their folder.
+
 A session launched without the channel still receives the comments, but only sees them when you ask it (`/local-review:review`). VS Code tells you so once, with the command to relaunch it, and marks the session with a warning sign in the status bar. Deliveries go to each session's inbox, next to its registry entry.
 
 `lr` on its own:
