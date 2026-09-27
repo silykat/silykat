@@ -14,7 +14,7 @@ The user reviews your code in VS Code and leaves comments in threads, like on a 
 
 Run `lr status`. If no thread waits for you, tell the user and stop.
 
-If `lr` says there is **no Local Review store** here but lists **stores below this folder** (you were started in a parent folder of several repositories or worktrees), handle each listed store in turn by adding `--root <dir>` to every `lr` command (`lr status --root <dir>`, `lr list --root <dir>`, `lr reply <thread-id> --root <dir> …`). If it lists none, tell the user that nothing has been commented in this folder yet.
+If `lr` says there is **no Local Review store** here but lists **stores below this folder** (you were started in a parent folder of several repositories or worktrees), handle each listed store in turn by adding `--root <dir>` to every `lr` command (`lr status --root <dir>`, `lr list --root <dir>`, `lr reply <thread-id> --root <dir> …`). If it lists none, tell the user that nothing has been commented in this folder yet. Comments on files **outside any folder open in the editor** (e.g. a spec you wrote in a parent folder) are in the machine store: add `--root /`.
 
 Otherwise, run `lr list`. It prints the threads where the user spoke last, **on the branches (or paths) this session is subscribed to** (see section 4; `--any-topic` lists them all, e.g. when the user asks you to look at another branch), with:
 
