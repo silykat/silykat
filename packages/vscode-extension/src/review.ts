@@ -12,7 +12,7 @@ interface InProgress {
 
 /** A review as the user tells it apart: its folder and branch, e.g. "therapy · feature-x". */
 const reviewLabel = (r: InProgress) =>
-  `${basename(r.root.path)}${r.review.branch ? ` · ${r.review.branch.branch}` : ''}`;
+  `${r.root.loose ? 'files outside the workspace' : basename(r.root.path)}${r.review.branch ? ` · ${r.review.branch.branch}` : ''}`;
 
 /** Asks for the optional review summary. `undefined` means the user cancelled (Esc). Replaceable in tests. */
 export type SummaryPrompt = () => Promise<string | undefined>;

@@ -164,10 +164,14 @@ export class ReviewController implements vscode.Disposable {
 
     for (const root of this.roots.all()) {
       this.watchers.push(
-        watchStore(root.path, {
-          onThread: (threadId) => void this.refreshThread(root, threadId),
-          onReviews: () => void this.refreshReviews(root),
-        }),
+        watchStore(
+          root.store.dir,
+          {
+            onThread: (threadId) => void this.refreshThread(root, threadId),
+            onReviews: () => void this.refreshReviews(root),
+          },
+          { outsideWorkspace: root.loose === true },
+        ),
       );
       try {
         const { threads: loaded, warnings } = await root.store.loadAll();
