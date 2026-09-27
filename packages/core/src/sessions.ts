@@ -103,17 +103,58 @@ export class SessionRegistry {
     await rename(tmp, target);
   }
 
-  /** The session now works in `dir` (on `branch`). No-op for an unknown session. */
-  async moveTo(id: string, dir: string, branch: string | null): Promise<void> {
+  /**
+   * The session now works in `dir`, on `branch` (a function to compute it only when the session did
+   * move). No-op for an unknown session, or one already there.
+   */
+  async moveTo(
+    id: string,
+    dir: string,
+    branch: string | null | ((dir: string) => Promise<string | null>),
+  ): Promise<void> {
     const record = await readRecord(this.file(id, 'json'));
-    if (!record || (record.workingDir === dir && record.branch === branch)) return;
-    await this.register({ ...record, workingDir: dir, branch });
+    if (!record || (record.workingDir ?? record.cwd) === dir) return;
+    await this.register({
+      ...record,
+      workingDir: dir,
+      branch: typeof branch === 'function' ? await branch(dir) : branch,
+    });
   }
 
+  /** Everything the registry keeps about a session goes with it. */
   async unregister(id: string): Promise<void> {
-    await rm(this.file(id, 'json'), { force: true });
-    await rm(this.file(id, 'touched'), { force: true });
-    await rm(this.file(id, 'inbox'), { force: true });
+    this.file(id, 'json'); // validates the id
+    let names: string[] = [];
+    try {
+      names = await readdir(this.dir);
+    } catch {
+      return;
+    }
+    await Promise.all(names.filter((n) => n.startsWith(`${id}.`)).map((n) => rm(join(this.dir, n), { force: true })));
+  }
+
+  /** A small note an adapter keeps about a session between two hooks (removed with the session). */
+  async setNote(id: string, key: string, value: string): Promise<void> {
+    await mkdir(this.dir, { recursive: true });
+    await writeFile(this.note(id, key), value);
+  }
+
+  /** Reads and removes a note; `undefined` when there is none. */
+  async takeNote(id: string, key: string): Promise<string | undefined> {
+    const file = this.note(id, key);
+    try {
+      const value = await readFile(file, 'utf8');
+      await rm(file, { force: true });
+      return value;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private note(id: string, key: string): string {
+    if (!SESSION_ID.test(key)) throw new Error(`Invalid note key: ${key}`);
+    this.file(id, 'json'); // validates the id
+    return join(this.dir, `${id}.note-${key}`);
   }
 
   /** Records that a session wrote a file. Appended, so concurrent hooks never lose an entry. */

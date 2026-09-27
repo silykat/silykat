@@ -252,7 +252,24 @@ describe('Moving sessions', () => {
     await r.moveTo('session-a', '/work/wt-test', 'feature-w');
     expect(await r.list()).toMatchObject([{ cwd: '/work', workingDir: '/work/wt-test', branch: 'feature-w' }]);
     await r.moveTo('unknown', '/x', null); // no-op
+    let asked = 0;
+    await r.moveTo('session-a', '/work/wt-test', async () => (asked++, 'other')); // already there
+    expect(asked).toBe(0);
     expect((await r.list()).map((x) => x.id)).toEqual(['session-a']);
+  });
+});
+
+describe('Session notes', () => {
+  it('keeps a note until it is taken, and drops notes with the session', async () => {
+    const r = registry();
+    await r.register(record());
+    await r.setNote('session-a', 'bash-1', '123');
+    expect(await r.takeNote('session-a', 'bash-1')).toBe('123');
+    expect(await r.takeNote('session-a', 'bash-1')).toBeUndefined();
+    await r.setNote('session-a', 'bash-2', '456');
+    await r.unregister('session-a');
+    expect(await readdir(join(home, 'sessions'))).toEqual([]);
+    await expect(r.setNote('session-a', '../x', '1')).rejects.toThrow();
   });
 });
 

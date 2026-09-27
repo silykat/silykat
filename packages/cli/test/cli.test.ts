@@ -250,7 +250,7 @@ describe('lr sessions', () => {
     );
     expect(reg.code).toBe(EXIT.OK);
     await lr(['session', 'touch', '--id', 'abc-123', 'src/find.ts'], { env });
-    await lr(['session', 'move', '--id', 'abc-123', 'src', '--branch', 'feature-y'], { env });
+    await lr(['session', 'move', '--id', 'abc-123', 'src/sub', '--branch', 'feature-y'], { env });
 
     const listed = JSON.parse((await lr(['sessions', '--format', 'json'], { env })).out);
     expect(listed).toMatchObject([
@@ -258,7 +258,7 @@ describe('lr sessions', () => {
         id: 'abc-123',
         agent: 'Claude',
         cwd: join(root, 'src'),
-        workingDir: join(root, 'src'),
+        workingDir: join(root, 'src', 'sub'),
         branch: 'feature-y',
         pid: null,
         touched: [join(root, 'src', 'find.ts')],
