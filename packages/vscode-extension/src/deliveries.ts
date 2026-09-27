@@ -40,6 +40,7 @@ const PUBLISH_AND_MUTE = "Publish, Don't Warn Again for This Folder";
 export class DeliveriesUi implements vscode.Disposable {
   private readonly registry = new SessionRegistry(localReviewHome());
   private readonly subscription: vscode.Disposable;
+  private queue: Promise<void> = Promise.resolve();
   /** Sessions already said not to be notifiable: once each, not at every comment. */
   private readonly warned = new Set<string>();
   /** Folders where the user asked not to be warned again about comments nobody gets (until VS Code closes). */
@@ -52,7 +53,10 @@ export class DeliveriesUi implements vscode.Disposable {
     private readonly review: ReviewController,
     private readonly log: Log,
   ) {
-    this.subscription = review.onDidPublish((p) => void this.deliver(p));
+    // One after the other, in the order of the user's actions (e.g. a comment, then its deletion).
+    this.subscription = review.onDidPublish((p) => {
+      this.queue = this.queue.then(() => this.deliver(p)).then(() => undefined);
+    });
     review.publishGate = (root, files) => this.confirmPublish(root, files);
   }
 
