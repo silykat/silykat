@@ -46,10 +46,10 @@ describe('Agent sessions of this workspace', () => {
     assert.equal((await api.refreshSessions()).statusText, undefined);
   });
 
-  it('shows a session started in this workspace, with its branch', async () => {
+  it('shows a session started in this workspace, with its short id', async () => {
     await registry.register(session({}));
     const shown = await api.refreshSessions();
-    assert.equal(shown.statusText, '$(hubot) Claude · feature-x');
+    assert.equal(shown.statusText, '$(hubot) Claude claude-1');
     assert.deepEqual(shown.relevant, ['claude-1']);
   });
 
@@ -63,9 +63,9 @@ describe('Agent sessions of this workspace', () => {
     assert.deepEqual(shown.all.sort(), ['a', 'b', 'elsewhere']);
   });
 
-  it('counts a session working elsewhere that wrote a file here', async () => {
+  it('counts a session working elsewhere that is subscribed to a file here', async () => {
     await registry.register(session({ id: 'specs', cwd: '/some/other/code' }));
-    await registry.touch('specs', join(ws, 'plan.md'));
+    await registry.subscribe('specs', { kind: 'path', path: join(ws, 'plan.md') }, 'modified');
     assert.deepEqual((await api.refreshSessions()).relevant, ['specs']);
   });
 

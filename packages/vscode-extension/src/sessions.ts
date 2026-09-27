@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { localReviewHome, relevantSessions, SessionRegistry, type Session } from '@local-review/core';
-import { sessionDetail, sessionLabel } from './sessionLabel';
+import { sessionLabel, sessionTopics } from './sessionLabel';
 
 const POLL_MS = 2000;
 
@@ -16,17 +16,8 @@ export class SessionsUi implements vscode.Disposable {
   private readonly command: vscode.Disposable;
   private all: Session[] = [];
   private relevant: Session[] = [];
-  private waiting = 0;
-  private visible = false;
 
-  constructor(
-    private readonly hooks: {
-      /** Published threads of these folders still waiting for a session. */
-      waitingCount?: (folders: string[]) => Promise<number>;
-      /** After each look at the registry: e.g. to send waiting comments to a session just started. */
-      onRefresh?: (folders: string[]) => Promise<void>;
-    } = {},
-  ) {
+  constructor() {
     this.statusBar.name = 'Local Review: agent sessions';
     this.statusBar.command = 'localReview.showSessions';
     this.command = vscode.commands.registerCommand('localReview.showSessions', () => this.show());
@@ -36,7 +27,7 @@ export class SessionsUi implements vscode.Disposable {
 
   /** Status bar text, `undefined` when hidden. For tests. */
   get statusText(): string | undefined {
-    return this.visible ? this.statusBar.text : undefined;
+    return this.relevant.length > 0 ? this.statusBar.text : undefined;
   }
 
   get sessions(): { all: Session[]; relevant: Session[] } {
@@ -54,9 +45,6 @@ export class SessionsUi implements vscode.Disposable {
       .filter((f) => f.uri.scheme === 'file')
       .map((f) => f.uri.fsPath);
     this.relevant = relevantSessions(this.all, folders);
-    // Not awaited: it may ask the user which session to use.
-    void this.hooks.onRefresh?.(folders).catch(() => undefined);
-    this.waiting = (await this.hooks.waitingCount?.(folders).catch(() => 0)) ?? 0;
     this.render();
   }
 
@@ -68,28 +56,17 @@ export class SessionsUi implements vscode.Disposable {
 
   private render(): void {
     const [only, ...others] = this.relevant;
-    const waiting = this.waiting > 0 ? ` · ${this.waiting} waiting` : '';
-    // With comments waiting, a click offers to send them; otherwise it lists the sessions.
-    this.statusBar.command = this.waiting > 0 ? 'localReview.sendWaitingComments' : 'localReview.showSessions';
     if (!only) {
-      this.visible = this.waiting > 0;
-      if (!this.visible) return this.statusBar.hide();
-      this.statusBar.text = `$(hubot) No agent session${waiting}`;
-      this.statusBar.tooltip = `Local Review: ${this.waiting} published comment thread(s) will go to the next agent session started on this workspace. Click to send them to a running session.`;
-      return this.statusBar.show();
+      this.statusBar.hide();
+      return;
     }
-    this.visible = true;
+    const warning = this.relevant.some((s) => s.push === false) ? ' $(warning)' : '';
     this.statusBar.text =
-      (others.length === 0
-        ? `$(hubot) ${sessionLabel(only)}${only.push === false ? ' $(warning)' : ''}`
-        : `$(hubot) ${this.relevant.length} agent sessions${this.relevant.some((s) => s.push === false) ? ' $(warning)' : ''}`) +
-      waiting;
+      others.length === 0
+        ? `$(hubot) ${sessionLabel(only)}${warning}`
+        : `$(hubot) ${this.relevant.length} agent sessions${warning}`;
     this.statusBar.tooltip = new vscode.MarkdownString(
-      [
-        '**Local Review: agent sessions of this workspace**',
-        ...this.relevant.map(describe),
-        ...(this.waiting > 0 ? [`${this.waiting} published comment thread(s) waiting: click to send them.`] : []),
-      ].join('\n\n'),
+      ['**Local Review: agent sessions of this workspace**', ...this.relevant.map(describe)].join('\n\n'),
       true,
     );
     this.statusBar.show();
@@ -108,16 +85,19 @@ export class SessionsUi implements vscode.Disposable {
     await vscode.window.showQuickPick(
       sorted.map((s) => ({
         label: `$(hubot) ${sessionLabel(s)}${s.push === false ? ' $(warning)' : ''}`,
-        description: relevant.has(s.id) ? 'this workspace' : undefined,
-        detail: sessionDetail(s),
+        description: sessionTopics(s),
+        detail: `${s.cwd} · session ${s.id}`,
       })),
-      { title: 'Running agent sessions', placeHolder: 'Sessions registered with Local Review' },
+      {
+        title: 'Running agent sessions',
+        placeHolder: 'Sessions registered with Local Review, and what they are subscribed to',
+      },
     );
   }
 }
 
 function describe(s: Session): string {
-  const line = `**${sessionLabel(s)}** — ${sessionDetail(s)}`;
+  const line = `**${sessionLabel(s)}** — subscribed to: ${sessionTopics(s)}`;
   if (s.push !== false) return line;
   const fix = s.pushCommand ? ` Relaunch it with \`${s.pushCommand}\`.` : '';
   return `${line}\n\n$(warning) Can't be notified of your comments: it sees them when you ask it.${fix}`;

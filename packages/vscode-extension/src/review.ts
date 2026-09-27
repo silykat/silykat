@@ -100,6 +100,8 @@ export class ReviewUi implements vscode.Disposable {
       void vscode.window.showInformationMessage('Local Review: no pending comments to submit.');
       return 0;
     }
+    const files = this.review.pendingThreads(root).flatMap((t) => this.review.threadFile(t.id) ?? []);
+    if (!(await this.review.publishGate(root.path, files))) return 0; // cancelled: the drafts stay drafts
     const summary = await this.promptSummary();
     if (summary === undefined) return 0; // cancelled: the drafts stay drafts
     try {

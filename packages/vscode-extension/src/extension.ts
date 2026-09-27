@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { AgentRepliesUi, type Notifier } from './agentReplies';
 import { ReviewController, type ChooseHandler, type ConfirmHandler } from './controller';
 import { simulateAgentReply, type SimulateArgs } from './dev/simulateAgentReply';
-import { DeliveriesUi, type SessionPicker, type Warner } from './deliveries';
+import { DeliveriesUi, type NoSubscriberPrompt, type Warner } from './deliveries';
 import { createLog } from './log';
 import type { LrComment } from './render';
 import { ReviewUi, type SummaryPrompt } from './review';
@@ -33,12 +33,8 @@ export interface LocalReviewApi {
   shownSessions(): string[];
   /** Tests only: capture the messages about deliveries (return the action to click). */
   setDeliveryWarner(warner: Warner | undefined): void;
-  /** Tests only: answer "which session?" without showing it. */
-  setSessionPicker(picker: SessionPicker | undefined): void;
-  /** Tests only: send the comments waiting for a session now (also done at every registry poll). */
-  flushDeliveries(): Promise<void>;
-  /** The deliveries' queue, e.g. to check what waits. For tests. */
-  waitingCount(): Promise<number>;
+  /** Tests only: answer "publish without subscribers?" without showing it. */
+  setNoSubscriberPrompt(prompt: NoSubscriberPrompt | undefined): void;
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<LocalReviewApi> {
@@ -46,14 +42,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
   const review = new ReviewController(log, context.extensionUri);
   const reviewUi = new ReviewUi(review);
   const agentReplies = new AgentRepliesUi(review);
-  // Each needs the other: the sessions item shows the waiting comments, and a session appearing
-  // lets them go.
-  let deliveries: DeliveriesUi | undefined;
-  const sessions = new SessionsUi({
-    waitingCount: async (folders) => (deliveries ? deliveries.waitingCount(folders) : 0),
-    onRefresh: async (folders) => deliveries?.flush(folders),
-  });
-  deliveries = new DeliveriesUi(review, log, context.workspaceState, () => void sessions.refresh());
+  const sessions = new SessionsUi();
+  const deliveries = new DeliveriesUi(review, log);
   context.subscriptions.push(log, review, reviewUi, agentReplies, sessions, deliveries);
 
   context.subscriptions.push(
@@ -92,9 +82,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
     vscode.commands.registerCommand('localReview.cancelNewThread', (reply: vscode.CommentReply) =>
       review.cancelNewThread(reply),
     ),
-    vscode.commands.registerCommand('localReview.sendWaitingComments', () =>
-      deliveries.sendWaiting((vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath)),
-    ),
     vscode.commands.registerCommand('localReview.dev.simulateAgentReply', (args?: SimulateArgs) =>
       simulateAgentReply(review, context.extensionUri, args),
     ),
@@ -110,8 +97,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
   const defaultSummaryPrompt = reviewUi.promptSummary;
   const defaultNotifier = agentReplies.notify;
   const defaultWarner = deliveries.warn;
-  const defaultInform = deliveries.inform;
-  const defaultPicker = deliveries.pick;
+  const defaultNoSubscriberPrompt = deliveries.askNoSubscriber;
   await review.reload();
   log.info('Local Review activated');
 
@@ -138,13 +124,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
     awaitingUser: () => review.awaitingUser(),
     setDeliveryWarner: (warner) => {
       deliveries.warn = warner ?? defaultWarner;
-      deliveries.inform = warner ?? defaultInform;
     },
-    setSessionPicker: (picker) => {
-      deliveries.pick = picker ?? defaultPicker;
+    setNoSubscriberPrompt: (prompt) => {
+      deliveries.askNoSubscriber = prompt ?? defaultNoSubscriberPrompt;
     },
-    waitingCount: () => deliveries.waitingCount((vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath)),
-    flushDeliveries: () => deliveries.flush((vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath)),
     shownSessions: () => sessions.sessions.relevant.map((s) => s.id),
     refreshSessions: async () => {
       await sessions.refresh();
