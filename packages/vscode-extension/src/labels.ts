@@ -33,7 +33,7 @@ export function outdatedQuote(snippet: string): string {
 export function editedAfterAgentReplied(comments: readonly CommentState[], c: CommentState): string | undefined {
   if (c.author !== 'user' || !c.editedAt) return undefined;
   const edited = c.editedAt;
-  const reply = comments.find((o) => o.author === 'agent' && o.createdAt > c.createdAt && o.createdAt < edited);
+  const reply = comments.find((o) => o.author === 'agent' && o.createdAt > c.createdAt && o.createdAt <= edited);
   return reply ? (reply.agentName ?? DEFAULT_AGENT_NAME) : undefined;
 }
 
@@ -41,7 +41,7 @@ export function editedAfterAgentReplied(comments: readonly CommentState[], c: Co
 function agentsTurn(state: ThreadState): boolean {
   if (state.lastAuthor !== 'agent') return true;
   const lastAgentAt = [...state.comments].reverse().find((c) => c.author === 'agent')?.createdAt ?? '';
-  return state.comments.some((c) => c.author === 'user' && c.editedAt !== undefined && c.editedAt > lastAgentAt);
+  return state.comments.some((c) => c.author === 'user' && c.editedAt !== undefined && c.editedAt >= lastAgentAt);
 }
 
 function statusLabel(state: ThreadState): string | undefined {

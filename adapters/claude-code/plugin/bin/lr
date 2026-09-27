@@ -922,7 +922,7 @@ function agentView(thread) {
   const last = comments[comments.length - 1];
   const open2 = thread.status !== "resolved";
   const lastAgentAt = [...comments].reverse().find((c) => c.author === "agent")?.createdAt;
-  const editedSince = lastAgentAt !== void 0 && comments.some((c) => c.author === "user" && c.editedAt !== void 0 && c.editedAt > lastAgentAt);
+  const editedSince = lastAgentAt !== void 0 && comments.some((c) => c.author === "user" && c.editedAt !== void 0 && c.editedAt >= lastAgentAt);
   const userTurn = last.author === "user" || editedSince;
   return {
     thread,

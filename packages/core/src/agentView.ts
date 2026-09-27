@@ -37,7 +37,7 @@ export function agentView(thread: ThreadState): AgentThreadView | null {
   const lastAgentAt = [...comments].reverse().find((c) => c.author === 'agent')?.createdAt;
   const editedSince =
     lastAgentAt !== undefined &&
-    comments.some((c) => c.author === 'user' && c.editedAt !== undefined && c.editedAt > lastAgentAt);
+    comments.some((c) => c.author === 'user' && c.editedAt !== undefined && c.editedAt >= lastAgentAt);
   const userTurn = last.author === 'user' || editedSince;
   return {
     thread,
