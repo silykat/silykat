@@ -37,6 +37,8 @@ export interface LocalReviewApi {
   setSessionPicker(picker: SessionPicker | undefined): void;
   /** Tests only: send the comments waiting for a session now (also done at every registry poll). */
   flushDeliveries(): Promise<void>;
+  /** The deliveries' queue, e.g. to check what waits. For tests. */
+  waitingCount(): Promise<number>;
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<LocalReviewApi> {
@@ -90,6 +92,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
     vscode.commands.registerCommand('localReview.cancelNewThread', (reply: vscode.CommentReply) =>
       review.cancelNewThread(reply),
     ),
+    vscode.commands.registerCommand('localReview.sendWaitingComments', () =>
+      deliveries.sendWaiting((vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath)),
+    ),
     vscode.commands.registerCommand('localReview.dev.simulateAgentReply', (args?: SimulateArgs) =>
       simulateAgentReply(review, context.extensionUri, args),
     ),
@@ -138,6 +143,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
     setSessionPicker: (picker) => {
       deliveries.pick = picker ?? defaultPicker;
     },
+    waitingCount: () => deliveries.waitingCount((vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath)),
     flushDeliveries: () => deliveries.flush((vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath)),
     shownSessions: () => sessions.sessions.relevant.map((s) => s.id),
     refreshSessions: async () => {

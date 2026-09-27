@@ -80,6 +80,11 @@
         "category": "Local Review"
       },
       {
+        "command": "localReview.sendWaitingComments",
+        "title": "Send Waiting Comments to an Agent Session",
+        "category": "Local Review"
+      },
+      {
         "command": "localReview.reviewMenu",
         "title": "Review Menu",
         "category": "Local Review"

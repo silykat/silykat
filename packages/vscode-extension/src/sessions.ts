@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { localReviewHome, relevantSessions, SessionRegistry, type Session } from '@local-review/core';
+import { sessionDetail, sessionLabel } from './sessionLabel';
 
 const POLL_MS = 2000;
 
@@ -68,21 +69,27 @@ export class SessionsUi implements vscode.Disposable {
   private render(): void {
     const [only, ...others] = this.relevant;
     const waiting = this.waiting > 0 ? ` · ${this.waiting} waiting` : '';
+    // With comments waiting, a click offers to send them; otherwise it lists the sessions.
+    this.statusBar.command = this.waiting > 0 ? 'localReview.sendWaitingComments' : 'localReview.showSessions';
     if (!only) {
       this.visible = this.waiting > 0;
       if (!this.visible) return this.statusBar.hide();
       this.statusBar.text = `$(hubot) No agent session${waiting}`;
-      this.statusBar.tooltip = `Local Review: ${this.waiting} published comment thread(s) will go to the next agent session started on this workspace.`;
+      this.statusBar.tooltip = `Local Review: ${this.waiting} published comment thread(s) will go to the next agent session started on this workspace. Click to send them to a running session.`;
       return this.statusBar.show();
     }
     this.visible = true;
     this.statusBar.text =
       (others.length === 0
-        ? `$(hubot) ${only.agent}${only.branch ? ` · ${only.branch}` : ''}${only.push === false ? ' $(warning)' : ''}`
+        ? `$(hubot) ${sessionLabel(only)}${only.push === false ? ' $(warning)' : ''}`
         : `$(hubot) ${this.relevant.length} agent sessions${this.relevant.some((s) => s.push === false) ? ' $(warning)' : ''}`) +
       waiting;
     this.statusBar.tooltip = new vscode.MarkdownString(
-      ['**Local Review: agent sessions of this workspace**', ...this.relevant.map(describe)].join('\n\n'),
+      [
+        '**Local Review: agent sessions of this workspace**',
+        ...this.relevant.map(describe),
+        ...(this.waiting > 0 ? [`${this.waiting} published comment thread(s) waiting: click to send them.`] : []),
+      ].join('\n\n'),
       true,
     );
     this.statusBar.show();
@@ -100,9 +107,9 @@ export class SessionsUi implements vscode.Disposable {
     const sorted = [...this.all].sort((a, b) => Number(relevant.has(b.id)) - Number(relevant.has(a.id)));
     await vscode.window.showQuickPick(
       sorted.map((s) => ({
-        label: `$(hubot) ${s.agent}${s.branch ? ` · ${s.branch}` : ''}${s.push === false ? ' $(warning)' : ''}`,
+        label: `$(hubot) ${sessionLabel(s)}${s.push === false ? ' $(warning)' : ''}`,
         description: relevant.has(s.id) ? 'this workspace' : undefined,
-        detail: s.cwd,
+        detail: sessionDetail(s),
       })),
       { title: 'Running agent sessions', placeHolder: 'Sessions registered with Local Review' },
     );
@@ -110,7 +117,7 @@ export class SessionsUi implements vscode.Disposable {
 }
 
 function describe(s: Session): string {
-  const line = `${s.agent}${s.branch ? ` · \`${s.branch}\`` : ''} — ${s.cwd}`;
+  const line = `**${sessionLabel(s)}** — ${sessionDetail(s)}`;
   if (s.push !== false) return line;
   const fix = s.pushCommand ? ` Relaunch it with \`${s.pushCommand}\`.` : '';
   return `${line}\n\n$(warning) Can't be notified of your comments: it sees them when you ask it.${fix}`;

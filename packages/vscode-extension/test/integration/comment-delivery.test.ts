@@ -1,6 +1,6 @@
 import * as assert from 'node:assert/strict';
 import { rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import { localReviewHome, SessionRegistry, type Delivery, type SessionRecord } from '@local-review/core';
 import type { LocalReviewApi } from '../../src/extension';
@@ -169,6 +169,42 @@ describe('Published comments go to the agent session', () => {
     await api.flushDeliveries();
     await delivered(1, 'new-one');
     assert.equal(asked.length, 3);
+  });
+
+  it('sends to the session that works in that folder now, when both started in a parent folder', async () => {
+    const parent = dirname(ws);
+    await registry.register(session({ id: 'in-here', cwd: parent, workingDir: ws, branch: null }));
+    await registry.register(session({ id: 'in-other', cwd: parent, workingDir: '/some/other/project', branch: null }));
+    await comment('Rename this', 1);
+    await delivered(1, 'in-here');
+    assert.deepEqual(asked, []);
+  });
+
+  it('asks again at the next comment when the question was closed without an answer', async () => {
+    await registry.register(session({ id: 'one' }));
+    await registry.register(session({ id: 'two' }));
+    pickId = undefined; // e.g. closed by another prompt
+    const first = await comment('First', 1);
+    await waitFor('the waiting comment', async () => ((await api.waitingCount()) === 1 ? true : undefined));
+    pickId = 'two';
+    const second = await comment('Second', 3);
+    const [d] = await delivered(1, 'two');
+    assert.deepEqual([...d!.threadIds].sort(), [first, second].sort(), 'the waiting one goes along');
+    assert.equal(await api.waitingCount(), 0);
+  });
+
+  it('sends waiting comments to a session working elsewhere, on demand', async () => {
+    await registry.register(session({ id: 'far', cwd: '/some/other/project' }));
+    const id = await comment('Rename this', 1);
+    await waitFor('the waiting comment', async () => ((await api.waitingCount()) === 1 ? true : undefined));
+    pickId = 'far';
+    await vscode.commands.executeCommand('localReview.sendWaitingComments');
+    const [d] = await delivered(1, 'far');
+    assert.deepEqual(d!.threadIds, [id]);
+    assert.match(
+      asked[asked.length - 1]!,
+      /no agent session works on .*Which one handles the waiting comments\? \[far \(works elsewhere\)\]/,
+    );
   });
 
   it('keeps the comments waiting when no session runs, and sends them when one starts there', async () => {

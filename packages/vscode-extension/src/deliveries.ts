@@ -11,6 +11,7 @@ import {
 } from '@local-review/core';
 import type { Log } from './log';
 import type { Publication, ReviewController } from './controller';
+import { sessionDetail, sessionLabel } from './sessionLabel';
 
 /** Shows a message with actions; resolves to the action picked. Replaceable in tests. */
 export type Warner = (message: string, ...actions: string[]) => Thenable<string | undefined>;
@@ -62,20 +63,60 @@ export class DeliveriesUi implements vscode.Disposable {
   async deliver(p: Publication): Promise<string[]> {
     try {
       const sessions = await this.registry.list();
-      const { sent, waiting, declined } = await this.route(sessions, p);
+      const alreadyWaiting = (await this.queue.peek(p.root)).length > 0;
+      // What waited in that folder goes along, when a session may take it: e.g. comments kept
+      // waiting because the question about them was closed by another prompt.
+      const along = relevantSessions(sessions, [p.root]).length > 0 ? await this.queue.take(p.root) : [];
+      const publication = along.length > 0 ? merge([p, ...along]) : p;
+      this.declinedFor = undefined; // a new publication asks again
+      const { sent, waiting, declined } = await this.route(sessions, publication);
       if (declined.length > 0) this.declinedFor = signature(sessions);
-      if (waiting.length + declined.length > 0) {
-        // Said when comments start to wait there, not for every comment that joins them.
-        const first = (await this.queue.peek(p.root)).length === 0;
-        await this.queue.add(this.delivery(p, [...waiting, ...declined]));
-        this.onWaitingChanged();
-        if (first && waiting.length > 0) void this.sayWaiting(p.root, sessions);
-      }
+      if (waiting.length + declined.length > 0)
+        await this.queue.add(this.delivery(publication, [...waiting, ...declined]));
+      if (along.length > 0 || waiting.length + declined.length > 0) this.onWaitingChanged();
+      // Said when comments start to wait there, not for every comment that joins them.
+      if (waiting.length > 0 && !alreadyWaiting) void this.sayWaiting(p.root, sessions);
       return sent;
     } catch (err) {
       this.log.error('Failed to deliver the comments to the agent session', err);
       return [];
     }
+  }
+
+  /**
+   * "Send Waiting Comments": sends what waits in these folders now, asking the user for a session
+   * when none is clear, including sessions working elsewhere.
+   */
+  async sendWaiting(roots: readonly string[]): Promise<void> {
+    const sessions = await this.registry.list();
+    if (sessions.length === 0) {
+      void this.inform(
+        'Local Review: no agent session is running. Waiting comments go to the next one started on their folder.',
+      );
+      return;
+    }
+    this.declinedFor = undefined;
+    for (const root of roots) {
+      const pending = await this.queue.take(root);
+      if (pending.length === 0) continue;
+      const all = merge(pending);
+      const { waiting, declined } = await this.route(sessions, all);
+      let left = [...waiting, ...declined];
+      if (waiting.length > 0 && declined.length === 0) {
+        // No session works on that folder: any running one can take them.
+        const id = await this.pick(
+          `Local Review: no agent session works on ${label(root)}. Which one handles the waiting comments?`,
+          sessions.map((session) => ({ session, note: 'works elsewhere' })),
+        );
+        const session = sessions.find((s) => s.id === id);
+        if (session) {
+          await this.sendTo(session, all, waiting);
+          left = [];
+        }
+      }
+      if (left.length > 0) await this.queue.add(this.delivery(all, left));
+    }
+    this.onWaitingChanged();
   }
 
   /** Sends the comments waiting in these folders to sessions that now work on them. */
@@ -90,15 +131,11 @@ export class DeliveriesUi implements vscode.Disposable {
         const pending = await this.queue.take(root);
         if (pending.length === 0) continue;
         // All that waited, as one publication: at most one question.
-        const review = pending.find((d) => d.kind === 'review');
-        const all: Delivery = {
-          ...(review ?? pending[0]!),
-          threadIds: [...new Set(pending.flatMap((d) => d.threadIds))],
-        };
+        const all = merge(pending);
         const { waiting, declined } = await this.route(sessions, all);
         if (declined.length > 0) this.declinedFor = signature(sessions);
         const left = [...waiting, ...declined];
-        if (left.length > 0) await this.queue.add({ ...all, threadIds: left });
+        if (left.length > 0) await this.queue.add(this.delivery(all, left));
         this.onWaitingChanged();
       }
     } catch (err) {
@@ -140,11 +177,8 @@ export class DeliveriesUi implements vscode.Disposable {
     const sent: string[] = [];
     const declined: string[] = [];
     const send = async (session: Session, threadIds: string[]) => {
-      await this.registry.deliver(session.id, this.delivery(p, threadIds));
-      await this.remember(p.root, session.id);
+      await this.sendTo(session, p, threadIds);
       sent.push(session.id);
-      this.log.info(`${p.root}: ${p.kind} (${threadIds.length} thread(s)) delivered to session ${session.id}`);
-      if (session.push === false) void this.warnNoPush(session);
     };
     for (const [id, threadIds] of plan.sure)
       await send(
@@ -158,6 +192,13 @@ export class DeliveriesUi implements vscode.Disposable {
       else declined.push(...threadIds);
     }
     return { sent, waiting: plan.waiting, declined };
+  }
+
+  private async sendTo(session: Session, p: Publication | Delivery, threadIds: string[]): Promise<void> {
+    await this.registry.deliver(session.id, this.delivery(p, threadIds));
+    await this.remember(p.root, session.id);
+    this.log.info(`${p.root}: ${p.kind} (${threadIds.length} thread(s)) delivered to session ${session.id}`);
+    if (session.push === false) void this.warnNoPush(session);
   }
 
   private delivery(p: Publication | Delivery, threadIds: string[]): Delivery {
@@ -202,26 +243,13 @@ export class DeliveriesUi implements vscode.Disposable {
       `Local Review: no agent session works on ${label(root)}. Your comments will go to the next one started there.`,
       ...(sessions.length > 0 ? [CHOOSE] : []),
     );
-    if (picked !== CHOOSE) return;
-    const id = await this.pick(
-      'Local Review: which agent session handles the waiting comments?',
-      sessions.map((session) => ({ session, note: 'works elsewhere' })),
-    );
-    const session = sessions.find((s) => s.id === id);
-    if (!session) return;
-    const pending = await this.queue.take(root);
-    for (const d of pending) {
-      await this.registry.deliver(session.id, { ...d, id: newDeliveryId() });
-      await this.remember(root, session.id);
-    }
-    if (session.push === false) void this.warnNoPush(session);
-    this.onWaitingChanged();
+    if (picked === CHOOSE) await this.sendWaiting([root]);
   }
 
   private async warnNoPush(s: Session): Promise<void> {
     if (this.warned.has(s.id)) return;
     this.warned.add(s.id);
-    const who = `${s.agent}${s.branch ? ` · ${s.branch}` : ''}`;
+    const who = sessionLabel(s);
     const fix = s.pushCommand ? ` To fix it, relaunch it with: ${s.pushCommand}` : '';
     const picked = await this.warn(
       `Local Review: ${who} won't see your comments until you ask it, as its session can't be notified.${fix}`,
@@ -229,6 +257,18 @@ export class DeliveriesUi implements vscode.Disposable {
     );
     if (picked === COPY && s.pushCommand) await vscode.env.clipboard.writeText(s.pushCommand);
   }
+}
+
+/** Several publications of a folder as one: their threads, as a review if one of them was. */
+function merge(ps: (Publication | Delivery)[]): Publication {
+  const review = ps.find((p) => p.kind === 'review');
+  const first = review ?? ps[0]!;
+  return {
+    root: first.root,
+    kind: first.kind,
+    threadIds: [...new Set(ps.flatMap((p) => p.threadIds))],
+    ...(first.reviewId ? { reviewId: first.reviewId } : {}),
+  };
 }
 
 const signature = (sessions: Session[]) => sessions.map((s) => s.id).join(' ');
@@ -242,9 +282,9 @@ function label(root: string): string {
 async function quickPickSession(title: string, choices: SessionChoice[]): Promise<string | undefined> {
   const picked = await vscode.window.showQuickPick(
     choices.map(({ session: s, note }) => ({
-      label: `$(hubot) ${s.agent}${s.branch ? ` · ${s.branch}` : ''}`,
+      label: `$(hubot) ${sessionLabel(s)}`,
       description: note,
-      detail: s.cwd,
+      detail: sessionDetail(s),
       id: s.id,
     })),
     {
