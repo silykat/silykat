@@ -31,6 +31,7 @@ var import_node_util = require("node:util");
 // ../core/src/types.ts
 var SCHEMA_VERSION = 1;
 var STORE_DIR = ".local-review";
+var branchKey = (b) => b ? `${b.repo}#${b.branch}` : "";
 
 // ../core/src/ids.ts
 var import_node_crypto = require("node:crypto");
@@ -64,10 +65,12 @@ var THREAD_EVENT_TYPES = /* @__PURE__ */ new Set([
   "comment.deleted",
   "status.changed",
   "anchor.updated",
+  "branch.changed",
   "thread.deleted"
 ]);
 var REVIEW_EVENT_TYPES = /* @__PURE__ */ new Set([
   "review.started",
+  "review.branch.changed",
   "review.submitted",
   "review.discarded"
 ]);
@@ -129,6 +132,7 @@ function foldThread(events, opts = {}) {
   const state = {
     id: first.threadId,
     anchor: first.anchor,
+    branch: first.branch ?? null,
     status: "open",
     comments: [],
     createdAt: first.at,
@@ -180,6 +184,9 @@ function foldThread(events, opts = {}) {
       case "anchor.updated":
         state.anchor = e.anchor;
         break;
+      case "branch.changed":
+        state.branch = e.branch;
+        break;
       case "thread.deleted":
         state.deleted = true;
         break;
@@ -198,10 +205,11 @@ function foldThread(events, opts = {}) {
 function foldReview(events) {
   const first = events[0];
   if (!first || first.type !== "review.started") return null;
-  const state = { id: first.reviewId, state: "active", startedAt: first.at };
+  const state = { id: first.reviewId, state: "active", branch: first.branch ?? null, startedAt: first.at };
   for (const e of events.slice(1)) {
     if (state.state !== "active") break;
-    if (e.type === "review.submitted") {
+    if (e.type === "review.branch.changed") state.branch = e.branch;
+    else if (e.type === "review.submitted") {
       state.state = "submitted";
       state.submittedAt = e.at;
       if (e.summary) state.summary = e.summary;
@@ -275,13 +283,25 @@ var Store = class {
     return { reviews, warnings };
   }
   /** The review in progress, if any. There is at most one per store (V1). */
-  async activeReview() {
+  /** The review in progress for a branch (`null`: outside git), if any. */
+  async activeReview(branch = null) {
     const { reviews } = await this.loadReviews();
-    return latestActive(reviews);
+    return latestActive(reviews, branch);
   }
-  /** Starts a review, or returns the one already in progress. */
-  async startReview() {
-    const active = await this.activeReview();
+  /** Every review in progress: at most one per branch. */
+  async activeReviews() {
+    const { reviews } = await this.loadReviews();
+    const latest = /* @__PURE__ */ new Map();
+    for (const r of reviews.values()) {
+      if (r.state !== "active") continue;
+      const current = latest.get(branchKey(r.branch));
+      if (!current || r.startedAt > current.startedAt) latest.set(branchKey(r.branch), r);
+    }
+    return [...latest.values()];
+  }
+  /** Starts a review of a branch, or returns the one already in progress there. */
+  async startReview(branch = null) {
+    const active = await this.activeReview(branch);
     if (active) return active;
     await this.ensureInitialized();
     const reviewId = newReviewId();
@@ -290,16 +310,24 @@ var Store = class {
       type: "review.started",
       at: (/* @__PURE__ */ new Date()).toISOString(),
       by: "user",
-      reviewId
+      reviewId,
+      ...branch ? { branch } : {}
     };
     await (0, import_promises.appendFile)(this.reviewFile(reviewId), serializeEvents([event]), { flag: "a" });
     return foldReview([event]);
   }
-  /**
-   * Publishes a review: its draft comments become visible to the agent. A draft reply in a thread
-   * the agent was done with (`needs-info`, `addressed`, `resolved`) hands it back to the agent,
-   * like a direct reply does.
-   */
+  /** A review in progress follows its renamed branch. */
+  async setReviewBranch(reviewId, branch) {
+    await this.assertActiveReview(reviewId);
+    const event = {
+      v: SCHEMA_VERSION,
+      type: "review.branch.changed",
+      at: (/* @__PURE__ */ new Date()).toISOString(),
+      by: "user",
+      branch
+    };
+    await (0, import_promises.appendFile)(this.reviewFile(reviewId), serializeEvents([event]), { flag: "a" });
+  }
   async submitReview(reviewId, summary) {
     await this.assertActiveReview(reviewId);
     const { threads: before } = await this.loadAll();
@@ -381,6 +409,18 @@ var Store = class {
     };
     return this.appendAndReload(threadId, [event]);
   }
+  /** A thread follows its renamed branch (or is given one). */
+  async setBranch(threadId, branch) {
+    await this.writableThread(threadId, "user");
+    const event = {
+      v: SCHEMA_VERSION,
+      type: "branch.changed",
+      at: (/* @__PURE__ */ new Date()).toISOString(),
+      by: "user",
+      branch
+    };
+    return this.appendAndReload(threadId, [event]);
+  }
   /** Edits a comment. Only its author can edit it. */
   async editComment(threadId, commentId, body, by, agent) {
     const text = body.trim();
@@ -456,7 +496,7 @@ var Store = class {
     if (!state) warnings.push(`${label}: no thread.created event, file skipped`);
     return { state, warnings };
   }
-  async createThread(anchor, first) {
+  async createThread(anchor, first, branch = null) {
     const body = first.body.trim();
     if (body === "") throw new Error("Comment body is empty");
     if (first.reviewId !== null) await this.assertCanDraft(first.reviewId, first.author);
@@ -465,7 +505,7 @@ var Store = class {
     const threadId = newThreadId();
     const at = (/* @__PURE__ */ new Date()).toISOString();
     const events = [
-      { v: SCHEMA_VERSION, type: "thread.created", at, ...who, threadId, anchor },
+      { v: SCHEMA_VERSION, type: "thread.created", at, ...who, threadId, anchor, ...branch ? { branch } : {} },
       {
         v: SCHEMA_VERSION,
         type: "comment.added",
@@ -503,8 +543,8 @@ async function listJournals(dir) {
     throw err;
   }
 }
-function latestActive(reviews) {
-  const active = [...reviews.values()].filter((r) => r.state === "active");
+function latestActive(reviews, branch) {
+  const active = [...reviews.values()].filter((r) => r.state === "active" && branchKey(r.branch) === branchKey(branch));
   active.sort((a, b) => b.startedAt.localeCompare(a.startedAt) || b.id.localeCompare(a.id));
   return active[0] ?? null;
 }
@@ -591,6 +631,10 @@ function topicLabel(t) {
   const repoName = (0, import_node_path2.basename)(t.repo) === ".git" ? (0, import_node_path2.basename)((0, import_node_path2.dirname)(t.repo)) : (0, import_node_path2.basename)(t.repo).replace(/\.git$/, "");
   return `${repoName} \xB7 ${t.branch}`;
 }
+function isWithin(inner, outer) {
+  const rel = (0, import_node_path2.relative)(outer, inner);
+  return rel === "" || !rel.startsWith("..") && !(0, import_node_path2.isAbsolute)(rel);
+}
 function git(args, cwd, raw = false) {
   return new Promise(
     (done) => (0, import_node_child_process.execFile)(
@@ -611,22 +655,36 @@ async function existingDir(path) {
     dir = parent;
   }
 }
-async function gitWorktreeOf(dir) {
+async function currentBranch(dir) {
+  const branch = await git(["symbolic-ref", "--quiet", "--short", "HEAD"], dir);
+  if (branch) return branch;
+  for (const state of ["rebase-merge/head-name", "rebase-apply/head-name"]) {
+    const file = await git(["rev-parse", "--path-format=absolute", "--git-path", state], dir);
+    const head = file ? (await (0, import_promises2.readFile)(file, "utf8").catch(() => "")).trim() : "";
+    if (head.startsWith("refs/heads/")) return head.slice("refs/heads/".length);
+  }
+  return null;
+}
+async function gitWorktreeOf(path) {
+  const dir = await existingDir(path);
   const out = await git(["rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel"], dir);
   if (!out) return null;
   const [commonDir, worktree] = out.split("\n");
   if (!commonDir || !worktree) return null;
-  const branch = await git(["symbolic-ref", "--quiet", "--short", "HEAD"], dir);
+  const branch = await currentBranch(dir);
   if (!branch) return null;
   return { repo: await (0, import_promises2.realpath)(commonDir).catch(() => commonDir), branch, worktree };
 }
 async function topicOf(path, opts = {}) {
   if (!opts.asPath) {
-    const wt = await gitWorktreeOf(await existingDir(path));
-    if (wt) return { kind: "branch", ...wt };
+    const dir = await existingDir(path);
+    const wt = await gitWorktreeOf(dir);
+    const ignored = wt && await git(["check-ignore", "-q", path], dir) !== null;
+    if (wt && !ignored) return { kind: "branch", ...wt };
   }
   return { kind: "path", path };
 }
+var branchOfTopic = (t) => t.kind === "branch" ? { repo: t.repo, branch: t.branch, ...t.worktree ? { worktree: t.worktree } : {} } : null;
 
 // ../core/src/sessions.ts
 function localReviewHome(env = process.env) {
@@ -1007,9 +1065,10 @@ var USAGE = `lr \u2014 Local Review, for agents
 
 Usage:
   lr status                               How many threads wait for you
-  lr list [--all] [--thread <id>]\u2026 [--format md|json]
+  lr list [--all] [--thread <id>]\u2026 [--any-topic] [--format md|json]
                                           Threads waiting for you (--all: every unresolved thread;
-                                          --thread: only those threads)
+                                          --thread: only those threads). In an agent session, only
+                                          the threads of what it is subscribed to (--any-topic: all)
   lr show <thread-id> [--format md|json]  One thread, in full
   lr reply <thread-id> --agent <name> (--body <markdown> | --body-file <path> | --body -)
            [--status addressed|needs-info]
@@ -1114,22 +1173,40 @@ async function readWorkingFile(store, view) {
   }
 }
 var lineOf = (l) => l.range?.startLine ?? 0;
+async function forThisSession(located, store, values, io) {
+  if (values["any-topic"] === true) return { located };
+  const sessions2 = await registryFor(io).list();
+  const session2 = sessionOfProcess(sessions2, await io.ancestors?.() ?? await processAncestors());
+  if (!session2) return { located };
+  const subs = session2.subscriptions;
+  const covered = (l) => subs.some(
+    (sub) => sub.topic.kind === "path" ? isWithin((0, import_node_path6.join)(store.root, ...l.view.thread.anchor.path.split("/")), sub.topic.path) : branchKey(branchOfTopic(sub.topic)) === branchKey(l.view.thread.branch)
+  );
+  const scope = subs.length === 0 ? "this session is subscribed to nothing (lr subscribe, or --any-topic to see every thread)" : `only what this session is subscribed to: ${subs.map((x) => topicLabel(x.topic)).join(", ")} (--any-topic for every thread)`;
+  return { located: located.filter(covered), scope };
+}
 async function status(rest, io) {
-  const { values } = parse(rest, {});
-  const { located } = await visibleThreads(openStore(str(values.root), io));
+  const { values } = parse(rest, { "any-topic": { type: "boolean" } });
+  const store = openStore(str(values.root), io);
+  const { located, scope } = await forThisSession((await visibleThreads(store)).located, store, values, io);
   const forAgent = located.filter((l) => l.view.needsAgent).length;
   const forUser = located.filter((l) => l.view.waitsForUser).length;
-  io.out(`${forAgent} thread${forAgent === 1 ? "" : "s"} waiting for you \xB7 ${forUser} waiting for the user`);
+  io.out(
+    `${forAgent} thread${forAgent === 1 ? "" : "s"} waiting for you \xB7 ${forUser} waiting for the user` + (scope ? ` (${scope})` : "")
+  );
   return EXIT.OK;
 }
 async function list(rest, io) {
   const { values } = parse(rest, {
     all: { type: "boolean" },
     thread: { type: "string", multiple: true },
-    format: { type: "string" }
+    format: { type: "string" },
+    "any-topic": { type: "boolean" }
   });
   const only = Array.isArray(values.thread) ? new Set(values.thread) : void 0;
-  const { located } = await visibleThreads(openStore(str(values.root), io));
+  const store = openStore(str(values.root), io);
+  const all = (await visibleThreads(store)).located;
+  const { located, scope } = only ? { located: all, scope: void 0 } : await forThisSession(all, store, values, io);
   const selected = located.filter(
     (l) => (only === void 0 || only.has(l.view.thread.id)) && (values.all === true ? l.view.thread.status !== "resolved" : l.view.needsAgent)
   );
@@ -1139,16 +1216,16 @@ async function list(rest, io) {
   }
   if (selected.length === 0) {
     io.out(
-      values.all === true ? "No unresolved thread." : "Nothing waits for you: no thread where the user spoke last."
+      (values.all === true ? "No unresolved thread." : "Nothing waits for you: no thread where the user spoke last.") + (scope ? ` (${scope})` : "")
     );
     return EXIT.OK;
   }
-  const store = openStore(str(values.root), io);
   const { reviews } = await store.loadAll();
   const n = selected.length;
   const parts = [
     `# Local Review \u2014 ${n} thread${n === 1 ? "" : "s"} ${values.all === true ? "unresolved" : "waiting for you"}`
   ];
+  if (scope) parts.push(`_Showing ${scope}._`);
   const summaries = renderReviews(selected, reviews);
   if (summaries) parts.push(summaries);
   parts.push(...selected.map(renderThread));

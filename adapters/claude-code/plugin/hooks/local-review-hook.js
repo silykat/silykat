@@ -36,19 +36,32 @@ async function existingDir(path) {
     dir = parent;
   }
 }
-async function gitWorktreeOf(dir) {
+async function currentBranch(dir) {
+  const branch = await git(["symbolic-ref", "--quiet", "--short", "HEAD"], dir);
+  if (branch) return branch;
+  for (const state of ["rebase-merge/head-name", "rebase-apply/head-name"]) {
+    const file = await git(["rev-parse", "--path-format=absolute", "--git-path", state], dir);
+    const head = file ? (await (0, import_promises.readFile)(file, "utf8").catch(() => "")).trim() : "";
+    if (head.startsWith("refs/heads/")) return head.slice("refs/heads/".length);
+  }
+  return null;
+}
+async function gitWorktreeOf(path) {
+  const dir = await existingDir(path);
   const out = await git(["rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel"], dir);
   if (!out) return null;
   const [commonDir, worktree] = out.split("\n");
   if (!commonDir || !worktree) return null;
-  const branch = await git(["symbolic-ref", "--quiet", "--short", "HEAD"], dir);
+  const branch = await currentBranch(dir);
   if (!branch) return null;
   return { repo: await (0, import_promises.realpath)(commonDir).catch(() => commonDir), branch, worktree };
 }
 async function topicOf(path, opts = {}) {
   if (!opts.asPath) {
-    const wt = await gitWorktreeOf(await existingDir(path));
-    if (wt) return { kind: "branch", ...wt };
+    const dir = await existingDir(path);
+    const wt = await gitWorktreeOf(dir);
+    const ignored = wt && await git(["check-ignore", "-q", path], dir) !== null;
+    if (wt && !ignored) return { kind: "branch", ...wt };
   }
   return { kind: "path", path };
 }

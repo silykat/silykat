@@ -368,7 +368,7 @@ async function main() {
     claudePid: await findClaudePid(process.ppid),
     send: (message) => process.stdout.write(JSON.stringify(message) + "\n"),
     now: () => Date.now(),
-    version: "0.5.0"
+    version: "0.6.0"
   });
   const lines = (0, import_node_readline.createInterface)({ input: process.stdin });
   lines.on("line", (line) => {
