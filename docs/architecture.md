@@ -1,0 +1,121 @@
+# Architecture
+
+How Local Review works, for maintainers and contributors. For using it, see the [README](../README.md).
+
+## Overview
+
+Local Review has one rule: **everything specific to an agent lives in an adapter**. The storage, the command line and the VS Code extension are agent-neutral; Claude Code is plugged in through `adapters/claude-code`. Another agent (e.g. Codex) would come as another adapter, on the same storage, command line and session registry.
+
+```mermaid
+flowchart LR
+  subgraph neutral["Agent-neutral"]
+    core["packages/core<br/>model, journals, stores,<br/>re-anchoring, sessions, topics"]
+    cli["packages/cli<br/>lr, the agents' entry point"]
+    ext["packages/vscode-extension<br/>the VS Code UI"]
+  end
+  subgraph claude["adapters/claude-code"]
+    plugin["plugin: skill, commands,<br/>hooks, channel server,<br/>bundled lr"]
+  end
+  cli --> core
+  ext --> core
+  plugin --> core
+  plugin --> cli
+```
+
+| Folder                      | Purpose                                                                                                          | May depend on |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------- | ------------- |
+| `packages/core`             | Data model, append-only journals, stores, re-anchoring, session registry, topics and routing. No VS Code import. | nothing       |
+| `packages/cli`              | `lr`: what agents run to read and answer threads, and to subscribe.                                              | `core`        |
+| `packages/vscode-extension` | Comment threads in the editor, reviews, diffs, deliveries to agent sessions.                                     | `core`        |
+| `adapters/claude-code`      | The Claude Code plugin (skill, commands, hooks, channel server) and their TypeScript sources.                    | `core`, `cli` |
+
+`scripts/check-boundaries.mjs` (run by `npm test`) fails when a package imports what it must not.
+
+## Storage
+
+Everything is plain files. There is no database and no server.
+
+### A project's store: `<root>/.local-review/`
+
+The root is the git top level of an open folder (or the folder itself outside git).
+
+```text
+.local-review/
+  schema-version            the format version (1)
+  threads/<thread-id>.jsonl one append-only journal per thread
+  reviews/<review-id>.jsonl one append-only journal per review
+```
+
+A thread journal is a list of events: `thread.created` (with its anchor and branch), `comment.added`, `comment.edited`, `comment.deleted`, `status.changed`, `anchor.updated`, `branch.changed`, `thread.deleted`. The state of a thread is the fold of its events (`core/src/fold.ts`). Appending is atomic enough for several writers (the editor and agents), a line cut by a crash is ignored, and nothing is ever rewritten: deleting a thread is an event too.
+
+A thread's **anchor** records its file (relative to the root), the version it is about (working tree, index, `HEAD` or a commit, and which side of a diff), its line range, the commented code and a few lines of context. Re-anchoring (`core/src/reanchor.ts`) finds the code again after changes: exact match, moved, then whitespace-insensitive; otherwise the thread is outdated.
+
+A thread's **branch** (`repo`, `branch`) is the branch of its file when it was created: `repo` is the git common directory, shared by all the worktrees of a repository.
+
+### The machine folder: `~/.local-review/` (or `$LOCAL_REVIEW_HOME`)
+
+```text
+~/.local-review/
+  files/                        the store of files outside any open folder (rooted at "/")
+  sessions/<id>.json            a running agent session
+  sessions/<id>.subscriptions.jsonl   what it is subscribed to (append-only)
+  sessions/<id>.inbox.jsonl     its message queue (append-only)
+  sessions/<id>.note-*          small notes an adapter keeps between two hooks
+```
+
+## Agent sessions
+
+### Registration
+
+An adapter registers each agent session (`SessionRegistry` in `core/src/sessions.ts`): id, agent name, folder, branch, process id, and whether messages reach it on their own (`push`). A session whose process is gone is dropped at the next read. For Claude Code, the `SessionStart` and `SessionEnd` hooks do it; `lr session register | unregister` exists for other adapters.
+
+### Topics and subscriptions
+
+A **topic** (`core/src/topics.ts`) is a branch of a repository, or a path outside git (files ignored by git count as outside git: they do not change with the branch). A session subscribes to topics, with a reason kept for debugging: `launch` (started in a worktree), `modified` (it modified a file there), `user` (asked by the user). `subscribersOf` returns every session subscribed to the topic of a file: the extension publishes to all of them and never picks between them.
+
+### Publishing a comment
+
+```mermaid
+sequenceDiagram
+  participant U as You (VS Code)
+  participant X as Extension
+  participant Q as Session queue<br/>(sessions/<id>.inbox.jsonl)
+  participant C as Channel server
+  participant A as Claude Code
+  U->>X: Comment / Submit Review / edit / delete
+  X->>X: topic of each thread's file → subscribed sessions
+  X->>Q: one small message per session: store, thread ids, kind
+  C->>Q: polls (0.5 s), batches (1.5 s)
+  C->>A: notifications/claude/channel
+  A->>A: runs the review skill: lr list / show, edits code
+  A->>X: lr reply (written to the thread journal, watched by the extension)
+```
+
+The message only points at threads; the agent always reads their current content with `lr`, so it never works on a stale copy. The queue has **one consumer**, the channel server, which acknowledges by advancing a cursor. Claude Code hands a channel message to Claude between two of its steps, even while it works.
+
+`lr reply --rev <version>` guards against races: a thread's version (`AgentThreadView.rev`) changes only when the user publishes, edits or deletes a comment in it, and a reply to an older version is refused (exit code 3).
+
+## The Claude Code adapter
+
+`adapters/claude-code/plugin` is what Claude Code installs (from the marketplace in `.claude-plugin/marketplace.json`):
+
+| Part                                              | Role                                                                                                                                                                                                                                         |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `skills/review/SKILL.md`                          | How Claude handles a review: read, act, reply with `--rev`, subscriptions, special cases.                                                                                                                                                    |
+| `commands/subscribe.md`, `unsubscribe.md`         | `/local-review:subscribe` and `/local-review:unsubscribe`.                                                                                                                                                                                   |
+| `hooks/hooks.json` → `hooks/local-review-hook.js` | `SessionStart` (register, subscribe to the worktree of launch), `PreToolUse`/`PostToolUse` (subscribe on file changes, including shell commands via `git status`), `SessionEnd`. A new subscription is told to Claude (`additionalContext`). |
+| `.mcp.json` → `channel/local-review-channel.js`   | The channel server: a minimal MCP server over stdio (no SDK), serving the session of the Claude Code process that started it.                                                                                                                |
+| `bin/lr`                                          | The bundled command line, on Claude's `PATH`.                                                                                                                                                                                                |
+
+The bundles are built by `adapters/claude-code/build.mjs` and **committed**, because Claude Code installs plugins from git. `scripts/check-plugin-bundle.mjs` (run by `npm test`) rebuilds them elsewhere and fails when the committed ones are stale.
+
+Whether a session was launched with the channel cannot be asked to Claude Code: the `SessionStart` hook reads the command line of the `claude` process instead. `lr` finds the session it runs in by walking up its parent processes to a registered process id.
+
+## The VS Code extension
+
+- `controller.ts`: the comment controller: creating, replying, editing, reviews (one per branch), re-anchoring as documents change, git versions and aliases, rename following, branch tracking (threads of other branches are kept but hidden; anchors are never written from another branch's content).
+- `deliveries.ts`: publishing to subscribed sessions, the "nobody is subscribed" prompt, `pushToAgents`.
+- `branches.ts`: which branch is checked out where (polled every 2 s).
+- `sessions.ts`, `agentReplies.ts`, `review.ts`: the status bar items and their menus.
+- `roots.ts`: stores of the open folders, plus the machine store as the last resort.
+- `watcher.ts`: stores are watched for writes by agents (VS Code's watcher in the workspace, Node's for the machine store).
