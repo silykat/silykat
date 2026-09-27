@@ -44,6 +44,7 @@ Sessions (used by agent integrations to register themselves):
                      [--push yes|no] [--push-command <command>]
   lr session unregister --id <id>
   lr session touch --id <id> <file>       The session wrote this file
+  lr session move --id <id> <dir> [--branch <b>]   The session works in this folder now
 
 Options:
   --root <dir>    Folder holding .local-review/ (default: found from the current directory)
@@ -246,7 +247,10 @@ async function sessions(rest: string[], io: Io): Promise<number> {
   }
   io.out(
     list
-      .map((x) => `${x.agent} · ${x.branch ?? 'no branch'} · ${x.cwd} (${x.id})${x.push === false ? ' · no push' : ''}`)
+      .map(
+        (x) =>
+          `${x.agent} · ${x.branch ?? 'no branch'} · ${x.workingDir ?? x.cwd} (${x.id})${x.push === false ? ' · no push' : ''}`,
+      )
       .join('\n'),
   );
   return EXIT.OK;
@@ -289,6 +293,12 @@ async function session(rest: string[], io: Io): Promise<number> {
       await registry.unregister(id);
       io.out(`Session ${id} unregistered.`);
       return EXIT.OK;
+    case 'move': {
+      const dir = positionals[0];
+      if (!dir) throw new UsageError('missing <dir>');
+      await registry.moveTo(id, resolve(io.cwd, dir), str(values.branch) ?? null);
+      return EXIT.OK;
+    }
     case 'touch': {
       const file = positionals[0];
       if (!file) throw new UsageError('missing <file>');

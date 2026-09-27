@@ -12,9 +12,11 @@ export interface SessionRecord {
   id: string;
   /** Display name of the agent, e.g. "Claude". */
   agent: string;
-  /** Folder the session works in. */
+  /** Folder the session was started in. */
   cwd: string;
-  /** Git branch of that folder when the session registered, if any. */
+  /** Folder the session works in now, when it moved (e.g. `cd` into a worktree). */
+  workingDir?: string | null;
+  /** Git branch of the folder it works in, if any. */
   branch: string | null;
   /** Process to watch: when it is gone, so is the session. `null` when unknown. */
   pid: number | null;
@@ -60,6 +62,10 @@ export function localReviewHome(env: Record<string, string | undefined> = proces
 
 const SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/;
 
+/** The folders a session works in: where it started, and where it is now. */
+export const sessionDirs = (s: SessionRecord): string[] =>
+  s.workingDir && s.workingDir !== s.cwd ? [s.cwd, s.workingDir] : [s.cwd];
+
 /** Default liveness check: the process still exists. */
 export function isProcessAlive(pid: number): boolean {
   try {
@@ -95,6 +101,13 @@ export class SessionRegistry {
     const tmp = `${target}.${process.pid}.tmp`;
     await writeFile(tmp, JSON.stringify(record, null, 2) + '\n');
     await rename(tmp, target);
+  }
+
+  /** The session now works in `dir` (on `branch`). No-op for an unknown session. */
+  async moveTo(id: string, dir: string, branch: string | null): Promise<void> {
+    const record = await readRecord(this.file(id, 'json'));
+    if (!record || (record.workingDir === dir && record.branch === branch)) return;
+    await this.register({ ...record, workingDir: dir, branch });
   }
 
   async unregister(id: string): Promise<void> {
@@ -259,6 +272,7 @@ async function readRecord(file: string): Promise<SessionRecord | null> {
       id: raw.id,
       agent: raw.agent,
       cwd: raw.cwd,
+      workingDir: typeof raw.workingDir === 'string' ? raw.workingDir : null,
       branch: typeof raw.branch === 'string' ? raw.branch : null,
       pid: typeof raw.pid === 'number' ? raw.pid : null,
       startedAt: typeof raw.startedAt === 'string' ? raw.startedAt : '',

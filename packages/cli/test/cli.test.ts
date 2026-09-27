@@ -250,6 +250,7 @@ describe('lr sessions', () => {
     );
     expect(reg.code).toBe(EXIT.OK);
     await lr(['session', 'touch', '--id', 'abc-123', 'src/find.ts'], { env });
+    await lr(['session', 'move', '--id', 'abc-123', 'src', '--branch', 'feature-y'], { env });
 
     const listed = JSON.parse((await lr(['sessions', '--format', 'json'], { env })).out);
     expect(listed).toMatchObject([
@@ -257,12 +258,13 @@ describe('lr sessions', () => {
         id: 'abc-123',
         agent: 'Claude',
         cwd: join(root, 'src'),
-        branch: 'feature-x',
+        workingDir: join(root, 'src'),
+        branch: 'feature-y',
         pid: null,
         touched: [join(root, 'src', 'find.ts')],
       },
     ]);
-    expect((await lr(['sessions'], { env })).out).toContain('Claude · feature-x');
+    expect((await lr(['sessions'], { env })).out).toContain('Claude · feature-y');
 
     await lr(['session', 'unregister', '--id', 'abc-123'], { env });
     expect((await lr(['sessions'], { env })).out).toContain('No agent session is running');

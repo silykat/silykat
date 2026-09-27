@@ -1,5 +1,5 @@
 import { isAbsolute, relative } from 'node:path';
-import type { Session } from './sessions';
+import { sessionDirs, type Session } from './sessions';
 
 /** Whether `inner` is `outer` itself or inside it. */
 export function isWithin(inner: string, outer: string): boolean {
@@ -14,7 +14,7 @@ export function isWithin(inner: string, outer: string): boolean {
 export function relevantSessions(sessions: readonly Session[], folders: readonly string[]): Session[] {
   return sessions.filter(
     (s) =>
-      folders.some((f) => isWithin(s.cwd, f) || isWithin(f, s.cwd)) ||
+      folders.some((f) => sessionDirs(s).some((d) => isWithin(d, f) || isWithin(f, d))) ||
       s.touched.some((file) => folders.some((f) => isWithin(file, f))),
   );
 }
@@ -31,8 +31,9 @@ const latest = (sessions: Session[], key: (s: Session) => string): Session =>
 /**
  * Routes the thread of `file` (absolute path), in the store of the folder `root`:
  * 1. the session that wrote the file;
- * 2. else the session working closest to it: its folder contains the file, and no other session's
- *    folder is deeper (a worktree's session wins over one started in a parent folder);
+ * 2. else the session working closest to it: its folder (where it started, or where it works now)
+ *    contains the file, and no other session's is deeper (a session in a worktree wins over one in a
+ *    parent folder);
  * 3. else the session that matters to that store at all (working below it, or having written there).
  */
 export function routeThread(sessions: readonly Session[], root: string, file: string): Route {
@@ -42,10 +43,17 @@ export function routeThread(sessions: readonly Session[], root: string, file: st
   const writers = sessions.filter((s) => s.touched.includes(file));
   if (writers.length > 0) return decide(writers, () => latest(writers, (s) => s.writtenAt?.[file] ?? ''));
 
-  const containing = sessions.filter((s) => isWithin(file, s.cwd));
+  const depthOf = (s: Session) =>
+    Math.max(
+      -1,
+      ...sessionDirs(s)
+        .filter((d) => isWithin(file, d))
+        .map((d) => d.length),
+    );
+  const containing = sessions.filter((s) => depthOf(s) >= 0);
   if (containing.length > 0) {
-    const depth = Math.max(...containing.map((s) => s.cwd.length));
-    const closest = containing.filter((s) => s.cwd.length === depth);
+    const depth = Math.max(...containing.map(depthOf));
+    const closest = containing.filter((s) => depthOf(s) === depth);
     return decide(closest, () => latest(closest, (s) => s.startedAt));
   }
 

@@ -196,6 +196,18 @@ describe('Routing published threads', () => {
     });
   });
 
+  it('follows where each session works now: two sessions started in the same parent folder', () => {
+    const inWorktree = { ...s('W', '/work'), workingDir: '/work/wt-test' };
+    const inMain = { ...s('M', '/work'), workingDir: '/work/main' };
+    const sessions = [inWorktree, inMain];
+    expect(routeThread(sessions, '/work/wt-test', '/work/wt-test/a.ts')).toMatchObject({
+      sure: true,
+      session: { id: 'W' },
+    });
+    expect(routeThread(sessions, '/work/main', '/work/main/a.ts')).toMatchObject({ sure: true, session: { id: 'M' } });
+    expect(relevantSessions([{ ...s('X', '/elsewhere'), workingDir: '/work/main' }], ['/work/main'])).toHaveLength(1);
+  });
+
   it('is in doubt when several sessions could be the one, and proposes the likeliest', () => {
     const same = [s('early', '/repo', at(8)), s('late', '/repo', at(11))];
     expect(routeThread(same, '/repo', '/repo/a.ts')).toMatchObject({ sure: false, proposed: { id: 'late' } });
@@ -230,6 +242,17 @@ describe('Routing published threads', () => {
     expect(plan.doubt).toMatchObject({ threadIds: ['t_c'], proposed: { id: 'A' } }); // the last one used
     expect(plan.doubt!.candidates.map((c) => c.id)).toEqual(['A', 'B']);
     expect(planDelivery([], '/repo', [{ id: 't_a', file: '/repo/a.ts' }]).waiting).toEqual(['t_a']);
+  });
+});
+
+describe('Moving sessions', () => {
+  it('records the folder a session works in now, and its branch', async () => {
+    const r = registry();
+    await r.register(record({ cwd: '/work', branch: null }));
+    await r.moveTo('session-a', '/work/wt-test', 'feature-w');
+    expect(await r.list()).toMatchObject([{ cwd: '/work', workingDir: '/work/wt-test', branch: 'feature-w' }]);
+    await r.moveTo('unknown', '/x', null); // no-op
+    expect((await r.list()).map((x) => x.id)).toEqual(['session-a']);
   });
 });
 
