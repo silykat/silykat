@@ -18,6 +18,7 @@ export function foldThread(events: readonly ThreadEvent[], opts: FoldOptions = {
   const state: ThreadState = {
     id: first.threadId,
     anchor: first.anchor,
+    branch: first.branch ?? null,
     status: 'open',
     comments: [],
     createdAt: first.at,
@@ -71,6 +72,9 @@ export function foldThread(events: readonly ThreadEvent[], opts: FoldOptions = {
       case 'anchor.updated':
         state.anchor = e.anchor;
         break;
+      case 'branch.changed':
+        state.branch = e.branch;
+        break;
       case 'thread.deleted':
         state.deleted = true;
         break;
@@ -95,11 +99,12 @@ export function foldThread(events: readonly ThreadEvent[], opts: FoldOptions = {
 export function foldReview(events: readonly ReviewEvent[]): ReviewState | null {
   const first = events[0];
   if (!first || first.type !== 'review.started') return null;
-  const state: ReviewState = { id: first.reviewId, state: 'active', startedAt: first.at };
+  const state: ReviewState = { id: first.reviewId, state: 'active', branch: first.branch ?? null, startedAt: first.at };
   for (const e of events.slice(1)) {
     // Once submitted or discarded, a review is closed for good.
     if (state.state !== 'active') break;
-    if (e.type === 'review.submitted') {
+    if (e.type === 'review.branch.changed') state.branch = e.branch;
+    else if (e.type === 'review.submitted') {
       state.state = 'submitted';
       state.submittedAt = e.at;
       if (e.summary) state.summary = e.summary;

@@ -55,9 +55,23 @@ export interface CommentState {
   isDraft: boolean;
 }
 
+/** A git branch a thread or a review belongs to: that branch of that repository. */
+export interface BranchRef {
+  /** The repository: its common git folder, shared by all its worktrees. */
+  repo: string;
+  branch: string;
+  /** Where the branch was checked out when this was written (it may move). */
+  worktree?: string;
+}
+
+/** Identity of a branch (`''` for none): two refs with the same key are the same branch. */
+export const branchKey = (b: BranchRef | null | undefined): string => (b ? `${b.repo}#${b.branch}` : '');
+
 export interface ThreadState {
   id: string;
   anchor: Anchor;
+  /** The branch of its file when it was created (followed when renamed); `null` outside git. */
+  branch: BranchRef | null;
   status: ThreadStatus;
   comments: CommentState[];
   createdAt: string;
@@ -74,6 +88,8 @@ export interface ThreadState {
 export interface ReviewState {
   id: string;
   state: 'active' | 'submitted' | 'discarded';
+  /** The branch it reviews (one review per branch); `null` outside git. */
+  branch: BranchRef | null;
   summary?: string;
   startedAt: string;
   submittedAt?: string;

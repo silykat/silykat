@@ -9,6 +9,9 @@ import {
   processAncestors,
   SessionRegistry,
   sessionOfProcess,
+  branchKey,
+  branchOfTopic,
+  isWithin,
   topicLabel,
   topicOf,
   Store,
@@ -36,9 +39,10 @@ const USAGE = `lr — Local Review, for agents
 
 Usage:
   lr status                               How many threads wait for you
-  lr list [--all] [--thread <id>]… [--format md|json]
+  lr list [--all] [--thread <id>]… [--any-topic] [--format md|json]
                                           Threads waiting for you (--all: every unresolved thread;
-                                          --thread: only those threads)
+                                          --thread: only those threads). In an agent session, only
+                                          the threads of what it is subscribed to (--any-topic: all)
   lr show <thread-id> [--format md|json]  One thread, in full
   lr reply <thread-id> --agent <name> (--body <markdown> | --body-file <path> | --body -)
            [--status addressed|needs-info]
@@ -156,12 +160,44 @@ async function readWorkingFile(store: Store, view: AgentThreadView): Promise<str
 
 const lineOf = (l: Located) => l.range?.startLine ?? 0;
 
+/**
+ * When lr runs in an agent session: only the threads of what it is subscribed to (their branch, or
+ * a path holding their file). Elsewhere, or with `--any-topic`: every thread.
+ */
+async function forThisSession(
+  located: Located[],
+  store: Store,
+  values: Values,
+  io: Io,
+): Promise<{ located: Located[]; scope?: string }> {
+  if (values['any-topic'] === true) return { located };
+  const sessions = await registryFor(io).list();
+  const session = sessionOfProcess(sessions, (await io.ancestors?.()) ?? (await processAncestors()));
+  if (!session) return { located };
+  const subs = session.subscriptions;
+  const covered = (l: Located) =>
+    subs.some((sub) =>
+      sub.topic.kind === 'path'
+        ? isWithin(join(store.root, ...l.view.thread.anchor.path.split('/')), sub.topic.path)
+        : branchKey(branchOfTopic(sub.topic)) === branchKey(l.view.thread.branch),
+    );
+  const scope =
+    subs.length === 0
+      ? 'this session is subscribed to nothing (lr subscribe, or --any-topic to see every thread)'
+      : `only what this session is subscribed to: ${subs.map((x) => topicLabel(x.topic)).join(', ')} (--any-topic for every thread)`;
+  return { located: located.filter(covered), scope };
+}
+
 async function status(rest: string[], io: Io): Promise<number> {
-  const { values } = parse(rest, {});
-  const { located } = await visibleThreads(openStore(str(values.root), io));
+  const { values } = parse(rest, { 'any-topic': { type: 'boolean' } });
+  const store = openStore(str(values.root), io);
+  const { located, scope } = await forThisSession((await visibleThreads(store)).located, store, values, io);
   const forAgent = located.filter((l) => l.view.needsAgent).length;
   const forUser = located.filter((l) => l.view.waitsForUser).length;
-  io.out(`${forAgent} thread${forAgent === 1 ? '' : 's'} waiting for you · ${forUser} waiting for the user`);
+  io.out(
+    `${forAgent} thread${forAgent === 1 ? '' : 's'} waiting for you · ${forUser} waiting for the user` +
+      (scope ? ` (${scope})` : ''),
+  );
   return EXIT.OK;
 }
 
@@ -170,9 +206,13 @@ async function list(rest: string[], io: Io): Promise<number> {
     all: { type: 'boolean' },
     thread: { type: 'string', multiple: true },
     format: { type: 'string' },
+    'any-topic': { type: 'boolean' },
   });
   const only = Array.isArray(values.thread) ? new Set(values.thread) : undefined;
-  const { located } = await visibleThreads(openStore(str(values.root), io));
+  const store = openStore(str(values.root), io);
+  const all = (await visibleThreads(store)).located;
+  // Threads named on purpose (e.g. by a channel message) are never filtered out.
+  const { located, scope } = only ? { located: all, scope: undefined } : await forThisSession(all, store, values, io);
   const selected = located.filter(
     (l) =>
       (only === undefined || only.has(l.view.thread.id)) &&
@@ -184,16 +224,17 @@ async function list(rest: string[], io: Io): Promise<number> {
   }
   if (selected.length === 0) {
     io.out(
-      values.all === true ? 'No unresolved thread.' : 'Nothing waits for you: no thread where the user spoke last.',
+      (values.all === true ? 'No unresolved thread.' : 'Nothing waits for you: no thread where the user spoke last.') +
+        (scope ? ` (${scope})` : ''),
     );
     return EXIT.OK;
   }
-  const store = openStore(str(values.root), io);
   const { reviews } = await store.loadAll();
   const n = selected.length;
   const parts = [
     `# Local Review — ${n} thread${n === 1 ? '' : 's'} ${values.all === true ? 'unresolved' : 'waiting for you'}`,
   ];
+  if (scope) parts.push(`_Showing ${scope}._`);
   const summaries = renderReviews(selected, reviews);
   if (summaries) parts.push(summaries);
   parts.push(...selected.map(renderThread));

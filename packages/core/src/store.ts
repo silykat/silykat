@@ -4,10 +4,12 @@ import { parseJournal, parseReviewJournal, serializeEvents, type ReviewEvent, ty
 import { foldReview, foldThread } from './fold';
 import { newCommentId, newReviewId, newThreadId } from './ids';
 import {
+  branchKey,
   SCHEMA_VERSION,
   STORE_DIR,
   type Anchor,
   type Author,
+  type BranchRef,
   type ReviewState,
   type ThreadState,
   type ThreadStatus,
@@ -105,14 +107,27 @@ export class Store {
   }
 
   /** The review in progress, if any. There is at most one per store (V1). */
-  async activeReview(): Promise<ReviewState | null> {
+  /** The review in progress for a branch (`null`: outside git), if any. */
+  async activeReview(branch: BranchRef | null = null): Promise<ReviewState | null> {
     const { reviews } = await this.loadReviews();
-    return latestActive(reviews);
+    return latestActive(reviews, branch);
   }
 
-  /** Starts a review, or returns the one already in progress. */
-  async startReview(): Promise<ReviewState> {
-    const active = await this.activeReview();
+  /** Every review in progress: at most one per branch. */
+  async activeReviews(): Promise<ReviewState[]> {
+    const { reviews } = await this.loadReviews();
+    const latest = new Map<string, ReviewState>();
+    for (const r of reviews.values()) {
+      if (r.state !== 'active') continue;
+      const current = latest.get(branchKey(r.branch));
+      if (!current || r.startedAt > current.startedAt) latest.set(branchKey(r.branch), r);
+    }
+    return [...latest.values()];
+  }
+
+  /** Starts a review of a branch, or returns the one already in progress there. */
+  async startReview(branch: BranchRef | null = null): Promise<ReviewState> {
+    const active = await this.activeReview(branch);
     if (active) return active;
     await this.ensureInitialized();
     const reviewId = newReviewId();
@@ -122,16 +137,25 @@ export class Store {
       at: new Date().toISOString(),
       by: 'user',
       reviewId,
+      ...(branch ? { branch } : {}),
     };
     await appendFile(this.reviewFile(reviewId), serializeEvents([event]), { flag: 'a' });
     return foldReview([event])!;
   }
 
-  /**
-   * Publishes a review: its draft comments become visible to the agent. A draft reply in a thread
-   * the agent was done with (`needs-info`, `addressed`, `resolved`) hands it back to the agent,
-   * like a direct reply does.
-   */
+  /** A review in progress follows its renamed branch. */
+  async setReviewBranch(reviewId: string, branch: BranchRef | null): Promise<void> {
+    await this.assertActiveReview(reviewId);
+    const event: ReviewEvent = {
+      v: SCHEMA_VERSION,
+      type: 'review.branch.changed',
+      at: new Date().toISOString(),
+      by: 'user',
+      branch,
+    };
+    await appendFile(this.reviewFile(reviewId), serializeEvents([event]), { flag: 'a' });
+  }
+
   async submitReview(reviewId: string, summary?: string): Promise<ReviewState> {
     await this.assertActiveReview(reviewId);
     const { threads: before } = await this.loadAll();
@@ -216,6 +240,19 @@ export class Store {
       at: new Date().toISOString(),
       ...who,
       anchor,
+    };
+    return this.appendAndReload(threadId, [event]);
+  }
+
+  /** A thread follows its renamed branch (or is given one). */
+  async setBranch(threadId: string, branch: BranchRef | null): Promise<ThreadState> {
+    await this.writableThread(threadId, 'user');
+    const event: ThreadEvent = {
+      v: SCHEMA_VERSION,
+      type: 'branch.changed',
+      at: new Date().toISOString(),
+      by: 'user',
+      branch,
     };
     return this.appendAndReload(threadId, [event]);
   }
@@ -309,7 +346,7 @@ export class Store {
     return { state, warnings };
   }
 
-  async createThread(anchor: Anchor, first: NewComment): Promise<ThreadState> {
+  async createThread(anchor: Anchor, first: NewComment, branch: BranchRef | null = null): Promise<ThreadState> {
     const body = first.body.trim();
     if (body === '') throw new Error('Comment body is empty');
     if (first.reviewId !== null) await this.assertCanDraft(first.reviewId, first.author);
@@ -319,7 +356,7 @@ export class Store {
     const threadId = newThreadId();
     const at = new Date().toISOString();
     const events: ThreadEvent[] = [
-      { v: SCHEMA_VERSION, type: 'thread.created', at, ...who, threadId, anchor },
+      { v: SCHEMA_VERSION, type: 'thread.created', at, ...who, threadId, anchor, ...(branch ? { branch } : {}) },
       {
         v: SCHEMA_VERSION,
         type: 'comment.added',
@@ -362,8 +399,8 @@ async function listJournals(dir: string): Promise<string[]> {
   }
 }
 
-function latestActive(reviews: Reviews): ReviewState | null {
-  const active = [...reviews.values()].filter((r) => r.state === 'active');
+function latestActive(reviews: Reviews, branch: BranchRef | null): ReviewState | null {
+  const active = [...reviews.values()].filter((r) => r.state === 'active' && branchKey(r.branch) === branchKey(branch));
   active.sort((a, b) => b.startedAt.localeCompare(a.startedAt) || b.id.localeCompare(a.id));
   return active[0] ?? null;
 }

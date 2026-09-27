@@ -1,4 +1,4 @@
-import { SCHEMA_VERSION, type Anchor, type Author, type ThreadStatus } from './types';
+import { SCHEMA_VERSION, type Anchor, type Author, type BranchRef, type ThreadStatus } from './types';
 
 interface BaseEvent {
   v: number;
@@ -10,12 +10,14 @@ interface BaseEvent {
 
 export type ThreadEvent = BaseEvent &
   (
-    | { type: 'thread.created'; threadId: string; anchor: Anchor }
+    | { type: 'thread.created'; threadId: string; anchor: Anchor; branch?: BranchRef | null }
     | { type: 'comment.added'; commentId: string; body: string; reviewId: string | null }
     | { type: 'comment.edited'; commentId: string; body: string }
     | { type: 'comment.deleted'; commentId: string }
     | { type: 'status.changed'; status: ThreadStatus }
     | { type: 'anchor.updated'; anchor: Anchor }
+    /** The branch was renamed (or the thread predates branches). */
+    | { type: 'branch.changed'; branch: BranchRef | null }
     | { type: 'thread.deleted' }
   );
 
@@ -28,13 +30,16 @@ const THREAD_EVENT_TYPES: ReadonlySet<string> = new Set<ThreadEventType>([
   'comment.deleted',
   'status.changed',
   'anchor.updated',
+  'branch.changed',
   'thread.deleted',
 ]);
 
 /** Events of a review journal (`reviews/<id>.jsonl`). */
 export type ReviewEvent = BaseEvent &
   (
-    | { type: 'review.started'; reviewId: string }
+    | { type: 'review.started'; reviewId: string; branch?: BranchRef | null }
+    /** Its branch was renamed. */
+    | { type: 'review.branch.changed'; branch: BranchRef | null }
     /** `summary` is the optional overall comment, like a GitHub review body. */
     | { type: 'review.submitted'; summary?: string }
     | { type: 'review.discarded' }
@@ -42,6 +47,7 @@ export type ReviewEvent = BaseEvent &
 
 const REVIEW_EVENT_TYPES: ReadonlySet<string> = new Set<ReviewEvent['type']>([
   'review.started',
+  'review.branch.changed',
   'review.submitted',
   'review.discarded',
 ]);

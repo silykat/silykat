@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   filesChangedSince,
+  localBranches,
+  renamedBranch,
   localReviewHome,
   relevantSessions,
   SessionRegistry,
@@ -204,6 +206,37 @@ describe('Subscriptions', () => {
   });
 });
 
+describe('Topics during a rebase', () => {
+  it('are the branch being rebased', async () => {
+    const { execFileSync } = await import('node:child_process');
+    const { realpath, writeFile } = await import('node:fs/promises');
+    const repo = await realpath(await mkdtemp(join(tmpdir(), 'lr-rebase-')));
+    try {
+      const g = (...args: string[]) =>
+        execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@e', ...args], { cwd: repo, stdio: 'pipe' });
+      g('init', '-q', '-b', 'main');
+      await writeFile(join(repo, 'a.txt'), 'base\n');
+      g('add', '.');
+      g('commit', '-qm', 'base');
+      g('checkout', '-qb', 'feat');
+      await writeFile(join(repo, 'a.txt'), 'feat\n');
+      g('commit', '-qam', 'feat');
+      g('checkout', '-q', 'main');
+      await writeFile(join(repo, 'a.txt'), 'main\n');
+      g('commit', '-qam', 'main');
+      g('checkout', '-q', 'feat');
+      try {
+        g('rebase', 'main'); // conflicts: the rebase stops midway
+      } catch {
+        // expected
+      }
+      expect(await topicOf(join(repo, 'a.txt'))).toMatchObject({ kind: 'branch', branch: 'feat' });
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('Topics', () => {
   it('are the branch of a git worktree (shared by its worktrees as one repo), else the path', async () => {
     const { execFileSync } = await import('node:child_process');
@@ -227,6 +260,20 @@ describe('Topics', () => {
       expect(topicLabel(feat)).toBe('app · feat');
       expect(await topicOf(join(base, 'notes.md'))).toEqual({ kind: 'path', path: join(base, 'notes.md') });
       expect(await topicOf(join(repo, 'src'), { asPath: true })).toEqual({ kind: 'path', path: join(repo, 'src') });
+
+      // Ignored by git: not on a branch.
+      await writeFile(join(repo, '.gitignore'), 'notes/\n');
+      expect(await topicOf(join(repo, 'notes', 'todo.md'))).toEqual({
+        kind: 'path',
+        path: join(repo, 'notes', 'todo.md'),
+      });
+
+      // Renamed branch: found in the reflogs.
+      g('branch', 'old-name');
+      g('branch', '-m', 'old-name', 'new-name');
+      expect(await renamedBranch(repo, 'old-name')).toBe('new-name');
+      expect(await renamedBranch(repo, 'never-existed')).toBeNull();
+      expect([...(await localBranches(repo))].sort()).toEqual(['feat', 'main', 'new-name']);
 
       const since = Date.now() - 5000;
       await writeFile(join(base, 'wt-feat', 'src', 'b.ts'), 'b');

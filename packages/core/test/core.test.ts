@@ -164,9 +164,9 @@ describe('foldThread', () => {
 
   it('computes drafts from review states', () => {
     const reviews = new Map<string, ReviewState>([
-      ['r_active', { id: 'r_active', state: 'active', startedAt: 't' }],
-      ['r_done', { id: 'r_done', state: 'submitted', startedAt: 't' }],
-      ['r_gone', { id: 'r_gone', state: 'discarded', startedAt: 't' }],
+      ['r_active', { id: 'r_active', state: 'active', branch: null, startedAt: 't' }],
+      ['r_done', { id: 'r_done', state: 'submitted', branch: null, startedAt: 't' }],
+      ['r_gone', { id: 'r_gone', state: 'discarded', branch: null, startedAt: 't' }],
     ]);
     const draftOnly = foldThread([created(), added('c_1', 'user', 'x', 'r_active')], { reviews })!;
     expect(draftOnly).toMatchObject({ onlyDrafts: true, hasPublished: false });
@@ -833,5 +833,43 @@ describe('agent view', () => {
     await mkdir(join(parent, 'node_modules', 'x', '.local-review', 'threads'), { recursive: true });
     const env = { LOCAL_REVIEW_HOME: join(root, 'nowhere') };
     expect(findStoresBelow(parent, 3, env)).toEqual([join(parent, 'a'), join(parent, 'b', 'nested')]);
+  });
+});
+
+describe('Store — branches', () => {
+  let dir: string;
+  let store: Store;
+  const A = { repo: '/r/.git', branch: 'a', worktree: '/r' };
+  const B = { repo: '/r/.git', branch: 'b', worktree: '/r/wt-b' };
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'lr-branch-'));
+    store = new Store(dir);
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('keeps the branch of a thread, and follows it when renamed', async () => {
+    const t = await store.createThread(anchor(), { author: 'user', body: 'x', reviewId: null }, A);
+    expect(t.branch).toEqual(A);
+    const renamed = await store.setBranch(t.id, { ...A, branch: 'a2' });
+    expect(renamed.branch?.branch).toBe('a2');
+    const outside = await store.createThread(anchor(), { author: 'user', body: 'y', reviewId: null });
+    expect(outside.branch).toBeNull();
+  });
+
+  it('has one review in progress per branch', async () => {
+    const ra = await store.startReview(A);
+    const rb = await store.startReview(B);
+    expect(ra.id).not.toBe(rb.id);
+    expect((await store.startReview(A)).id).toBe(ra.id);
+    expect((await store.activeReview(B))?.id).toBe(rb.id);
+    expect(await store.activeReview(null)).toBeNull();
+    expect((await store.activeReviews()).map((r) => r.branch?.branch).sort()).toEqual(['a', 'b']);
+
+    await store.setReviewBranch(ra.id, { ...A, branch: 'a2' });
+    expect((await store.activeReview({ ...A, branch: 'a2' }))?.id).toBe(ra.id);
+    await store.submitReview(rb.id);
+    expect((await store.activeReviews()).map((r) => r.branch?.branch)).toEqual(['a2']);
   });
 });

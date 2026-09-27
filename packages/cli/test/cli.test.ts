@@ -283,6 +283,29 @@ describe('lr sessions', () => {
     expect((await lr(['subscribe', '--path'], { env: { ...env, LR_SESSION: 's-1' } })).code).toBe(EXIT.OK);
   });
 
+  it('lists, in an agent session, only the threads of what it is subscribed to', async () => {
+    const env = { LOCAL_REVIEW_HOME: join(root, 'home') };
+    const A = { repo: '/r/.git', branch: 'a' };
+    const onA = await store.createThread(anchorOn(1, 1), { author: 'user', body: 'on a', reviewId: null }, A);
+    await store.createThread(anchorOn(2, 2), { author: 'user', body: 'on b', reviewId: null }, { ...A, branch: 'b' });
+    await lr(['session', 'register', '--id', 's-2', '--agent', 'Claude', '--cwd', '.', '--pid', String(process.pid)], {
+      env,
+    });
+    const inSession = { env, ancestors: [process.pid] };
+    const ids = async (args: string[]) =>
+      JSON.parse((await lr(['list', '--format', 'json', ...args], inSession)).out).map((t: { id: string }) => t.id);
+
+    expect(await ids([])).toEqual([]); // subscribed to nothing
+    expect((await lr(['status'], inSession)).out).toContain('subscribed to nothing');
+    const { SessionRegistry } = await import('@local-review/core');
+    await new SessionRegistry(env.LOCAL_REVIEW_HOME).subscribe('s-2', { kind: 'branch', ...A }, 'user');
+    expect(await ids([])).toEqual([onA.id]);
+    expect((await ids(['--any-topic'])).length).toBe(2);
+    expect((await lr(['list'], inSession)).out).toContain('Showing only what this session is subscribed to: r · a');
+    expect((await lr(['list'], { env })).out).toContain('on b'); // not in a session: everything
+    await lr(['session', 'unregister', '--id', 's-2'], { env });
+  });
+
   it('rejects bad input', async () => {
     const env = { LOCAL_REVIEW_HOME: join(root, 'home') };
     expect((await lr(['session', 'register', '--agent', 'Claude'], { env })).err).toContain('--id');
