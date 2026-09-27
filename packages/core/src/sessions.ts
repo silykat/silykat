@@ -1,6 +1,7 @@
 import { appendFile, mkdir, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { Store } from './store';
 import { topicKey, type Topic } from './topics';
 
 /**
@@ -63,6 +64,22 @@ export interface Subscription {
 /** A running session, with what it is subscribed to. */
 export interface Session extends SessionRecord {
   subscriptions: Subscription[];
+}
+
+/**
+ * Root of the files outside any open folder: comments on them go to the machine store, and their
+ * anchors hold their full path. Agents are sent `--root /` for them.
+ */
+export const LOOSE_ROOT = '/';
+
+/** The machine store of the files outside any open folder (`<home>/files/`). */
+export function looseStore(env: Record<string, string | undefined> = process.env): Store {
+  return new Store(LOOSE_ROOT, join(localReviewHome(env), 'files'));
+}
+
+/** The store of a root: `<root>/.local-review/`, or the machine store for `LOOSE_ROOT`. */
+export function storeAt(root: string, env: Record<string, string | undefined> = process.env): Store {
+  return root === LOOSE_ROOT ? looseStore(env) : new Store(root);
 }
 
 /** Local Review's per-machine folder: `$LOCAL_REVIEW_HOME`, or `~/.local-review`. */

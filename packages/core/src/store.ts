@@ -41,8 +41,15 @@ type Reviews = ReadonlyMap<string, ReviewState>;
 export class Store {
   readonly dir: string;
 
-  constructor(readonly root: string) {
-    this.dir = join(root, STORE_DIR);
+  /**
+   * A store of the files under `root`, kept in `<root>/.local-review/` by default. `dir` puts it
+   * elsewhere (e.g. the machine store of the files outside any open folder).
+   */
+  constructor(
+    readonly root: string,
+    dir: string = join(root, STORE_DIR),
+  ) {
+    this.dir = dir;
   }
 
   get threadsDir(): string {

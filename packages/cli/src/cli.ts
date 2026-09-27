@@ -7,6 +7,7 @@ import {
   findStoresBelow,
   localReviewHome,
   processAncestors,
+  storeAt,
   SessionRegistry,
   sessionOfProcess,
   branchKey,
@@ -71,7 +72,8 @@ Sessions (used by agent integrations to register themselves):
   lr session unregister --id <id>
 
 Options:
-  --root <dir>    Folder holding .local-review/ (default: found from the current directory)
+  --root <dir>    Folder holding .local-review/ (default: found from the current directory);
+                  --root / for the files outside any folder open in the editor
   --agent <name>  Your display name in the threads (default: $LR_AGENT)
 
 Statuses: "addressed" = done, the user will verify; "needs-info" = you asked the user a question.
@@ -143,7 +145,7 @@ const str = (v: Values[string]): string | undefined => (typeof v === 'string' ? 
 
 function openStore(root: string | undefined, io: Io): Store {
   const dir = root ? resolve(io.cwd, root) : findStoreRoot(io.cwd, io.env);
-  if (dir) return new Store(dir);
+  if (dir) return storeAt(dir, io.env); // `--root /`: the files outside any open folder
   const below = findStoresBelow(io.cwd, 3, io.env);
   const hint =
     below.length > 0

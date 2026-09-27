@@ -143,6 +143,27 @@ describe('lr list', () => {
     ).toEqual([a.id, b.id].sort());
   });
 
+  it('reads the machine store of the files outside any open folder with --root /', async () => {
+    const env = { LOCAL_REVIEW_HOME: join(root, 'home') };
+    const { looseStore } = await import('@local-review/core');
+    const file = join(root, 'outside', 'spec.md');
+    await mkdir(join(root, 'outside'), { recursive: true });
+    await writeFile(file, 'First point\n');
+    await looseStore(env).createThread(
+      {
+        path: file.slice(1),
+        source: 'worktree',
+        ref: null,
+        sha: null,
+        ...buildAnchorContext('First point\n', { startLine: 1, endLine: 1 }),
+      },
+      { author: 'user', body: 'Clarify', reviewId: null },
+    );
+    const { out } = await lr(['list', '--root', '/'], { env });
+    expect(out).toContain('Clarify');
+    expect(out).toContain('First point');
+  });
+
   it('outputs JSON for tools', async () => {
     const t = await comment(anchorOn(3, 3), 'json please');
     const { out } = await lr(['list', '--format', 'json']);
