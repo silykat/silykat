@@ -270,16 +270,15 @@ export class Store {
     const who = actor(by, agent);
     const current = await this.writableThread(threadId, by);
     assertOwnComment(current, commentId, by);
-    if (current.comments.find((c) => c.id === commentId)!.body === text) return current;
-    const event: ThreadEvent = {
-      v: SCHEMA_VERSION,
-      type: 'comment.edited',
-      at: new Date().toISOString(),
-      ...who,
-      commentId,
-      body: text,
-    };
-    return this.appendAndReload(threadId, [event]);
+    const comment = current.comments.find((c) => c.id === commentId)!;
+    if (comment.body === text) return current;
+    const at = new Date().toISOString();
+    const events: ThreadEvent[] = [{ v: SCHEMA_VERSION, type: 'comment.edited', at, ...who, commentId, body: text }];
+    // The user changed a published request the agent had handled: it is the agent's turn again.
+    const handled = current.status === 'addressed' || current.status === 'needs-info';
+    if (by === 'user' && !comment.isDraft && handled)
+      events.push({ v: SCHEMA_VERSION, type: 'status.changed', at, ...who, status: 'open' });
+    return this.appendAndReload(threadId, events);
   }
 
   /**

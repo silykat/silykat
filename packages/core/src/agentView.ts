@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, realpathSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import type { CommentState, ThreadState } from './types';
@@ -12,6 +13,18 @@ export interface AgentThreadView {
   needsAgent: boolean;
   /** The agent asked or answered, and waits for the user. */
   waitsForUser: boolean;
+  /**
+   * Version of what the user asked: it changes when the user publishes, edits or deletes a comment
+   * in the thread, not when the agent replies or the code moves. An agent passes the version it
+   * read when it replies, so that it never answers a request that changed meanwhile.
+   */
+  rev: string;
+}
+
+/** The version of what the user asked in a thread (see `AgentThreadView.rev`). */
+export function userRevision(comments: readonly CommentState[]): string {
+  const asked = comments.filter((c) => c.author === 'user' && !c.isDraft).map((c) => [c.id, c.body]);
+  return createHash('sha256').update(JSON.stringify(asked)).digest('hex').slice(0, 8);
 }
 
 export function agentView(thread: ThreadState): AgentThreadView | null {
@@ -20,11 +33,18 @@ export function agentView(thread: ThreadState): AgentThreadView | null {
   if (comments.length === 0) return null; // only drafts: invisible to agents
   const last = comments[comments.length - 1]!;
   const open = thread.status !== 'resolved';
+  // The user edited a request after the agent's last reply: that reply is about the old version.
+  const lastAgentAt = [...comments].reverse().find((c) => c.author === 'agent')?.createdAt;
+  const editedSince =
+    lastAgentAt !== undefined &&
+    comments.some((c) => c.author === 'user' && c.editedAt !== undefined && c.editedAt > lastAgentAt);
+  const userTurn = last.author === 'user' || editedSince;
   return {
     thread,
     comments,
-    needsAgent: open && last.author === 'user',
-    waitsForUser: open && last.author === 'agent',
+    needsAgent: open && userTurn,
+    waitsForUser: open && !userTurn,
+    rev: userRevision(comments),
   };
 }
 

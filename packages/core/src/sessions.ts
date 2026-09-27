@@ -40,8 +40,11 @@ export interface Delivery {
   at: string;
   /** Folder holding the `.local-review/` store of the threads. */
   root: string;
-  /** A new thread, a reply outside a review, or a submitted review. */
-  kind: 'comment' | 'reply' | 'review';
+  /**
+   * A new thread, a reply outside a review, a submitted review, or a change to published comments:
+   * one edited, or deleted (with its whole thread, when it was the last one).
+   */
+  kind: 'comment' | 'reply' | 'review' | 'edit' | 'delete';
   threadIds: string[];
   reviewId?: string;
   /** Every session this publication went to (the same threads may go to several). */
@@ -274,7 +277,8 @@ function parseDelivery(line: string): Delivery | null {
   try {
     const raw = JSON.parse(line) as Partial<Delivery>;
     if (typeof raw.id !== 'string' || typeof raw.root !== 'string' || !Array.isArray(raw.threadIds)) return null;
-    const kind = raw.kind === 'review' || raw.kind === 'reply' ? raw.kind : 'comment';
+    const kinds: Delivery['kind'][] = ['comment', 'reply', 'review', 'edit', 'delete'];
+    const kind = kinds.includes(raw.kind as Delivery['kind']) ? (raw.kind as Delivery['kind']) : 'comment';
     return {
       id: raw.id,
       at: typeof raw.at === 'string' ? raw.at : '',

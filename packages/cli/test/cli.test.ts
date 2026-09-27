@@ -166,6 +166,45 @@ describe('lr list', () => {
 });
 
 describe('lr reply / set-status', () => {
+  it('refuses a reply to a version of the thread the user changed since', async () => {
+    const t = await comment(anchorOn(3, 3), 'Rename XXX to YYY');
+    const [read] = JSON.parse((await lr(['list', '--format', 'json'])).out);
+    expect((await lr(['list'])).out).toContain(`--rev ${read.rev}`);
+    await store.editComment(t.id, t.comments[0]!.id, 'Rename XXX to GGG', 'user');
+
+    const stale = await lr(['reply', t.id, '--agent', 'Claude', '--rev', read.rev, '--body', 'Done: YYY']);
+    expect(stale.code).toBe(EXIT.CHANGED);
+    expect(stale.err).toContain(`the user changed thread ${t.id} since you read it`);
+    expect(stale.err).toContain('Rename XXX to GGG');
+    expect((await store.loadThread(t.id)).state!.comments).toHaveLength(1); // nothing written
+
+    const now = JSON.parse((await lr(['show', t.id, '--format', 'json'])).out).rev;
+    const ok = await lr([
+      'reply',
+      t.id,
+      '--agent',
+      'Claude',
+      '--rev',
+      now,
+      '--status',
+      'addressed',
+      '--body',
+      'Done: GGG',
+    ]);
+    expect(ok.code).toBe(EXIT.OK);
+    // Its own reply does not change the version.
+    expect(JSON.parse((await lr(['show', t.id, '--format', 'json'])).out).rev).toBe(now);
+  });
+
+  it('says so when the user deleted the thread', async () => {
+    const t = await comment(anchorOn(3, 3), 'Never mind');
+    await store.deleteThread(t.id, 'user');
+    const r = await lr(['reply', t.id, '--agent', 'Claude', '--body', 'Done']);
+    expect(r.code).toBe(EXIT.NOT_FOUND);
+    expect(r.err).toContain('was deleted by the user. Stop working on it');
+    expect((await lr(['show', t.id])).err).toContain('was deleted by the user');
+  });
+
   it('replies as the agent, with a status', async () => {
     const t = await comment(anchorOn(3, 3), 'Why null?');
     const { code, out } = await lr([

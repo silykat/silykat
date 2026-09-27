@@ -30,10 +30,16 @@ export interface Io {
   ancestors?(): Promise<number[]>;
 }
 
-/** Exit codes. `NOT_FOUND` lets an agent tell "this thread is gone" from other errors. */
-export const EXIT = { OK: 0, ERROR: 1, NOT_FOUND: 2 } as const;
+/**
+ * Exit codes. `NOT_FOUND` lets an agent tell "this thread is gone" (e.g. deleted by the user) from
+ * other errors; `CHANGED`, that the user changed the thread since the version the agent read.
+ */
+export const EXIT = { OK: 0, ERROR: 1, NOT_FOUND: 2, CHANGED: 3 } as const;
 
 class UsageError extends Error {}
+
+/** The user changed the thread since the agent read it: its reply would answer an old request. */
+class ChangedError extends Error {}
 
 const USAGE = `lr — Local Review, for agents
 
@@ -45,8 +51,10 @@ Usage:
                                           the threads of what it is subscribed to (--any-topic: all)
   lr show <thread-id> [--format md|json]  One thread, in full
   lr reply <thread-id> --agent <name> (--body <markdown> | --body-file <path> | --body -)
-           [--status addressed|needs-info]
-  lr set-status <thread-id> addressed|needs-info --agent <name>
+           [--status addressed|needs-info] [--rev <version>]
+  lr set-status <thread-id> addressed|needs-info --agent <name> [--rev <version>]
+           --rev: the version you read (lr list / lr show): refused, exit 3, if the user changed
+           the thread since. Exit 2: the thread no longer exists (e.g. deleted by the user).
 
 Subscriptions (comments are published to the sessions subscribed to their branch or path):
   lr subscribe [<dir-or-file>] [--path]   Subscribe this session to the branch of that folder
@@ -106,6 +114,10 @@ export async function runCli(args: string[], io: Io): Promise<number> {
     if (err instanceof UsageError) {
       io.err(`lr: ${err.message}\n\n${USAGE}`);
       return EXIT.ERROR;
+    }
+    if (err instanceof ChangedError) {
+      io.err(`lr: ${err.message}`);
+      return EXIT.CHANGED;
     }
     const message = err instanceof Error ? err.message : String(err);
     io.err(`lr: ${message}`);
@@ -247,7 +259,7 @@ async function show(rest: string[], io: Io): Promise<number> {
   const id = requireThreadId(positionals);
   const { located } = await visibleThreads(openStore(str(values.root), io));
   const found = located.find((l) => l.view.thread.id === id);
-  if (!found) throw new Error(`Thread not found: ${id}`);
+  if (!found) throw new Error(await whyNotFound(openStore(str(values.root), io), id));
   io.out(str(values.format) === 'json' ? JSON.stringify(toJson(found), null, 2) : renderThread(found));
   return EXIT.OK;
 }
@@ -258,6 +270,7 @@ async function reply(rest: string[], io: Io): Promise<number> {
     body: { type: 'string' },
     'body-file': { type: 'string' },
     status: { type: 'string' },
+    rev: { type: 'string' },
   });
   const id = requireThreadId(positionals);
   const agent = requireAgent(str(values.agent), io);
@@ -268,25 +281,20 @@ async function reply(rest: string[], io: Io): Promise<number> {
   if (bodyFile) body = await readFile(resolve(io.cwd, bodyFile), 'utf8');
   if (body === undefined || body.trim() === '') throw new UsageError('reply needs --body, --body-file or --body -');
 
-  const state = await openStore(str(values.root), io).addComment(
-    id,
-    { author: 'agent', agent, body, reviewId: null },
-    status ? { status } : {},
-  );
+  const store = openStore(str(values.root), io);
+  await assertCurrent(store, id, str(values.rev));
+  const state = await store.addComment(id, { author: 'agent', agent, body, reviewId: null }, status ? { status } : {});
   io.out(`Replied on ${state.id} (status: ${state.status}).`);
   return EXIT.OK;
 }
 
 async function setStatus(rest: string[], io: Io): Promise<number> {
-  const { values, positionals } = parse(rest, { agent: { type: 'string' } });
+  const { values, positionals } = parse(rest, { agent: { type: 'string' }, rev: { type: 'string' } });
   const id = requireThreadId(positionals);
   const status = agentStatus(positionals[1]);
-  const state = await openStore(str(values.root), io).setStatus(
-    id,
-    status,
-    'agent',
-    requireAgent(str(values.agent), io),
-  );
+  const store = openStore(str(values.root), io);
+  await assertCurrent(store, id, str(values.rev));
+  const state = await store.setStatus(id, status, 'agent', requireAgent(str(values.agent), io));
   io.out(`${state.id} is now ${state.status}.`);
   return EXIT.OK;
 }
@@ -418,6 +426,35 @@ async function subscriptions(rest: string[], io: Io): Promise<number> {
   return EXIT.OK;
 }
 
+/**
+ * Refuses to act on a thread that is gone, or that the user changed since the version the agent
+ * read (`rev`, when given).
+ */
+async function assertCurrent(store: Store, id: string, rev: string | undefined): Promise<void> {
+  const { state } = await store.loadThread(id);
+  const view = state ? agentView(state) : null;
+  if (!view) throw new Error(await whyNotFound(store, id));
+  if (rev === undefined || rev === view.rev) return;
+  const located = locate(view, await readWorkingFile(store, view));
+  throw new ChangedError(
+    `the user changed thread ${id} since you read it (version ${rev}, now ${view.rev}): read it again, ` +
+      `adapt your work if needed, then reply with --rev ${view.rev}. It is now:\n\n${renderThread(located)}`,
+  );
+}
+
+/** Why a thread cannot be found: deleted by the user, or never existed. */
+async function whyNotFound(store: Store, id: string): Promise<string> {
+  let deleted = false;
+  try {
+    deleted = (await store.loadThread(id)).state?.deleted === true;
+  } catch {
+    // an invalid id: never existed
+  }
+  return deleted
+    ? `Thread not found: ${id} was deleted by the user. Stop working on it; if you already changed code for it, ask the user whether to undo those changes (never undo them on your own).`
+    : `Thread not found: ${id}`;
+}
+
 function requireThreadId(positionals: string[]): string {
   const id = positionals[0];
   if (!id) throw new UsageError('missing <thread-id>');
@@ -448,6 +485,7 @@ function toJson(l: Located) {
     outdated: l.outdated,
     code: l.code,
     status: thread.status,
+    rev: l.view.rev,
     needsAgent,
     waitsForUser,
     comments: comments.map((c) => ({

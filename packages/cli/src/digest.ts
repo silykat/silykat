@@ -81,7 +81,7 @@ export function renderThread(l: Located): string {
   const a = thread.anchor;
   const tag = versionTag(a);
   const lines = [`## ${thread.id} — ${where(l)}`, ''];
-  const facts = [`Status: ${thread.status}`];
+  const facts = [`Status: ${thread.status}`, `Version: ${l.view.rev} (pass --rev ${l.view.rev} when you reply)`];
   if (tag)
     facts.push(`About the ${tag === 'Index' ? 'staged version (index)' : `version ${tag}`}, not the working tree`);
   if (a.diff) facts.push(`Made in a diff (${a.diff.side === 'base' ? 'old' : 'new'} side)`);
@@ -90,7 +90,7 @@ export function renderThread(l: Located): string {
   if (a.range) lines.push(fence(l.code, a.path, l.outdated ? null : l.range!.startLine), '');
   for (const c of comments) {
     const who = c.author === 'user' ? 'User' : (c.agentName ?? 'Agent');
-    lines.push(`**${who}** (${c.createdAt}${c.editedAt ? ', edited' : ''}):`, c.body, '');
+    lines.push(`**${who}** (${c.createdAt}${c.editedAt ? `, edited ${c.editedAt}` : ''}):`, c.body, '');
   }
   return lines.join('\n').trimEnd();
 }

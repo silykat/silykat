@@ -17,6 +17,7 @@ import {
   type Anchor,
   type ReviewState,
   type ThreadEvent,
+  type ThreadState,
 } from '../src/index';
 
 const FILE = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join('\n') + '\n';
@@ -871,5 +872,45 @@ describe('Store — branches', () => {
     expect((await store.activeReview({ ...A, branch: 'a2' }))?.id).toBe(ra.id);
     await store.submitReview(rb.id);
     expect((await store.activeReviews()).map((r) => r.branch?.branch)).toEqual(['a2']);
+  });
+});
+
+describe('Changes to what the user asked', () => {
+  let dir: string;
+  let store: Store;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'lr-rev-'));
+    store = new Store(dir);
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+  const rev = (t: ThreadState) => agentView(t)!.rev;
+
+  it('has a version that changes with the user, not with the agent or the code', async () => {
+    const t = await store.createThread(anchor(), { author: 'user', body: 'Rename XXX to YYY', reviewId: null });
+    const first = rev(t);
+    const replied = await store.addComment(t.id, { author: 'agent', agent: 'Claude', body: 'Done', reviewId: null });
+    expect(rev(replied)).toBe(first);
+    const moved = await store.updateAnchor(t.id, { ...t.anchor, range: { startLine: 5, endLine: 5 } }, 'user');
+    expect(rev(moved)).toBe(first);
+    const edited = await store.editComment(t.id, t.comments[0]!.id, 'Rename XXX to GGG', 'user');
+    expect(rev(edited)).not.toBe(first);
+    const more = await store.addComment(t.id, { author: 'user', body: 'And add a test', reviewId: null });
+    expect(rev(more)).not.toBe(rev(edited));
+  });
+
+  it('hands a handled thread back to the agent when the user edits a published comment', async () => {
+    const t = await store.createThread(anchor(), { author: 'user', body: 'Rename XXX to YYY', reviewId: null });
+    await store.addComment(
+      t.id,
+      { author: 'agent', agent: 'Claude', body: 'Done', reviewId: null },
+      { status: 'addressed' },
+    );
+    const edited = await store.editComment(t.id, t.comments[0]!.id, 'Rename XXX to GGG', 'user');
+    expect(edited.status).toBe('open');
+    // The agent spoke last, but about the old version: its turn again.
+    expect(agentView(edited)!.needsAgent).toBe(true);
+    expect(agentView(edited)!.waitsForUser).toBe(false);
   });
 });
