@@ -178,15 +178,20 @@ describe('A comment becomes outdated when its code disappears', () => {
     assert.equal(managed(id).state.anchor.snippet, '    return null;');
   });
 
-  it('attaches again when the deleted code comes back before saving (undo)', async () => {
+  it('attaches again when the deleted code comes back before saving (e.g. undo)', async () => {
     const { id, doc } = await threadOnIfBlock();
     const uri = doc.uri;
+    const deleted = doc.getText(new vscode.Range(12, 0, 15, 0));
     const del = new vscode.WorkspaceEdit();
     del.delete(uri, new vscode.Range(12, 0, 15, 0));
     await vscode.workspace.applyEdit(del);
     assert.equal(managed(id).outdated, true);
 
-    await vscode.commands.executeCommand('undo');
+    // What an undo does, without the `undo` command: it only acts when the test window has the
+    // system focus, which it may not have while the machine is in use.
+    const back = new vscode.WorkspaceEdit();
+    back.insert(uri, new vscode.Position(12, 0), deleted);
+    await vscode.workspace.applyEdit(back);
     await waitFor('the thread to attach again', () => (managed(id).outdated ? undefined : true), 2000);
     assert.equal(managed(id).thread.range!.start.line, 12);
     assert.equal(managed(id).thread.label, 'Waiting for Claude');

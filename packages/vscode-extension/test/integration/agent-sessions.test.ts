@@ -29,9 +29,14 @@ describe('Agent sessions of this workspace', () => {
     registry = new SessionRegistry(localReviewHome());
   });
 
-  beforeEach(() => {
+  // Nothing registered or waiting may leak between tests (or into later files: sessions left
+  // behind would make their comments ask which session to use).
+  const clean = () => {
     rmSync(registry.dir, { recursive: true, force: true });
-  });
+    rmSync(join(localReviewHome(), 'queue'), { recursive: true, force: true });
+  };
+  beforeEach(clean);
+  after(clean);
 
   it('uses a private Local Review home in tests', () => {
     assert.ok(process.env.LOCAL_REVIEW_HOME, 'LOCAL_REVIEW_HOME is set by the test config');

@@ -79,6 +79,9 @@ describe('Published comments go to the agent session', () => {
   });
 
   after(() => {
+    // Leave nothing waiting: a later poll would ask which session to use, and steal the focus.
+    rmSync(registry.dir, { recursive: true, force: true });
+    rmSync(join(localReviewHome(), 'queue'), { recursive: true, force: true });
     api.setSummaryPrompt(undefined);
     api.setDeliveryWarner(undefined);
     api.setSessionPicker(undefined);
