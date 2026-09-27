@@ -1,6 +1,18 @@
+import { basename } from 'node:path';
 import * as vscode from 'vscode';
+import { branchKey, type ReviewState } from '@local-review/core';
 import type { ReviewController } from './controller';
 import type { Root } from './roots';
+
+interface InProgress {
+  root: Root;
+  review: ReviewState;
+  drafts: number;
+}
+
+/** A review as the user tells it apart: its folder and branch, e.g. "therapy · feature-x". */
+const reviewLabel = (r: InProgress) =>
+  `${basename(r.root.path)}${r.review.branch ? ` · ${r.review.branch.branch}` : ''}`;
 
 /** Asks for the optional review summary. `undefined` means the user cancelled (Esc). Replaceable in tests. */
 export type SummaryPrompt = () => Promise<string | undefined>;
@@ -29,6 +41,8 @@ export class ReviewUi implements vscode.Disposable {
     this.statusBar.command = 'localReview.reviewMenu';
     this.subscriptions.push(
       review.onDidChange(() => this.update()),
+      // The review shown is the one of the active editor's branch.
+      vscode.window.onDidChangeActiveTextEditor(() => this.update()),
       vscode.commands.registerCommand('localReview.startReview', (reply?: vscode.CommentReply) => this.start(reply)),
       vscode.commands.registerCommand('localReview.addToReview', (reply: vscode.CommentReply) =>
         review.addToReview(reply),
@@ -58,10 +72,26 @@ export class ReviewUi implements vscode.Disposable {
       this.statusBar.hide();
       return;
     }
-    const drafts = inProgress.reduce((n, r) => n + r.drafts, 0);
-    this.statusBar.text = `$(comment-draft) Review · ${drafts}`;
-    this.statusBar.tooltip = `Local Review: review in progress, ${drafts} pending comment${drafts === 1 ? '' : 's'}. Click to submit it or see them.`;
+    const branch = this.review.activeEditorCheckedOut();
+    const mine =
+      branch === undefined ? undefined : inProgress.find((r) => branchKey(r.review.branch) === branchKey(branch));
+    const shown = mine ?? (inProgress.length === 1 ? inProgress[0]! : undefined);
+    const drafts = shown ? shown.drafts : inProgress.reduce((n, r) => n + r.drafts, 0);
+    this.statusBar.text = shown
+      ? `$(comment-draft) Review · ${drafts}`
+      : `$(comment-draft) ${inProgress.length} reviews · ${drafts}`;
+    this.statusBar.tooltip =
+      inProgress.length === 1
+        ? `Local Review: review in progress (${reviewLabel(inProgress[0]!)}), ${drafts} pending comment${drafts === 1 ? '' : 's'}. Click to submit it or see them.`
+        : `Local Review: reviews in progress, one per branch: ${inProgress.map((r) => `${reviewLabel(r)} (${r.drafts})`).join(', ')}.`;
     this.statusBar.show();
+  }
+
+  /** The review of the branch of the active editor's file, if one is in progress. */
+  private async ofActiveEditor(inProgress: InProgress[]): Promise<InProgress | undefined> {
+    if (!vscode.window.activeTextEditor) return undefined;
+    const branch = await this.review.activeEditorBranch();
+    return inProgress.find((r) => branchKey(r.review.branch) === branchKey(branch));
   }
 
   /** "Start Review": from a comment input, it also adds that comment as the first draft. */
@@ -94,18 +124,19 @@ export class ReviewUi implements vscode.Disposable {
 
   /** "Submit Review": publishes the drafts, with an optional summary. Esc on the summary cancels. */
   async submit(): Promise<number> {
-    const root = await this.pickRoot();
-    if (!root) return 0;
-    if (this.review.draftCount(root) === 0) {
+    const target = await this.pickReview('Submit which review?');
+    if (!target) return 0;
+    const { root, review } = target;
+    if (this.review.draftCount(review) === 0) {
       void vscode.window.showInformationMessage('Local Review: no pending comments to submit.');
       return 0;
     }
-    const files = this.review.pendingThreads(root).flatMap((t) => this.review.threadFile(t.id) ?? []);
+    const files = this.review.pendingThreads(review).flatMap((t) => this.review.threadFile(t.id) ?? []);
     if (!(await this.review.publishGate(root.path, files))) return 0; // cancelled: the drafts stay drafts
     const summary = await this.promptSummary();
     if (summary === undefined) return 0; // cancelled: the drafts stay drafts
     try {
-      const n = await this.review.submitReview(root, summary);
+      const n = await this.review.submitReview(root, review, summary);
       void vscode.window.showInformationMessage(`Local Review: review submitted (${n} comment${n === 1 ? '' : 's'}).`);
       return n;
     } catch (err) {
@@ -116,9 +147,9 @@ export class ReviewUi implements vscode.Disposable {
 
   /** "Discard Review": deletes every draft of the review, after confirmation. */
   async discard(): Promise<number> {
-    const root = await this.pickRoot();
-    if (!root) return 0;
-    const n = this.review.draftCount(root);
+    const target = await this.pickReview('Discard which review?');
+    if (!target) return 0;
+    const n = this.review.draftCount(target.review);
     const confirmed =
       n === 0 ||
       (await this.review.confirm(
@@ -128,7 +159,7 @@ export class ReviewUi implements vscode.Disposable {
       ));
     if (!confirmed) return 0;
     try {
-      const dropped = await this.review.discardReview(root);
+      const dropped = await this.review.discardReview(target.root, target.review);
       void vscode.window.showInformationMessage(
         `Local Review: review discarded (${dropped} pending comment${dropped === 1 ? '' : 's'} deleted).`,
       );
@@ -140,15 +171,18 @@ export class ReviewUi implements vscode.Disposable {
   }
 
   private async showPending(): Promise<void> {
-    const items = this.review.pendingThreads().map(({ id, state }) => {
-      const r = state.anchor.range;
-      const draft = state.comments.find((c) => c.isDraft);
-      return {
-        label: `${state.anchor.path}${r ? `:${r.startLine}${r.endLine !== r.startLine ? `-${r.endLine}` : ''}` : ''}`,
-        description: draft?.body.split('\n')[0],
-        id,
-      };
-    });
+    const items = this.review
+      .pendingThreads()
+      .filter(({ id }) => this.review.isShown(id)) // the branch of the others is not checked out
+      .map(({ id, state }) => {
+        const r = state.anchor.range;
+        const draft = state.comments.find((c) => c.isDraft);
+        return {
+          label: `${state.anchor.path}${r ? `:${r.startLine}${r.endLine !== r.startLine ? `-${r.endLine}` : ''}` : ''}`,
+          description: draft?.body.split('\n')[0],
+          id,
+        };
+      });
     if (items.length === 0) {
       void vscode.window.showInformationMessage('Local Review: no pending comments.');
       return;
@@ -160,14 +194,19 @@ export class ReviewUi implements vscode.Disposable {
     if (pick) await this.review.reveal(pick.id);
   }
 
-  /** The root whose review to act on: the only one in progress, or the user's choice. */
-  private async pickRoot(): Promise<Root | undefined> {
+  /**
+   * The review to act on: the one of the active editor's branch, else the only one in progress,
+   * else the user's choice.
+   */
+  private async pickReview(title: string): Promise<InProgress | undefined> {
     const inProgress = this.review.reviewsInProgress();
-    if (inProgress.length <= 1) return inProgress[0]?.root;
+    if (inProgress.length <= 1) return inProgress[0];
+    const mine = await this.ofActiveEditor(inProgress);
+    if (mine) return mine;
     const pick = await vscode.window.showQuickPick(
-      inProgress.map((r) => ({ label: r.root.path, description: `${r.drafts} pending`, root: r.root })),
-      { title: 'Submit which review?' },
+      inProgress.map((r) => ({ label: reviewLabel(r), description: `${r.drafts} pending`, target: r })),
+      { title },
     );
-    return pick?.root;
+    return pick?.target;
   }
 }

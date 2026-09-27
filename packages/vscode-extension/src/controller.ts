@@ -3,15 +3,22 @@ import { userInfo } from 'node:os';
 import { basename, isAbsolute, join, sep } from 'node:path';
 import * as vscode from 'vscode';
 import {
+  branchKey,
+  branchOfTopic,
   buildAnchorContext,
+  localBranches,
   reanchor,
+  renamedBranch,
+  topicOf,
   type Anchor,
+  type BranchRef,
   type AnchorSide,
   type DiffInfo,
   type LineRange,
   type ReviewState,
   type ThreadState,
 } from '@local-review/core';
+import { Branches } from './branches';
 import { commitExists, ensureExcluded, findRename, gitUserName, resolveCommit } from './git';
 import { anchorRef, isIndexRef, parseGitQuery, versionTag } from './gitUri';
 import type { Log } from './log';
@@ -90,8 +97,12 @@ export class ReviewController implements vscode.Disposable {
   private readonly settleTimers = new Map<string, NodeJS.Timeout>();
   /** Threads whose code is no longer in the file. Derived state: never written. */
   private readonly outdated = new Set<string>();
-  /** The review in progress in each root, by root path. */
-  private readonly activeReviews = new Map<string, ReviewState>();
+  /** The reviews in progress: one per branch of each root, by `reviewKey`. */
+  private readonly activeReviews = new Map<string, { root: Root; review: ReviewState }>();
+  /** Which branch is checked out where, to show each thread on its branch only. */
+  readonly branches = new Branches();
+  /** Threads of branches that are not checked out: kept, but not shown. */
+  private readonly hidden = new Map<string, { root: Root; state: ThreadState }>();
   /**
    * Extra instances of git threads, by thread id then URI: a diff may show the version a thread
    * is about under another URI than its canonical one (e.g. `HEAD` instead of the sha, or the
@@ -141,6 +152,8 @@ export class ReviewController implements vscode.Disposable {
     this.liveRanges.clear();
     this.outdated.clear();
     this.activeReviews.clear();
+    this.hidden.clear();
+    this.branches.clear();
     this.disposeWatchers();
 
     const folders = (vscode.workspace.workspaceFolders ?? []).filter((f) => f.uri.scheme === 'file');
@@ -155,9 +168,10 @@ export class ReviewController implements vscode.Disposable {
         }),
       );
       try {
-        const { threads, reviews, warnings } = await root.store.loadAll();
+        const { threads: loaded, warnings } = await root.store.loadAll();
         warnings.forEach((w) => this.log.warn(`${root.path}: ${w}`));
-        this.setActiveReview(root, latestActive(reviews));
+        for (const review of await root.store.activeReviews()) this.setActiveReview(root, review);
+        const threads = await Promise.all(loaded.map((state) => this.withBranch(root, state)));
         threads.forEach((state) => this.render(root, state));
         this.log.info(`${root.path}: ${threads.length} thread(s) loaded`);
         // Files may have changed while VS Code was closed: find the code again.
@@ -189,8 +203,11 @@ export class ReviewController implements vscode.Disposable {
       const anchor: Anchor = thread.range
         ? { ...base, ...buildAnchorContext(doc.getText(), toLineRange(thread.range.start, thread.range.end)) }
         : { ...base, range: null, snippet: '', contextBefore: [], contextAfter: [] };
-      const reviewId = opts.draft ? (await this.ensureReview(root)).id : null;
-      const state = await root.store.createThread(anchor, { author: 'user', body: text, reviewId });
+      const file = join(root.path, ...base.path.split('/'));
+      const branch = branchOfTopic(await topicOf(file));
+      await this.branches.learn(file);
+      const reviewId = opts.draft ? (await this.ensureReview(root, branch)).id : null;
+      const state = await root.store.createThread(anchor, { author: 'user', body: text, reviewId }, branch);
       if (this.threadUri(root, state.anchor).toString() === thread.uri.toString()) {
         this.adopt(root, state, thread);
       } else {
@@ -215,7 +232,7 @@ export class ReviewController implements vscode.Disposable {
 
     try {
       if (!opts.draft && !(await this.publishGate(managed.root.path, [this.threadFile(threadId)!]))) return;
-      const reviewId = opts.draft ? (await this.ensureReview(managed.root)).id : null;
+      const reviewId = opts.draft ? (await this.ensureReview(managed.root, managed.state.branch)).id : null;
       const state = await managed.root.store.addComment(threadId, { author: 'user', body: text, reviewId });
       this.adopt(managed.root, state, managed.thread);
       if (!reviewId) this.published.fire({ root: managed.root.path, kind: 'reply', threadIds: [threadId] });
@@ -231,47 +248,62 @@ export class ReviewController implements vscode.Disposable {
     else await this.submitNewComment(reply, { draft: true });
   }
 
-  /** Roots with a review in progress. */
+  /** The reviews in progress: at most one per branch of each root. */
   reviewsInProgress(): { root: Root; review: ReviewState; drafts: number }[] {
-    return this.roots.all().flatMap((root) => {
-      const review = this.activeReviews.get(root.path);
-      return review ? [{ root, review, drafts: this.draftCount(root) }] : [];
-    });
+    return [...this.activeReviews.values()].map(({ root, review }) => ({
+      root,
+      review,
+      drafts: this.draftCount(review),
+    }));
   }
 
-  /** Starts a review in a root (the one of the active editor by default), or returns the one in progress. */
-  async ensureReview(root?: Root): Promise<ReviewState> {
+  /**
+   * Starts a review of a branch (by default: the branch of the active editor's file, in its root),
+   * or returns the one in progress there.
+   */
+  async ensureReview(root?: Root, branch?: BranchRef | null): Promise<ReviewState> {
     const target = root ?? this.defaultRoot();
     if (!target) throw new Error('No workspace folder');
-    const existing = this.activeReviews.get(target.path);
-    if (existing) return existing;
-    const review = await target.store.startReview();
+    const onBranch = branch !== undefined ? branch : await this.activeEditorBranch();
+    const existing = this.activeReviews.get(reviewKey(target, onBranch));
+    if (existing) return existing.review;
+    const review = await target.store.startReview(onBranch);
     this.setActiveReview(target, review);
     this.updateReviewContext();
     return review;
   }
 
-  /** Publishes the review in progress of a root. Returns how many comments were published. */
-  async submitReview(root: Root, summary?: string): Promise<number> {
-    const review = this.activeReviews.get(root.path);
-    if (!review) return 0;
-    const published = this.draftCount(root);
-    const threadIds = this.pendingThreads(root).map((t) => t.id);
+  /** The branch checked out where the active editor's file is, as last seen (no git call). */
+  activeEditorCheckedOut(): BranchRef | null | undefined {
+    const uri = vscode.window.activeTextEditor?.document.uri;
+    const file = uri ? this.commentedFile(uri) : undefined;
+    return file ? this.branches.checkedOut(file) : undefined;
+  }
+
+  /** The branch of the file in the active editor, if any. */
+  async activeEditorBranch(): Promise<BranchRef | null> {
+    const uri = vscode.window.activeTextEditor?.document.uri;
+    const file = uri ? this.commentedFile(uri) : undefined;
+    return file ? branchOfTopic(await topicOf(file)) : null;
+  }
+
+  /** Publishes a review in progress. Returns how many comments were published. */
+  async submitReview(root: Root, review: ReviewState, summary?: string): Promise<number> {
+    const published = this.draftCount(review);
+    const threadIds = this.pendingThreads(review).map((t) => t.id);
     await root.store.submitReview(review.id, summary);
-    this.setActiveReview(root, null);
+    this.setActiveReview(root, review, null);
     this.updateReviewContext();
     await this.refreshRoot(root);
     if (threadIds.length > 0) this.published.fire({ root: root.path, kind: 'review', threadIds, reviewId: review.id });
     return published;
   }
 
-  /** Abandons the review in progress of a root: its drafts are dropped. Returns how many. */
-  async discardReview(root: Root): Promise<number> {
-    const review = this.activeReviews.get(root.path);
-    if (!review) return 0;
-    const dropped = this.draftCount(root);
+  /** Abandons a review in progress: its drafts are dropped. Returns how many. */
+  async discardReview(root: Root, review: ReviewState): Promise<number> {
+    const dropped = this.draftCount(review);
     await root.store.discardReview(review.id);
-    this.setActiveReview(root, null);
+    this.setActiveReview(root, review, null);
     this.updateReviewContext();
     await this.refreshRoot(root);
     return dropped;
@@ -288,15 +320,28 @@ export class ReviewController implements vscode.Disposable {
       }));
   }
 
-  /** Threads of a root holding at least one draft comment. */
-  pendingThreads(root?: Root): { id: string; state: ThreadState }[] {
-    return [...this.managed.values()]
-      .filter((m) => (!root || m.root === root) && m.state.comments.some((c) => c.isDraft))
-      .map((m) => ({ id: m.state.id, state: m.state }));
+  /** Threads holding draft comments (of that review), shown or not. */
+  pendingThreads(review?: ReviewState): { id: string; state: ThreadState }[] {
+    return this.allThreads()
+      .filter(({ state }) => state.comments.some((c) => c.isDraft && (!review || c.reviewId === review.id)))
+      .map(({ state }) => ({ id: state.id, state }));
   }
 
-  draftCount(root?: Root): number {
-    return this.pendingThreads(root).reduce((n, t) => n + t.state.comments.filter((c) => c.isDraft).length, 0);
+  draftCount(review?: ReviewState): number {
+    return this.pendingThreads(review).reduce(
+      (n, t) => n + t.state.comments.filter((c) => c.isDraft && (!review || c.reviewId === review.id)).length,
+      0,
+    );
+  }
+
+  /** Whether a thread is shown (on the branch checked out), rather than kept for its branch. */
+  isShown(threadId: string): boolean {
+    return this.managed.has(threadId);
+  }
+
+  /** Every thread: shown ones, and those kept for branches that are not checked out. */
+  private allThreads(): { root: Root; state: ThreadState }[] {
+    return [...[...this.managed.values()].map((m) => ({ root: m.root, state: m.state })), ...this.hidden.values()];
   }
 
   /**
@@ -373,6 +418,8 @@ export class ReviewController implements vscode.Disposable {
 
   /** Records a thread's new file and shows it there (a thread's URI cannot change in place). */
   private async moveThread(root: Root, threadId: string, anchor: Anchor): Promise<void> {
+    const current = this.managed.get(threadId);
+    if (current && !(await this.stillOnItsBranch(root, current.state))) return;
     try {
       const state = await root.store.updateAnchor(threadId, anchor, 'user');
       this.forget(threadId);
@@ -404,8 +451,8 @@ export class ReviewController implements vscode.Disposable {
   /** A review journal changed on disk (e.g. submitted from another window). */
   private async refreshReviews(root: Root): Promise<void> {
     try {
-      const { reviews } = await root.store.loadReviews();
-      this.setActiveReview(root, latestActive([...reviews.values()]));
+      for (const [key, entry] of this.activeReviews) if (entry.root === root) this.activeReviews.delete(key);
+      for (const review of await root.store.activeReviews()) this.setActiveReview(root, review);
       this.updateReviewContext();
       await this.refreshRoot(root);
     } catch (err) {
@@ -415,13 +462,16 @@ export class ReviewController implements vscode.Disposable {
 
   /** Re-reads every thread of a root: their draft state follows the reviews. */
   private async refreshRoot(root: Root): Promise<void> {
-    const ids = [...this.managed.values()].filter((m) => m.root === root).map((m) => m.state.id);
+    const ids = this.allThreads()
+      .filter((t) => t.root === root)
+      .map((t) => t.state.id);
     for (const id of ids) await this.refreshThread(root, id);
   }
 
-  private setActiveReview(root: Root, review: ReviewState | null): void {
-    if (review) this.activeReviews.set(root.path, review);
-    else this.activeReviews.delete(root.path);
+  /** Records a review in progress; with `null` as third argument, that it is over. */
+  private setActiveReview(root: Root, review: ReviewState, ended?: null): void {
+    if (ended === null) this.activeReviews.delete(reviewKey(root, review.branch));
+    else this.activeReviews.set(reviewKey(root, review.branch), { root, review });
   }
 
   private updateReviewContext(): void {
@@ -594,6 +644,11 @@ export class ReviewController implements vscode.Disposable {
     const existing = this.managed.get(threadId);
     if (!state || state.deleted) {
       this.forget(threadId);
+      return;
+    }
+    await this.branches.learn(this.fileOf(root, state));
+    if (!this.onItsBranch(root, state)) {
+      this.hide(root, state);
       return;
     }
     if (!existing) {
@@ -818,6 +873,9 @@ export class ReviewController implements vscode.Disposable {
 
   /** Persists a new anchor. `live` is the in-memory position it was computed from, if any. */
   private async writeAnchor(root: Root, threadId: string, anchor: Anchor, live?: LineRange): Promise<void> {
+    const current = this.managed.get(threadId);
+    // Right after a checkout, the file shows another branch: nothing to record for this thread.
+    if (current && !(await this.stillOnItsBranch(root, current.state))) return;
     try {
       const state = await root.store.updateAnchor(threadId, anchor, 'user');
       // Keep a newer unsaved position if the user kept typing meanwhile.
@@ -848,8 +906,8 @@ export class ReviewController implements vscode.Disposable {
   /** Snapshot for tests and diagnostics. */
   /** Absolute path of a thread's file (the worktree file, also for a thread about a git version). */
   threadFile(threadId: string): string | undefined {
-    const m = this.managed.get(threadId);
-    return m ? join(m.root.path, ...m.state.anchor.path.split('/')) : undefined;
+    const m = this.managed.get(threadId) ?? this.hidden.get(threadId);
+    return m ? this.fileOf(m.root, m.state) : undefined;
   }
 
   listThreads(): {
@@ -883,6 +941,7 @@ export class ReviewController implements vscode.Disposable {
   private forget(threadId: string): void {
     this.managed.get(threadId)?.thread.dispose();
     this.managed.delete(threadId);
+    this.hidden.delete(threadId);
     this.aliases.get(threadId)?.forEach((t) => t.dispose());
     this.aliases.delete(threadId);
     this.liveRanges.delete(threadId);
@@ -1030,7 +1089,141 @@ export class ReviewController implements vscode.Disposable {
     }
   }
 
+  /**
+   * Learns where a thread's file is, and gives a thread created before branches existed the branch
+   * checked out there now (outside git, and for files ignored by git, it has none).
+   */
+  private async withBranch(root: Root, state: ThreadState): Promise<ThreadState> {
+    const file = this.fileOf(root, state);
+    await this.branches.learn(file);
+    if (state.branch || state.readOnly || state.deleted) return state;
+    const branch = branchOfTopic(await topicOf(file));
+    if (!branch) return state;
+    try {
+      return await root.store.setBranch(state.id, branch);
+    } catch (err) {
+      this.log.warn(`${root.path}: could not record the branch of thread ${state.id}`, err);
+      return state;
+    }
+  }
+
+  private fileOf(root: Root, state: ThreadState): string {
+    return join(root.path, ...state.anchor.path.split('/'));
+  }
+
+  /** A thread is shown on its branch only: when that branch is checked out where its file is. */
+  private onItsBranch(root: Root, state: ThreadState): boolean {
+    if (!state.branch) return true;
+    const checkedOut = this.branches.checkedOut(this.fileOf(root, state));
+    // Not known yet: shown, until the next look at the branches says otherwise.
+    return checkedOut === undefined || branchKey(checkedOut) === branchKey(state.branch);
+  }
+
+  /** Same check, reading git now: before writing anything computed from the file's content. */
+  private async stillOnItsBranch(root: Root, state: ThreadState): Promise<boolean> {
+    if (!state.branch) return true;
+    return branchKey(await this.branches.readNow(this.fileOf(root, state))) === branchKey(state.branch);
+  }
+
+  /** Keeps a thread of a branch that is not checked out, without showing it. */
+  private hide(root: Root, state: ThreadState): void {
+    if (this.managed.has(state.id)) this.forget(state.id);
+    this.hidden.set(state.id, { root, state });
+    this.changed.fire();
+  }
+
+  /** Shows, or hides, the threads of worktrees whose branch changed. */
+  private async applyBranches(): Promise<void> {
+    for (const m of [...this.managed.values()]) if (!this.onItsBranch(m.root, m.state)) this.hide(m.root, m.state);
+    for (const { root, state } of [...this.hidden.values()]) {
+      if (!this.onItsBranch(root, state)) continue;
+      this.hidden.delete(state.id);
+      this.render(root, state);
+      await this.reanchorFromDisk(root, state.id);
+    }
+  }
+
+  /**
+   * Follows the branches: shows each thread on its branch (after a checkout), and when a branch is
+   * renamed its threads and review follow it; when it is deleted, they are deleted too.
+   */
+  trackBranches(intervalMs = 2000): vscode.Disposable {
+    let busy = false;
+    const tick = async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        await this.refreshBranches();
+      } catch (err) {
+        this.log.error('Failed to follow the git branches', err);
+      } finally {
+        busy = false;
+      }
+    };
+    const timer = setInterval(() => void tick(), intervalMs);
+    return { dispose: () => clearInterval(timer) };
+  }
+
+  /** One look at the branches now (it is also done every few seconds). */
+  async refreshBranches(): Promise<void> {
+    if ((await this.branches.refresh()).length > 0) await this.applyBranches();
+    await this.followBranchChanges();
+  }
+
+  /** Ids of the threads kept for branches that are not checked out. */
+  hiddenThreads(): string[] {
+    return [...this.hidden.keys()];
+  }
+
+  /** Branches of threads or reviews that no longer exist: renamed (follow) or deleted (delete). */
+  async followBranchChanges(): Promise<void> {
+    const owners = new Map<string, { root: Root; branch: BranchRef }>();
+    for (const { root, state } of this.allThreads())
+      if (state.branch) owners.set(branchKey(state.branch), { root, branch: state.branch });
+    for (const { root, review } of this.activeReviews.values())
+      if (review.branch) owners.set(branchKey(review.branch), { root, branch: review.branch });
+    const existing = new Map<string, Set<string>>(); // repo → its local branches
+    for (const [key, { root, branch }] of owners) {
+      const dir = branch.worktree ?? root.path;
+      if (!existing.has(branch.repo))
+        existing.set(branch.repo, await localBranches(dir).catch(() => new Set<string>()));
+      const branches = existing.get(branch.repo)!;
+      // An empty list means git could not be asked: never delete anything on that basis.
+      if (branches.size === 0 || branches.has(branch.branch)) continue;
+      const renamed = await renamedBranch(dir, branch.branch);
+      await this.onBranchGone(root, key, renamed ? { ...branch, branch: renamed } : null);
+    }
+  }
+
+  private async onBranchGone(root: Root, key: string, renamedTo: BranchRef | null): Promise<void> {
+    for (const t of this.allThreads().filter((t) => t.root === root && branchKey(t.state.branch) === key)) {
+      try {
+        if (renamedTo) await root.store.setBranch(t.state.id, renamedTo);
+        else await root.store.deleteThread(t.state.id, 'user');
+      } catch (err) {
+        this.log.warn(`${root.path}: could not update thread ${t.state.id} of a gone branch`, err);
+      }
+      await this.refreshThread(root, t.state.id);
+    }
+    for (const { review } of [...this.activeReviews.values()].filter(
+      (r) => r.root === root && branchKey(r.review.branch) === key,
+    )) {
+      try {
+        if (renamedTo) await root.store.setReviewBranch(review.id, renamedTo);
+        else await root.store.discardReview(review.id);
+      } catch (err) {
+        this.log.warn(`${root.path}: could not update review ${review.id} of a gone branch`, err);
+      }
+    }
+    await this.refreshReviews(root);
+    this.log.info(`${root.path}: branch ${key} ${renamedTo ? `renamed to ${renamedTo.branch}` : 'deleted'}`);
+  }
+
   private render(root: Root, state: ThreadState): void {
+    if (!this.onItsBranch(root, state)) {
+      this.hide(root, state);
+      return;
+    }
     const uri = this.threadUri(root, state.anchor);
     // A file comment is created without a range. The API allows it at creation (unlike setting
     // `range = undefined` later, which never reaches the editor), though its typing says otherwise.
@@ -1044,6 +1237,7 @@ export class ReviewController implements vscode.Disposable {
   }
 
   private adopt(root: Root, state: ThreadState, thread: vscode.CommentThread): void {
+    this.hidden.delete(state.id);
     // The watcher may have rendered this thread before its creator adopted it: keep a single instance.
     const previous = this.managed.get(state.id);
     if (previous && previous.thread !== thread) previous.thread.dispose();
@@ -1106,11 +1300,8 @@ function isBlank(doc: vscode.TextDocument, start: number, end: number): boolean 
   return true;
 }
 
-function latestActive(reviews: readonly ReviewState[]): ReviewState | null {
-  const active = reviews.filter((r) => r.state === 'active');
-  active.sort((a, b) => b.startedAt.localeCompare(a.startedAt) || b.id.localeCompare(a.id));
-  return active[0] ?? null;
-}
+/** One review per branch of each root. */
+const reviewKey = (root: Root, branch: BranchRef | null): string => `${root.path}|${branchKey(branch)}`;
 
 async function exists(path: string): Promise<boolean> {
   try {

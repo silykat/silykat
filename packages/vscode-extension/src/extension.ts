@@ -33,6 +33,10 @@ export interface LocalReviewApi {
   shownSessions(): string[];
   /** Tests only: capture the messages about deliveries (return the action to click). */
   setDeliveryWarner(warner: Warner | undefined): void;
+  /** Tests only: look at the git branches now (also done every few seconds). */
+  refreshBranches(): Promise<void>;
+  /** Tests only: threads kept for branches that are not checked out. */
+  hiddenThreads(): string[];
   /** Tests only: answer "publish without subscribers?" without showing it. */
   setNoSubscriberPrompt(prompt: NoSubscriberPrompt | undefined): void;
 }
@@ -86,6 +90,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
       simulateAgentReply(review, context.extensionUri, args),
     ),
     review.trackDocuments(),
+    review.trackBranches(),
     vscode.workspace.onDidChangeWorkspaceFolders(() => review.reload()),
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('localReview.userName')) void review.reload();
@@ -125,6 +130,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
     setDeliveryWarner: (warner) => {
       deliveries.warn = warner ?? defaultWarner;
     },
+    refreshBranches: () => review.refreshBranches(),
+    hiddenThreads: () => review.hiddenThreads(),
     setNoSubscriberPrompt: (prompt) => {
       deliveries.askNoSubscriber = prompt ?? defaultNoSubscriberPrompt;
     },
