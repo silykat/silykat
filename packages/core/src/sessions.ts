@@ -1,7 +1,7 @@
 import { appendFile, mkdir, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { topicKey, type Topic } from './topics';
 
 /**
  * A running agent session known to Local Review. Written by the agent's adapter (e.g. the Claude
@@ -14,9 +14,7 @@ export interface SessionRecord {
   agent: string;
   /** Folder the session was started in. */
   cwd: string;
-  /** Folder the session works in now, when it moved (e.g. `cd` into a worktree). */
-  workingDir?: string | null;
-  /** Git branch of the folder it works in, if any. */
+  /** Git branch of that folder, if any. */
   branch: string | null;
   /** Process to watch: when it is gone, so is the session. `null` when unknown. */
   pid: number | null;
@@ -46,13 +44,22 @@ export interface Delivery {
   kind: 'comment' | 'reply' | 'review';
   threadIds: string[];
   reviewId?: string;
+  /** Every session this publication went to (the same threads may go to several). */
+  recipients?: string[];
 }
 
-/** A session, with the files it wrote (absolute paths, most recent last). */
+/** Why a session is subscribed to a topic: for debugging, and to explain it. */
+export type SubscriptionReason = 'launch' | 'modified' | 'user';
+
+export interface Subscription {
+  topic: Topic;
+  reason: SubscriptionReason;
+  at: string;
+}
+
+/** A running session, with what it is subscribed to. */
 export interface Session extends SessionRecord {
-  touched: string[];
-  /** When it last wrote each of those files (ISO dates). */
-  writtenAt?: Record<string, string>;
+  subscriptions: Subscription[];
 }
 
 /** Local Review's per-machine folder: `$LOCAL_REVIEW_HOME`, or `~/.local-review`. */
@@ -61,10 +68,6 @@ export function localReviewHome(env: Record<string, string | undefined> = proces
 }
 
 const SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/;
-
-/** The folders a session works in: where it started, and where it is now. */
-export const sessionDirs = (s: SessionRecord): string[] =>
-  s.workingDir && s.workingDir !== s.cwd ? [s.cwd, s.workingDir] : [s.cwd];
 
 /** Default liveness check: the process still exists. */
 export function isProcessAlive(pid: number): boolean {
@@ -88,7 +91,7 @@ export class SessionRegistry {
     this.dir = join(home, 'sessions');
   }
 
-  private file(id: string, kind: 'json' | 'touched' | 'inbox'): string {
+  private file(id: string, kind: 'json' | 'subscriptions' | 'inbox'): string {
     // Ids come from agents: never let one escape the registry folder.
     if (!SESSION_ID.test(id)) throw new Error(`Invalid session id: ${id}`);
     return join(this.dir, kind === 'json' ? `${id}.json` : `${id}.${kind}.jsonl`);
@@ -101,24 +104,6 @@ export class SessionRegistry {
     const tmp = `${target}.${process.pid}.tmp`;
     await writeFile(tmp, JSON.stringify(record, null, 2) + '\n');
     await rename(tmp, target);
-  }
-
-  /**
-   * The session now works in `dir`, on `branch` (a function to compute it only when the session did
-   * move). No-op for an unknown session, or one already there.
-   */
-  async moveTo(
-    id: string,
-    dir: string,
-    branch: string | null | ((dir: string) => Promise<string | null>),
-  ): Promise<void> {
-    const record = await readRecord(this.file(id, 'json'));
-    if (!record || (record.workingDir ?? record.cwd) === dir) return;
-    await this.register({
-      ...record,
-      workingDir: dir,
-      branch: typeof branch === 'function' ? await branch(dir) : branch,
-    });
   }
 
   /** Everything the registry keeps about a session goes with it. */
@@ -157,13 +142,53 @@ export class SessionRegistry {
     return join(this.dir, `${id}.note-${key}`);
   }
 
-  /** Records that a session wrote a file. Appended, so concurrent hooks never lose an entry. */
-  async touch(id: string, absolutePath: string): Promise<void> {
+  /**
+   * Subscribes a session to a topic. Resolves to `true` when it was not subscribed yet (e.g. to tell
+   * the agent). Appended, so concurrent hooks never lose an entry.
+   */
+  async subscribe(id: string, topic: Topic, reason: SubscriptionReason): Promise<boolean> {
+    const already = (await this.subscriptions(id)).some((s) => topicKey(s.topic) === topicKey(topic));
+    if (already) return false;
+    await this.appendSubscription(id, { op: 'add', topic, reason, at: new Date().toISOString() });
+    return true;
+  }
+
+  /** Unsubscribes a session from a topic, or from everything. Resolves to what it was subscribed to. */
+  async unsubscribe(id: string, topic: Topic | 'all'): Promise<Subscription[]> {
+    const current = await this.subscriptions(id);
+    const gone = topic === 'all' ? current : current.filter((s) => topicKey(s.topic) === topicKey(topic));
+    for (const s of gone)
+      await this.appendSubscription(id, { op: 'remove', topic: s.topic, at: new Date().toISOString() });
+    return gone;
+  }
+
+  /** What a session is subscribed to, oldest first. */
+  async subscriptions(id: string): Promise<Subscription[]> {
+    let text: string;
+    try {
+      text = await readFile(this.file(id, 'subscriptions'), 'utf8');
+    } catch {
+      return [];
+    }
+    const current = new Map<string, Subscription>();
+    for (const line of text.split('\n')) {
+      try {
+        const e = JSON.parse(line) as { op?: unknown; topic?: Topic; reason?: SubscriptionReason; at?: string };
+        if (!e.topic || (e.topic.kind !== 'branch' && e.topic.kind !== 'path')) continue;
+        const key = topicKey(e.topic);
+        if (e.op === 'remove') current.delete(key);
+        else if (e.op === 'add' && !current.has(key))
+          current.set(key, { topic: e.topic, reason: e.reason ?? 'user', at: e.at ?? '' });
+      } catch {
+        // an interrupted or corrupt line: skip it
+      }
+    }
+    return [...current.values()];
+  }
+
+  private async appendSubscription(id: string, event: object): Promise<void> {
     await mkdir(this.dir, { recursive: true });
-    await appendFile(
-      this.file(id, 'touched'),
-      JSON.stringify({ path: absolutePath, at: new Date().toISOString() }) + '\n',
-    );
+    await appendFile(this.file(id, 'subscriptions'), JSON.stringify(event) + '\n');
   }
 
   /** Hands threads to a session. Appended to its inbox, which its agent's adapter watches. */
@@ -219,90 +244,10 @@ export class SessionRegistry {
         await this.unregister(record.id).catch(() => undefined);
         continue;
       }
-      const writtenAt = await this.readTouched(record.id);
-      sessions.push({ ...record, touched: Object.keys(writtenAt), writtenAt });
+      sessions.push({ ...record, subscriptions: await this.subscriptions(record.id) });
     }
     return sessions;
   }
-
-  /** The files a session wrote, each once with its last write, ordered by it (most recent last). */
-  private async readTouched(id: string): Promise<Record<string, string>> {
-    let text: string;
-    try {
-      text = await readFile(this.file(id, 'touched'), 'utf8');
-    } catch {
-      return {};
-    }
-    const order = new Map<string, string>();
-    for (const line of text.split('\n')) {
-      try {
-        const { path, at } = JSON.parse(line) as { path?: unknown; at?: unknown };
-        if (typeof path !== 'string') continue;
-        order.delete(path);
-        order.set(path, typeof at === 'string' ? at : '');
-      } catch {
-        // an interrupted or corrupt line: skip it
-      }
-    }
-    return Object.fromEntries(order);
-  }
-}
-
-/**
- * Deliveries waiting for a session (`<home>/queue/`): published while no agent session worked on
- * their folder. They go out when one starts there.
- */
-export class DeliveryQueue {
-  readonly dir: string;
-
-  constructor(home: string = localReviewHome()) {
-    this.dir = join(home, 'queue');
-  }
-
-  private file(root: string): string {
-    return join(this.dir, `${createHash('sha256').update(root).digest('hex').slice(0, 24)}.jsonl`);
-  }
-
-  async add(delivery: Delivery): Promise<void> {
-    await mkdir(this.dir, { recursive: true });
-    await appendFile(this.file(delivery.root), JSON.stringify(delivery) + '\n');
-  }
-
-  /** What waits for the folder `root`, without taking it. */
-  async peek(root: string): Promise<Delivery[]> {
-    return readDeliveries(this.file(root));
-  }
-
-  /**
-   * Takes what waits for `root`, emptying its queue. Atomic: of several VS Code windows showing the
-   * same folder, only one gets each delivery.
-   */
-  async take(root: string): Promise<Delivery[]> {
-    const file = this.file(root);
-    const taken = `${file}.${process.pid}.${Date.now()}.taken`;
-    try {
-      await rename(file, taken);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
-      throw err;
-    }
-    const deliveries = await readDeliveries(taken);
-    await rm(taken, { force: true });
-    return deliveries;
-  }
-}
-
-async function readDeliveries(file: string): Promise<Delivery[]> {
-  let text: string;
-  try {
-    text = await readFile(file, 'utf8');
-  } catch {
-    return [];
-  }
-  return text
-    .split('\n')
-    .map(parseDelivery)
-    .filter((d): d is Delivery => d !== null);
 }
 
 async function readRecord(file: string): Promise<SessionRecord | null> {
@@ -313,7 +258,6 @@ async function readRecord(file: string): Promise<SessionRecord | null> {
       id: raw.id,
       agent: raw.agent,
       cwd: raw.cwd,
-      workingDir: typeof raw.workingDir === 'string' ? raw.workingDir : null,
       branch: typeof raw.branch === 'string' ? raw.branch : null,
       pid: typeof raw.pid === 'number' ? raw.pid : null,
       startedAt: typeof raw.startedAt === 'string' ? raw.startedAt : '',
@@ -338,8 +282,42 @@ function parseDelivery(line: string): Delivery | null {
       kind,
       threadIds: raw.threadIds.filter((t): t is string => typeof t === 'string'),
       ...(typeof raw.reviewId === 'string' ? { reviewId: raw.reviewId } : {}),
+      ...(Array.isArray(raw.recipients)
+        ? { recipients: raw.recipients.filter((r): r is string => typeof r === 'string') }
+        : {}),
     };
   } catch {
     return null; // corrupt line: skip it
   }
+}
+
+/** The parent processes of `pid`, closest first (via `ps`; empty where it is not available). */
+export async function processAncestors(pid: number = process.ppid, max = 12): Promise<number[]> {
+  const { execFile } = await import('node:child_process');
+  const parentOf = (p: number) =>
+    new Promise<number | null>((done) =>
+      execFile('ps', ['-o', 'ppid=', '-p', String(p)], { timeout: 2000 }, (err, out) => {
+        const n = Number(out.trim());
+        done(err || !Number.isInteger(n) ? null : n);
+      }),
+    );
+  const chain = [pid];
+  for (let p: number | null = pid; chain.length < max;) {
+    p = await parentOf(p);
+    if (p === null || p <= 1) break;
+    chain.push(p);
+  }
+  return chain;
+}
+
+/**
+ * The session a command runs in: the registered session whose process is one of its ancestors
+ * (an agent runs `lr` through its shell).
+ */
+export function sessionOfProcess(sessions: readonly Session[], ancestors: readonly number[]): Session | undefined {
+  for (const pid of ancestors) {
+    const found = sessions.filter((s) => s.pid === pid);
+    if (found.length > 0) return found.reduce((a, s) => (s.startedAt > a.startedAt ? s : a));
+  }
+  return undefined;
 }

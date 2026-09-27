@@ -3,14 +3,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  DeliveryQueue,
+  filesChangedSince,
   localReviewHome,
-  planDelivery,
   relevantSessions,
-  routeThread,
   SessionRegistry,
+  subscribersOf,
+  topicLabel,
+  topicOf,
   type Session,
   type SessionRecord,
+  type Subscription,
+  type Topic,
 } from '../src/index';
 
 let home: string;
@@ -67,15 +70,6 @@ describe('SessionRegistry', () => {
     expect(await r.list()).toHaveLength(1);
   });
 
-  it('records the files a session wrote, each once, most recent last', async () => {
-    const r = registry();
-    await r.register(record());
-    await r.touch('session-a', '/repo/a.ts');
-    await r.touch('session-a', '/specs/b.md');
-    await r.touch('session-a', '/repo/a.ts');
-    expect((await r.list())[0]!.touched).toEqual(['/specs/b.md', '/repo/a.ts']);
-  });
-
   it('ignores unreadable records and rejects ids that could escape the folder', async () => {
     const r = registry();
     await r.register(record());
@@ -93,22 +87,27 @@ describe('localReviewHome', () => {
 });
 
 describe('relevantSessions', () => {
-  const s = (id: string, cwd: string, touched: string[] = []) => ({ ...record({ id, cwd }), touched });
+  const s = (id: string, cwd: string, subscriptions: Subscription[] = []): Session => ({
+    ...record({ id, cwd }),
+    subscriptions,
+  });
+  const sub = (topic: Topic): Subscription => ({ topic, reason: 'modified', at: '' });
 
-  it('keeps sessions working in, above or below the folders, or that wrote a file in them', () => {
+  it('keeps sessions started in, above or below the folders, or subscribed to something inside', () => {
     const sessions = [
-      s('inside', '/work/repo/packages/cli'),
-      s('above', '/work'),
-      s('same', '/work/repo'),
-      s('specs-writer', '/elsewhere/code', ['/work/specs/plan.md']),
-      s('unrelated', '/other/project', ['/other/project/a.ts']),
-      s('prefix-only', '/work/repo-other'),
+      s('in', '/repo/worktree-a'),
+      s('above', '/repo'),
+      s('below', '/repo/worktree-a/pkg'),
+      s('elsewhere', '/other'),
+      s('subscribed', '/other', [sub({ kind: 'branch', repo: '/r/.git', branch: 'x', worktree: '/repo/worktree-a' })]),
+      s('spec-writer', '/other', [sub({ kind: 'path', path: '/repo/worktree-a/plan.md' })]),
     ];
-    expect(relevantSessions(sessions, ['/work/repo', '/work/specs']).map((x) => x.id)).toEqual([
-      'inside',
+    expect(relevantSessions(sessions, ['/repo/worktree-a']).map((x) => x.id)).toEqual([
+      'in',
       'above',
-      'same',
-      'specs-writer',
+      'below',
+      'subscribed',
+      'spec-writer',
     ]);
   });
 });
@@ -164,98 +163,78 @@ describe('Session inboxes', () => {
   });
 });
 
-describe('Routing published threads', () => {
-  const at = (h: number) => `2026-09-26T${String(h).padStart(2, '0')}:00:00.000Z`;
-  const s = (id: string, cwd: string, startedAt = at(9), writes: Record<string, number> = {}): Session => ({
-    ...record({ id, cwd, startedAt }),
-    touched: Object.keys(writes),
-    writtenAt: Object.fromEntries(Object.entries(writes).map(([f, h]) => [f, at(h)])),
-  });
+describe('Subscriptions', () => {
+  const branch = (b: string): Topic => ({ kind: 'branch', repo: '/work/app/.git', branch: b, worktree: `/work/${b}` });
 
-  it('sends each worktree to its own session', () => {
-    const sessions = [s('A', '/wt/a'), s('B', '/wt/b')];
-    expect(routeThread(sessions, '/wt/a', '/wt/a/src/x.ts')).toEqual({ sure: true, session: sessions[0] });
-    expect(routeThread(sessions, '/wt/b', '/wt/b/src/x.ts')).toEqual({ sure: true, session: sessions[1] });
-  });
-
-  it('sends a spec to the session that wrote it, wherever that session works', () => {
-    const sessions = [s('A', '/wt/a', at(9), { '/specs/plan.md': 10 }), s('B', '/wt/b')];
-    expect(routeThread(sessions, '/specs', '/specs/plan.md')).toMatchObject({ sure: true, session: { id: 'A' } });
-  });
-
-  it('prefers the writer over a session working there, and the closest folder over a parent one', () => {
-    const sessions = [
-      s('parent', '/work'),
-      s('wt', '/work/wt-a'),
-      s('writer', '/elsewhere', at(9), { '/work/wt-a/w.ts': 9 }),
-    ];
-    expect(routeThread(sessions, '/work/wt-a', '/work/wt-a/w.ts')).toMatchObject({ session: { id: 'writer' } });
-    expect(routeThread(sessions, '/work/wt-a', '/work/wt-a/other.ts')).toMatchObject({
-      sure: true,
-      session: { id: 'wt' },
-    });
-  });
-
-  it('follows where each session works now: two sessions started in the same parent folder', () => {
-    const inWorktree = { ...s('W', '/work'), workingDir: '/work/wt-test' };
-    const inMain = { ...s('M', '/work'), workingDir: '/work/main' };
-    const sessions = [inWorktree, inMain];
-    expect(routeThread(sessions, '/work/wt-test', '/work/wt-test/a.ts')).toMatchObject({
-      sure: true,
-      session: { id: 'W' },
-    });
-    expect(routeThread(sessions, '/work/main', '/work/main/a.ts')).toMatchObject({ sure: true, session: { id: 'M' } });
-    expect(relevantSessions([{ ...s('X', '/elsewhere'), workingDir: '/work/main' }], ['/work/main'])).toHaveLength(1);
-  });
-
-  it('is in doubt when several sessions could be the one, and proposes the likeliest', () => {
-    const same = [s('early', '/repo', at(8)), s('late', '/repo', at(11))];
-    expect(routeThread(same, '/repo', '/repo/a.ts')).toMatchObject({ sure: false, proposed: { id: 'late' } });
-    const writers = [
-      s('first', '/repo', at(8), { '/repo/a.ts': 12 }),
-      s('second', '/repo', at(11), { '/repo/a.ts': 10 }),
-    ];
-    expect(routeThread(writers, '/repo', '/repo/a.ts')).toMatchObject({ sure: false, proposed: { id: 'first' } });
-  });
-
-  it('falls back on a session working below the store, and finds none elsewhere', () => {
-    expect(routeThread([s('sub', '/repo/pkg')], '/repo', '/repo/README.md')).toMatchObject({ sure: true });
-    expect(routeThread([s('other', '/other')], '/repo', '/repo/a.ts')).toBeNull();
-  });
-
-  it('plans a publication: sure threads by session, one question for the doubtful ones, the rest waits', () => {
-    const sessions = [s('A', '/repo', at(8), { '/repo/a.ts': 9 }), s('B', '/repo', at(10), { '/repo/b.ts': 9 })];
-    const plan = planDelivery(
-      [...sessions, s('C', '/repo/pkg', at(11))],
-      '/repo',
-      [
-        { id: 't_a', file: '/repo/a.ts' },
-        { id: 't_b', file: '/repo/b.ts' },
-        { id: 't_c', file: '/repo/c.ts' },
-      ],
-      'A',
-    );
-    expect([...plan.sure]).toEqual([
-      ['A', ['t_a']],
-      ['B', ['t_b']],
+  it('subscribes once per topic, unsubscribes, and goes with the session', async () => {
+    const r = registry();
+    await r.register(record());
+    expect(await r.subscribe('session-a', branch('feat'), 'modified')).toBe(true);
+    expect(await r.subscribe('session-a', branch('feat'), 'user')).toBe(false); // already
+    expect(await r.subscribe('session-a', { kind: 'path', path: '/specs/plan.md' }, 'modified')).toBe(true);
+    expect((await r.list())[0]!.subscriptions.map((x) => [topicLabel(x.topic), x.reason])).toEqual([
+      ['app · feat', 'modified'],
+      ['/specs/plan.md', 'modified'],
     ]);
-    expect(plan.doubt).toMatchObject({ threadIds: ['t_c'], proposed: { id: 'A' } }); // the last one used
-    expect(plan.doubt!.candidates.map((c) => c.id)).toEqual(['A', 'B']);
-    expect(planDelivery([], '/repo', [{ id: 't_a', file: '/repo/a.ts' }]).waiting).toEqual(['t_a']);
+    expect((await r.unsubscribe('session-a', branch('feat'))).length).toBe(1);
+    expect((await r.subscriptions('session-a')).map((x) => x.topic.kind)).toEqual(['path']);
+    expect((await r.unsubscribe('session-a', 'all')).length).toBe(1);
+    expect(await r.subscriptions('session-a')).toEqual([]);
+    await r.subscribe('session-a', branch('feat'), 'launch');
+    await r.unregister('session-a');
+    expect(await readdir(r.dir)).toEqual([]);
+  });
+
+  it('publishes to every subscriber of the topic of a file', () => {
+    const at = (id: string, ...subs: Topic[]): Session => ({
+      ...record({ id }),
+      subscriptions: subs.map((topic) => ({ topic, reason: 'modified' as const, at: '' })),
+    });
+    const sessions = [
+      at('dev', branch('feat')),
+      at('reviewer', branch('feat')),
+      at('other', branch('main')),
+      at('specs', { kind: 'path', path: '/specs' }),
+    ];
+    const ids = (file: string, topic: Topic) => subscribersOf(sessions, file, topic).map((x) => x.id);
+    expect(ids('/work/feat/a.ts', branch('feat'))).toEqual(['dev', 'reviewer']);
+    expect(ids('/work/main/a.ts', branch('main'))).toEqual(['other']);
+    expect(ids('/specs/plan.md', { kind: 'path', path: '/specs/plan.md' })).toEqual(['specs']);
+    expect(ids('/work/x/a.ts', branch('x'))).toEqual([]);
   });
 });
 
-describe('Moving sessions', () => {
-  it('records the folder a session works in now, and its branch', async () => {
-    const r = registry();
-    await r.register(record({ cwd: '/work', branch: null }));
-    await r.moveTo('session-a', '/work/wt-test', 'feature-w');
-    expect(await r.list()).toMatchObject([{ cwd: '/work', workingDir: '/work/wt-test', branch: 'feature-w' }]);
-    await r.moveTo('unknown', '/x', null); // no-op
-    let asked = 0;
-    await r.moveTo('session-a', '/work/wt-test', async () => (asked++, 'other')); // already there
-    expect(asked).toBe(0);
-    expect((await r.list()).map((x) => x.id)).toEqual(['session-a']);
+describe('Topics', () => {
+  it('are the branch of a git worktree (shared by its worktrees as one repo), else the path', async () => {
+    const { execFileSync } = await import('node:child_process');
+    const { mkdir, realpath, writeFile } = await import('node:fs/promises');
+    const base = await realpath(await mkdtemp(join(tmpdir(), 'lr-topics-')));
+    try {
+      const repo = join(base, 'app');
+      const g = (...args: string[]) =>
+        execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@e', ...args], { cwd: repo });
+      await mkdir(join(repo, 'src'), { recursive: true });
+      g('init', '-q', '-b', 'main');
+      await writeFile(join(repo, 'src', 'a.ts'), 'a');
+      g('add', '.');
+      g('commit', '-qm', 'init');
+      g('worktree', 'add', '-q', '-b', 'feat', join(base, 'wt-feat'));
+
+      const main = await topicOf(join(repo, 'src', 'a.ts'));
+      const feat = await topicOf(join(base, 'wt-feat', 'src', 'new-file.ts')); // not there yet: its folder decides
+      expect(main).toMatchObject({ kind: 'branch', branch: 'main', repo: join(repo, '.git'), worktree: repo });
+      expect(feat).toMatchObject({ kind: 'branch', branch: 'feat', repo: join(repo, '.git') });
+      expect(topicLabel(feat)).toBe('app · feat');
+      expect(await topicOf(join(base, 'notes.md'))).toEqual({ kind: 'path', path: join(base, 'notes.md') });
+      expect(await topicOf(join(repo, 'src'), { asPath: true })).toEqual({ kind: 'path', path: join(repo, 'src') });
+
+      const since = Date.now() - 5000;
+      await writeFile(join(base, 'wt-feat', 'src', 'b.ts'), 'b');
+      expect(await filesChangedSince(join(base, 'wt-feat'), since)).toEqual([join(base, 'wt-feat', 'src', 'b.ts')]);
+      expect(await filesChangedSince(base, since)).toEqual([]); // not git
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
   });
 });
 
@@ -270,20 +249,5 @@ describe('Session notes', () => {
     await r.unregister('session-a');
     expect(await readdir(join(home, 'sessions'))).toEqual([]);
     await expect(r.setNote('session-a', '../x', '1')).rejects.toThrow();
-  });
-});
-
-describe('DeliveryQueue', () => {
-  it('keeps deliveries per folder until they are taken, once', async () => {
-    const q = new DeliveryQueue(home);
-    const d = (id: string, root: string) => ({ id, at: '', root, kind: 'comment' as const, threadIds: ['t_1'] });
-    expect(await q.take('/repo')).toEqual([]);
-    await q.add(d('d_1', '/repo'));
-    await q.add(d('d_2', '/repo'));
-    await q.add(d('d_3', '/specs'));
-    expect((await q.peek('/repo')).map((x) => x.id)).toEqual(['d_1', 'd_2']);
-    expect((await q.take('/repo')).map((x) => x.id)).toEqual(['d_1', 'd_2']);
-    expect(await q.take('/repo')).toEqual([]);
-    expect((await q.peek('/specs')).map((x) => x.id)).toEqual(['d_3']);
   });
 });

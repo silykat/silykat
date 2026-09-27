@@ -16,7 +16,10 @@ const CODE = [
 let root: string;
 let store: Store;
 
-async function lr(args: string[], opts: { cwd?: string; env?: Record<string, string>; stdin?: string } = {}) {
+async function lr(
+  args: string[],
+  opts: { cwd?: string; env?: Record<string, string>; stdin?: string; ancestors?: number[] } = {},
+) {
   let out = '';
   let err = '';
   const code = await runCli(args, {
@@ -25,6 +28,7 @@ async function lr(args: string[], opts: { cwd?: string; env?: Record<string, str
     out: (t) => (out += t + '\n'),
     err: (t) => (err += t + '\n'),
     readStdin: async () => opts.stdin ?? '',
+    ancestors: async () => opts.ancestors ?? [],
   });
   return { code, out, err };
 }
@@ -240,34 +244,43 @@ describe('lr show / usage', () => {
 });
 
 describe('lr sessions', () => {
-  it('registers, lists, touches and unregisters sessions in LOCAL_REVIEW_HOME', async () => {
+  it('registers, lists and unregisters sessions in LOCAL_REVIEW_HOME', async () => {
     const env = { LOCAL_REVIEW_HOME: join(root, 'home') };
     expect((await lr(['sessions'], { env })).out).toContain('No agent session is running');
 
     const reg = await lr(
-      ['session', 'register', '--id', 'abc-123', '--agent', 'Claude', '--cwd', 'src', '--branch', 'feature-x'],
+      ['session', 'register', '--id', 'abc-12345', '--agent', 'Claude', '--cwd', 'src', '--branch', 'feature-x'],
       { env },
     );
     expect(reg.code).toBe(EXIT.OK);
-    await lr(['session', 'touch', '--id', 'abc-123', 'src/find.ts'], { env });
-    await lr(['session', 'move', '--id', 'abc-123', 'src/sub', '--branch', 'feature-y'], { env });
-
     const listed = JSON.parse((await lr(['sessions', '--format', 'json'], { env })).out);
     expect(listed).toMatchObject([
-      {
-        id: 'abc-123',
-        agent: 'Claude',
-        cwd: join(root, 'src'),
-        workingDir: join(root, 'src', 'sub'),
-        branch: 'feature-y',
-        pid: null,
-        touched: [join(root, 'src', 'find.ts')],
-      },
+      { id: 'abc-12345', agent: 'Claude', cwd: join(root, 'src'), branch: 'feature-x', pid: null, subscriptions: [] },
     ]);
-    expect((await lr(['sessions'], { env })).out).toContain('Claude · feature-y');
+    expect((await lr(['sessions'], { env })).out).toContain('Claude abc-1234 · feature-x');
 
-    await lr(['session', 'unregister', '--id', 'abc-123'], { env });
+    await lr(['session', 'unregister', '--id', 'abc-12345'], { env });
     expect((await lr(['sessions'], { env })).out).toContain('No agent session is running');
+  });
+
+  it('subscribes the session it runs in, found from its parent processes', async () => {
+    const env = { LOCAL_REVIEW_HOME: join(root, 'home') };
+    await lr(['session', 'register', '--id', 's-1', '--agent', 'Claude', '--cwd', '.', '--pid', String(process.pid)], {
+      env,
+    });
+    const inSession = { env, ancestors: [100, process.pid, 1] }; // alive for as long as the test runs
+
+    expect((await lr(['subscribe', 'src', '--path'], inSession)).out).toContain(`Subscribed to ${join(root, 'src')}.`);
+    expect((await lr(['subscribe', 'src', '--path'], inSession)).out).toContain('Already subscribed');
+    expect((await lr(['subscriptions'], inSession)).out).toContain(`${join(root, 'src')} (user)`);
+    expect((await lr(['sessions'], { env })).out).toContain(`subscribed to ${join(root, 'src')} (user)`);
+    expect((await lr(['unsubscribe', '--all'], inSession)).out).toContain('Unsubscribed from');
+    expect((await lr(['subscriptions'], inSession)).out).toContain('subscribed to nothing');
+
+    const outside = await lr(['subscribe'], { env, ancestors: [100, 200] });
+    expect(outside.code).toBe(EXIT.ERROR);
+    expect(outside.err).toContain('does not run in a registered agent session');
+    expect((await lr(['subscribe', '--path'], { env: { ...env, LR_SESSION: 's-1' } })).code).toBe(EXIT.OK);
   });
 
   it('rejects bad input', async () => {

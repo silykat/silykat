@@ -9,3 +9,4 @@ export * from './agentView';
 export * from './anchorVersion';
 export * from './sessions';
 export * from './routing';
+export * from './topics';
