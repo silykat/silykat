@@ -13,10 +13,12 @@ export interface HookInput {
   cwd?: string;
   tool_name?: string;
   tool_input?: { file_path?: unknown; notebook_path?: unknown };
+  /** CwdChanged: where Claude works now. */
+  new_cwd?: string;
 }
 
 export interface HookDeps {
-  registry: Pick<SessionRegistry, 'register' | 'unregister' | 'touch'>;
+  registry: Pick<SessionRegistry, 'register' | 'unregister' | 'touch' | 'moveTo'>;
   /** The Claude Code process of this session, to notice when it is gone. */
   claudePid(): Promise<number | null>;
   /** The command line of a process, to know whether Claude Code was launched with the channel. */
@@ -52,6 +54,12 @@ export async function handleHook(input: HookInput, deps: HookDeps): Promise<void
     case 'SessionEnd':
       await deps.registry.unregister(id);
       return;
+    case 'CwdChanged': {
+      // Where the session works now (e.g. after `cd` into a worktree): comments there are for it.
+      const dir = input.new_cwd ?? input.cwd;
+      if (dir) await deps.registry.moveTo(id, dir, await deps.gitBranch(dir));
+      return;
+    }
     case 'PostToolUse': {
       if (!WRITE_TOOLS.includes(input.tool_name ?? '')) return;
       const target = input.tool_input?.file_path ?? input.tool_input?.notebook_path;

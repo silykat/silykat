@@ -36,6 +36,12 @@ var SessionRegistry = class {
     await (0, import_promises.writeFile)(tmp, JSON.stringify(record, null, 2) + "\n");
     await (0, import_promises.rename)(tmp, target);
   }
+  /** The session now works in `dir` (on `branch`). No-op for an unknown session. */
+  async moveTo(id, dir, branch) {
+    const record = await readRecord(this.file(id, "json"));
+    if (!record || record.workingDir === dir && record.branch === branch) return;
+    await this.register({ ...record, workingDir: dir, branch });
+  }
   async unregister(id) {
     await (0, import_promises.rm)(this.file(id, "json"), { force: true });
     await (0, import_promises.rm)(this.file(id, "touched"), { force: true });
@@ -133,6 +139,7 @@ async function readRecord(file) {
       id: raw.id,
       agent: raw.agent,
       cwd: raw.cwd,
+      workingDir: typeof raw.workingDir === "string" ? raw.workingDir : null,
       branch: typeof raw.branch === "string" ? raw.branch : null,
       pid: typeof raw.pid === "number" ? raw.pid : null,
       startedAt: typeof raw.startedAt === "string" ? raw.startedAt : "",
@@ -210,6 +217,11 @@ async function handleHook(input, deps) {
     case "SessionEnd":
       await deps.registry.unregister(id);
       return;
+    case "CwdChanged": {
+      const dir = input.new_cwd ?? input.cwd;
+      if (dir) await deps.registry.moveTo(id, dir, await deps.gitBranch(dir));
+      return;
+    }
     case "PostToolUse": {
       if (!WRITE_TOOLS.includes(input.tool_name ?? "")) return;
       const target = input.tool_input?.file_path ?? input.tool_input?.notebook_path;

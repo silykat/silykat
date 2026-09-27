@@ -33,6 +33,7 @@ describe('Claude Code hooks', () => {
         id: 's1',
         agent: 'Claude',
         cwd: '/repo',
+        workingDir: null,
         branch: 'feature-x',
         pid: 4242,
         startedAt: '2026-09-26T10:00:00.000Z',
@@ -62,6 +63,16 @@ describe('Claude Code hooks', () => {
     await post('NotebookEdit', { notebook_path: '/repo/nb.ipynb' });
     await post('Read', { file_path: '/repo/ignored.ts' });
     expect((await registry.list())[0]!.touched).toEqual(['/specs/plan.md', '/repo/src/a.ts', '/repo/nb.ipynb']);
+  });
+
+  it('follows the session when it changes folder', async () => {
+    await handleHook({ hook_event_name: 'SessionStart', session_id: 's1', cwd: '/work' }, deps);
+    deps.gitBranch = async (dir) => (dir === '/work/wt-test' ? 'feature-w' : null);
+    await handleHook(
+      { hook_event_name: 'CwdChanged', session_id: 's1', cwd: '/work/wt-test', new_cwd: '/work/wt-test' },
+      deps,
+    );
+    expect(await registry.list()).toMatchObject([{ cwd: '/work', workingDir: '/work/wt-test', branch: 'feature-w' }]);
   });
 
   it('unregisters the session on SessionEnd', async () => {

@@ -589,6 +589,12 @@ var SessionRegistry = class {
     await (0, import_promises2.writeFile)(tmp, JSON.stringify(record, null, 2) + "\n");
     await (0, import_promises2.rename)(tmp, target);
   }
+  /** The session now works in `dir` (on `branch`). No-op for an unknown session. */
+  async moveTo(id, dir, branch) {
+    const record = await readRecord(this.file(id, "json"));
+    if (!record || record.workingDir === dir && record.branch === branch) return;
+    await this.register({ ...record, workingDir: dir, branch });
+  }
   async unregister(id) {
     await (0, import_promises2.rm)(this.file(id, "json"), { force: true });
     await (0, import_promises2.rm)(this.file(id, "touched"), { force: true });
@@ -686,6 +692,7 @@ async function readRecord(file) {
       id: raw.id,
       agent: raw.agent,
       cwd: raw.cwd,
+      workingDir: typeof raw.workingDir === "string" ? raw.workingDir : null,
       branch: typeof raw.branch === "string" ? raw.branch : null,
       pid: typeof raw.pid === "number" ? raw.pid : null,
       startedAt: typeof raw.startedAt === "string" ? raw.startedAt : "",
@@ -884,6 +891,7 @@ Sessions (used by agent integrations to register themselves):
                      [--push yes|no] [--push-command <command>]
   lr session unregister --id <id>
   lr session touch --id <id> <file>       The session wrote this file
+  lr session move --id <id> <dir> [--branch <b>]   The session works in this folder now
 
 Options:
   --root <dir>    Folder holding .local-review/ (default: found from the current directory)
@@ -1063,7 +1071,9 @@ async function sessions(rest, io) {
     return EXIT.OK;
   }
   io.out(
-    list2.map((x) => `${x.agent} \xB7 ${x.branch ?? "no branch"} \xB7 ${x.cwd} (${x.id})${x.push === false ? " \xB7 no push" : ""}`).join("\n")
+    list2.map(
+      (x) => `${x.agent} \xB7 ${x.branch ?? "no branch"} \xB7 ${x.workingDir ?? x.cwd} (${x.id})${x.push === false ? " \xB7 no push" : ""}`
+    ).join("\n")
   );
   return EXIT.OK;
 }
@@ -1104,6 +1114,12 @@ async function session(rest, io) {
       await registry.unregister(id);
       io.out(`Session ${id} unregistered.`);
       return EXIT.OK;
+    case "move": {
+      const dir = positionals[0];
+      if (!dir) throw new UsageError("missing <dir>");
+      await registry.moveTo(id, (0, import_node_path5.resolve)(io.cwd, dir), str(values.branch) ?? null);
+      return EXIT.OK;
+    }
     case "touch": {
       const file = positionals[0];
       if (!file) throw new UsageError("missing <file>");
