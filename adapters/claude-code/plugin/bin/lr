@@ -428,16 +428,14 @@ var Store = class {
     const who = actor(by, agent);
     const current = await this.writableThread(threadId, by);
     assertOwnComment(current, commentId, by);
-    if (current.comments.find((c) => c.id === commentId).body === text) return current;
-    const event = {
-      v: SCHEMA_VERSION,
-      type: "comment.edited",
-      at: (/* @__PURE__ */ new Date()).toISOString(),
-      ...who,
-      commentId,
-      body: text
-    };
-    return this.appendAndReload(threadId, [event]);
+    const comment = current.comments.find((c) => c.id === commentId);
+    if (comment.body === text) return current;
+    const at = (/* @__PURE__ */ new Date()).toISOString();
+    const events = [{ v: SCHEMA_VERSION, type: "comment.edited", at, ...who, commentId, body: text }];
+    const handled = current.status === "addressed" || current.status === "needs-info";
+    if (by === "user" && !comment.isDraft && handled)
+      events.push({ v: SCHEMA_VERSION, type: "status.changed", at, ...who, status: "open" });
+    return this.appendAndReload(threadId, events);
   }
   /**
    * Deletes a comment. Only its author can delete it. Deleting the last comment deletes the
@@ -613,6 +611,7 @@ function contextScore(anchor, lines, start, n) {
 }
 
 // ../core/src/agentView.ts
+var import_node_crypto2 = require("node:crypto");
 var import_node_fs = require("node:fs");
 var import_node_path4 = require("node:path");
 
@@ -872,7 +871,8 @@ function parseDelivery(line) {
   try {
     const raw = JSON.parse(line);
     if (typeof raw.id !== "string" || typeof raw.root !== "string" || !Array.isArray(raw.threadIds)) return null;
-    const kind = raw.kind === "review" || raw.kind === "reply" ? raw.kind : "comment";
+    const kinds = ["comment", "reply", "review", "edit", "delete"];
+    const kind = kinds.includes(raw.kind) ? raw.kind : "comment";
     return {
       id: raw.id,
       at: typeof raw.at === "string" ? raw.at : "",
@@ -911,17 +911,25 @@ function sessionOfProcess(sessions2, ancestors) {
 }
 
 // ../core/src/agentView.ts
+function userRevision(comments) {
+  const asked = comments.filter((c) => c.author === "user" && !c.isDraft).map((c) => [c.id, c.body]);
+  return (0, import_node_crypto2.createHash)("sha256").update(JSON.stringify(asked)).digest("hex").slice(0, 8);
+}
 function agentView(thread) {
   if (thread.deleted) return null;
   const comments = thread.comments.filter((c) => !c.isDraft);
   if (comments.length === 0) return null;
   const last = comments[comments.length - 1];
   const open2 = thread.status !== "resolved";
+  const lastAgentAt = [...comments].reverse().find((c) => c.author === "agent")?.createdAt;
+  const editedSince = lastAgentAt !== void 0 && comments.some((c) => c.author === "user" && c.editedAt !== void 0 && c.editedAt > lastAgentAt);
+  const userTurn = last.author === "user" || editedSince;
   return {
     thread,
     comments,
-    needsAgent: open2 && last.author === "user",
-    waitsForUser: open2 && last.author === "agent"
+    needsAgent: open2 && userTurn,
+    waitsForUser: open2 && !userTurn,
+    rev: userRevision(comments)
   };
 }
 function isStoreRoot(dir, env = process.env) {
@@ -1038,7 +1046,7 @@ function renderThread(l) {
   const a = thread.anchor;
   const tag = versionTag(a);
   const lines = [`## ${thread.id} \u2014 ${where(l)}`, ""];
-  const facts = [`Status: ${thread.status}`];
+  const facts = [`Status: ${thread.status}`, `Version: ${l.view.rev} (pass --rev ${l.view.rev} when you reply)`];
   if (tag)
     facts.push(`About the ${tag === "Index" ? "staged version (index)" : `version ${tag}`}, not the working tree`);
   if (a.diff) facts.push(`Made in a diff (${a.diff.side === "base" ? "old" : "new"} side)`);
@@ -1047,7 +1055,7 @@ function renderThread(l) {
   if (a.range) lines.push(fence(l.code, a.path, l.outdated ? null : l.range.startLine), "");
   for (const c of comments) {
     const who = c.author === "user" ? "User" : c.agentName ?? "Agent";
-    lines.push(`**${who}** (${c.createdAt}${c.editedAt ? ", edited" : ""}):`, c.body, "");
+    lines.push(`**${who}** (${c.createdAt}${c.editedAt ? `, edited ${c.editedAt}` : ""}):`, c.body, "");
   }
   return lines.join("\n").trimEnd();
 }
@@ -1058,8 +1066,10 @@ function renderReviews(located, reviews) {
 }
 
 // src/cli.ts
-var EXIT = { OK: 0, ERROR: 1, NOT_FOUND: 2 };
+var EXIT = { OK: 0, ERROR: 1, NOT_FOUND: 2, CHANGED: 3 };
 var UsageError = class extends Error {
+};
+var ChangedError = class extends Error {
 };
 var USAGE = `lr \u2014 Local Review, for agents
 
@@ -1071,8 +1081,10 @@ Usage:
                                           the threads of what it is subscribed to (--any-topic: all)
   lr show <thread-id> [--format md|json]  One thread, in full
   lr reply <thread-id> --agent <name> (--body <markdown> | --body-file <path> | --body -)
-           [--status addressed|needs-info]
-  lr set-status <thread-id> addressed|needs-info --agent <name>
+           [--status addressed|needs-info] [--rev <version>]
+  lr set-status <thread-id> addressed|needs-info --agent <name> [--rev <version>]
+           --rev: the version you read (lr list / lr show): refused, exit 3, if the user changed
+           the thread since. Exit 2: the thread no longer exists (e.g. deleted by the user).
 
 Subscriptions (comments are published to the sessions subscribed to their branch or path):
   lr subscribe [<dir-or-file>] [--path]   Subscribe this session to the branch of that folder
@@ -1133,6 +1145,10 @@ async function runCli(args, io) {
 
 ${USAGE}`);
       return EXIT.ERROR;
+    }
+    if (err instanceof ChangedError) {
+      io.err(`lr: ${err.message}`);
+      return EXIT.CHANGED;
     }
     const message = err instanceof Error ? err.message : String(err);
     io.err(`lr: ${message}`);
@@ -1237,7 +1253,7 @@ async function show(rest, io) {
   const id = requireThreadId(positionals);
   const { located } = await visibleThreads(openStore(str(values.root), io));
   const found = located.find((l) => l.view.thread.id === id);
-  if (!found) throw new Error(`Thread not found: ${id}`);
+  if (!found) throw new Error(await whyNotFound(openStore(str(values.root), io), id));
   io.out(str(values.format) === "json" ? JSON.stringify(toJson(found), null, 2) : renderThread(found));
   return EXIT.OK;
 }
@@ -1246,7 +1262,8 @@ async function reply(rest, io) {
     agent: { type: "string" },
     body: { type: "string" },
     "body-file": { type: "string" },
-    status: { type: "string" }
+    status: { type: "string" },
+    rev: { type: "string" }
   });
   const id = requireThreadId(positionals);
   const agent = requireAgent(str(values.agent), io);
@@ -1256,24 +1273,19 @@ async function reply(rest, io) {
   const bodyFile = str(values["body-file"]);
   if (bodyFile) body = await (0, import_promises4.readFile)((0, import_node_path6.resolve)(io.cwd, bodyFile), "utf8");
   if (body === void 0 || body.trim() === "") throw new UsageError("reply needs --body, --body-file or --body -");
-  const state = await openStore(str(values.root), io).addComment(
-    id,
-    { author: "agent", agent, body, reviewId: null },
-    status2 ? { status: status2 } : {}
-  );
+  const store = openStore(str(values.root), io);
+  await assertCurrent(store, id, str(values.rev));
+  const state = await store.addComment(id, { author: "agent", agent, body, reviewId: null }, status2 ? { status: status2 } : {});
   io.out(`Replied on ${state.id} (status: ${state.status}).`);
   return EXIT.OK;
 }
 async function setStatus(rest, io) {
-  const { values, positionals } = parse(rest, { agent: { type: "string" } });
+  const { values, positionals } = parse(rest, { agent: { type: "string" }, rev: { type: "string" } });
   const id = requireThreadId(positionals);
   const status2 = agentStatus(positionals[1]);
-  const state = await openStore(str(values.root), io).setStatus(
-    id,
-    status2,
-    "agent",
-    requireAgent(str(values.agent), io)
-  );
+  const store = openStore(str(values.root), io);
+  await assertCurrent(store, id, str(values.rev));
+  const state = await store.setStatus(id, status2, "agent", requireAgent(str(values.agent), io));
   io.out(`${state.id} is now ${state.status}.`);
   return EXIT.OK;
 }
@@ -1386,6 +1398,26 @@ async function subscriptions(rest, io) {
     );
   return EXIT.OK;
 }
+async function assertCurrent(store, id, rev) {
+  const { state } = await store.loadThread(id);
+  const view = state ? agentView(state) : null;
+  if (!view) throw new Error(await whyNotFound(store, id));
+  if (rev === void 0 || rev === view.rev) return;
+  const located = locate(view, await readWorkingFile(store, view));
+  throw new ChangedError(
+    `the user changed thread ${id} since you read it (version ${rev}, now ${view.rev}): read it again, adapt your work if needed, then reply with --rev ${view.rev}. It is now:
+
+${renderThread(located)}`
+  );
+}
+async function whyNotFound(store, id) {
+  let deleted = false;
+  try {
+    deleted = (await store.loadThread(id)).state?.deleted === true;
+  } catch {
+  }
+  return deleted ? `Thread not found: ${id} was deleted by the user. Stop working on it; if you already changed code for it, ask the user whether to undo those changes (never undo them on your own).` : `Thread not found: ${id}`;
+}
 function requireThreadId(positionals) {
   const id = positionals[0];
   if (!id) throw new UsageError("missing <thread-id>");
@@ -1412,6 +1444,7 @@ function toJson(l) {
     outdated: l.outdated,
     code: l.code,
     status: thread.status,
+    rev: l.view.rev,
     needsAgent,
     waitsForUser,
     comments: comments.map((c) => ({

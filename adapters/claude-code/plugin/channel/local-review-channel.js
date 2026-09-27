@@ -198,7 +198,8 @@ function parseDelivery(line) {
   try {
     const raw = JSON.parse(line);
     if (typeof raw.id !== "string" || typeof raw.root !== "string" || !Array.isArray(raw.threadIds)) return null;
-    const kind = raw.kind === "review" || raw.kind === "reply" ? raw.kind : "comment";
+    const kinds = ["comment", "reply", "review", "edit", "delete"];
+    const kind = kinds.includes(raw.kind) ? raw.kind : "comment";
     return {
       id: raw.id,
       at: typeof raw.at === "string" ? raw.at : "",
@@ -218,7 +219,7 @@ var BATCH_MS = 1500;
 var SUPPORTED_PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 var INSTRUCTIONS = [
   "Local Review is the local code review tool the user works with in VS Code.",
-  'When the user publishes comments there, they arrive as <channel source="...local-review..." store="<folder>" threads="<ids>">.',
+  'When the user publishes comments there (or edits or deletes some), they arrive as <channel source="...local-review..." store="<folder>" threads="<ids>">.',
   "Process them right away, without waiting to be asked: follow the local-review review skill",
   "(/local-review:review), passing `--root <folder>` (the store attribute) to every `lr` command, and listing only",
   "those threads (`lr list --root <folder> --thread <id> --thread <id>\u2026`): others may be for another session.",
@@ -319,15 +320,32 @@ var LocalReviewChannel = class {
   }
 };
 function describe(root, deliveries) {
-  const ids = threadIds(deliveries);
-  const threads = ids.length;
-  const reviews = deliveries.filter((d) => d.kind === "review").length;
-  const comments = deliveries.filter((d) => d.kind === "comment").length;
-  const replies = deliveries.filter((d) => d.kind === "reply").length;
-  const what = [count(reviews, "review"), count(comments, "new comment"), count(replies, "reply", "replies")].filter(
-    (s) => s !== ""
-  );
-  return `The user published ${joinList(what)} in Local Review (${count(threads, "thread")}), in ${root}. Process them now with the local-review review skill, running every lr command with --root ${JSON.stringify(root)}, and listing only these threads: lr list --root ${JSON.stringify(root)} ${ids.map((id) => `--thread ${id}`).join(" ")}`;
+  const at = JSON.stringify(root);
+  const of = (...kinds) => deliveries.filter((d) => kinds.includes(d.kind));
+  const parts = [];
+  const published = of("review", "comment", "reply");
+  if (published.length > 0) {
+    const ids = threadIds(published);
+    const what = [
+      count(of("review").length, "review"),
+      count(of("comment").length, "new comment"),
+      count(of("reply").length, "reply", "replies")
+    ].filter((x) => x !== "");
+    parts.push(
+      `The user published ${joinList(what)} in Local Review (${count(ids.length, "thread")}), in ${root}. Process them now with the local-review review skill, running every lr command with --root ${at}, and listing only these threads: lr list --root ${at} ${ids.map((id) => `--thread ${id}`).join(" ")}`
+    );
+  }
+  const edited = threadIds(of("edit"));
+  if (edited.length > 0)
+    parts.push(
+      `The user edited comments of ${edited.length === 1 ? "thread" : "threads"} ${edited.join(", ")} in Local Review (${root}). Read ${edited.length === 1 ? "it" : "them"} again (lr show <id> --root ${at}): if you already worked on the old version, adapt your work to the new one, then reply.`
+    );
+  const deleted = threadIds(of("delete"));
+  if (deleted.length > 0)
+    parts.push(
+      `The user deleted comments of ${deleted.length === 1 ? "thread" : "threads"} ${deleted.join(", ")} in Local Review (${root}). Check with lr show <id> --root ${at}: a thread that no longer exists was deleted, so stop working on it; if you already changed code for it, ask the user whether to undo those changes (never undo them on your own).`
+    );
+  return parts.join("\n\n");
 }
 var threadIds = (deliveries) => [...new Set(deliveries.flatMap((d) => d.threadIds))];
 var count = (n, one, many = `${one}s`) => n === 0 ? "" : n === 1 && one === "review" ? "a review" : `${n} ${n === 1 ? one : many}`;
@@ -368,7 +386,7 @@ async function main() {
     claudePid: await findClaudePid(process.ppid),
     send: (message) => process.stdout.write(JSON.stringify(message) + "\n"),
     now: () => Date.now(),
-    version: "0.6.0"
+    version: "0.7.0"
   });
   const lines = (0, import_node_readline.createInterface)({ input: process.stdin });
   lines.on("line", (line) => {

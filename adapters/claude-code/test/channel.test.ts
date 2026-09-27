@@ -166,6 +166,18 @@ describe('The channel server', () => {
 });
 
 describe('describe', () => {
+  it('says what changed: edited and deleted comments', () => {
+    const text = describeDeliveries('/r', [
+      delivery({ kind: 'edit', threadIds: ['t_e'] }),
+      delivery({ kind: 'delete', threadIds: ['t_d'] }),
+    ]);
+    expect(text).toContain('The user edited comments of thread t_e');
+    expect(text).toContain('adapt your work to the new one');
+    expect(text).toContain('The user deleted comments of thread t_d');
+    expect(text).toContain('never undo them on your own');
+    expect(text).not.toContain('published');
+  });
+
   it('says what was published', () => {
     expect(describeDeliveries('/r', [delivery({ threadIds: ['t_x'] })])).toMatch(
       /^The user published 1 new comment in Local Review \(1 thread\), in \/r\./,

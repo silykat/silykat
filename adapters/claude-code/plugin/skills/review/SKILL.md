@@ -28,17 +28,22 @@ Read the current code around the thread's lines before deciding. Then do exactly
 
 - **Apply the request.** Change the code, then reply briefly with what you did, marking the thread addressed:
   ```bash
-  lr reply <thread-id> --agent Claude --status addressed --body - <<'EOF'
+  lr reply <thread-id> --agent Claude --rev <version> --status addressed --body - <<'EOF'
   Done: `find` now throws `NotFoundError` instead of returning null.
   EOF
   ```
 - **Ask for a precision**, when the request is ambiguous or several options are reasonable. Do **not** change the code; ask one precise question:
   ```bash
-  lr reply <thread-id> --agent Claude --status needs-info --body - <<'EOF'
+  lr reply <thread-id> --agent Claude --rev <version> --status needs-info --body - <<'EOF'
   Should it throw `NotFoundError` or return a `Result`? Other callers of `find` expect null today.
   EOF
   ```
 - **Disagree**, when you think the request is not a good idea. Explain why in a few sentences, also with `--status needs-info`, and do not change the code.
+
+Always pass `--rev` with the **version** `lr list` showed for the thread ("Version: …"): the user may edit or delete comments while you work.
+
+- **Exit code 3**: the user changed the thread since you read it. `lr` prints it as it is now: adapt your work to the new request (e.g. a rename to another name), then reply again with the new version.
+- **Exit code 2**, "deleted by the user": stop working on that thread and go on with the others. If you already changed code for it, ask the user in the chat whether to undo those changes; never undo them on your own.
 
 Always pass the body on stdin with `--body -` and a quoted heredoc as above, so that Markdown and quotes need no escaping. Reply in the language of the user's comment. Keep replies short, and quote code when it helps.
 

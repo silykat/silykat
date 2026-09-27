@@ -269,7 +269,8 @@ function parseDelivery(line) {
   try {
     const raw = JSON.parse(line);
     if (typeof raw.id !== "string" || typeof raw.root !== "string" || !Array.isArray(raw.threadIds)) return null;
-    const kind = raw.kind === "review" || raw.kind === "reply" ? raw.kind : "comment";
+    const kinds = ["comment", "reply", "review", "edit", "delete"];
+    const kind = kinds.includes(raw.kind) ? raw.kind : "comment";
     return {
       id: raw.id,
       at: typeof raw.at === "string" ? raw.at : "",
