@@ -378,6 +378,11 @@
           "type": "boolean",
           "default": true,
           "description": "Add `.local-review/` to the local git exclude file (`.git/info/exclude`) on the first comment. Never modifies `.gitignore`."
+        },
+        "localReview.pushToAgents": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Send what you publish (comments, replies, reviews, edits, deletions) to the agent sessions subscribed to it, so that they handle it on their own. When off, nothing is sent: ask the agent yourself (e.g. `/local-review:review`), and no warning is shown about sessions."
         }
       }
     },

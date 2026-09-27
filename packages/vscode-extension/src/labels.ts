@@ -1,4 +1,4 @@
-import type { ThreadState } from '@local-review/core';
+import type { CommentState, ThreadState } from '@local-review/core';
 import { versionTag } from './gitUri';
 
 // Pure (no `vscode` import) so that labels can be unit-tested.
@@ -26,6 +26,24 @@ export function outdatedQuote(snippet: string): string {
   return `*This code is no longer in the file:*\n\n${fence}\n${snippet}\n${fence}\n\n---\n\n`;
 }
 
+/**
+ * When the user edited a comment after an agent had replied to it (that reply was about the old
+ * version): that agent's name. `undefined` otherwise.
+ */
+export function editedAfterAgentReplied(comments: readonly CommentState[], c: CommentState): string | undefined {
+  if (c.author !== 'user' || !c.editedAt) return undefined;
+  const edited = c.editedAt;
+  const reply = comments.find((o) => o.author === 'agent' && o.createdAt > c.createdAt && o.createdAt < edited);
+  return reply ? (reply.agentName ?? DEFAULT_AGENT_NAME) : undefined;
+}
+
+/** The next move is the agent's: the user spoke last, or edited a comment after the agent's last reply. */
+function agentsTurn(state: ThreadState): boolean {
+  if (state.lastAuthor !== 'agent') return true;
+  const lastAgentAt = [...state.comments].reverse().find((c) => c.author === 'agent')?.createdAt ?? '';
+  return state.comments.some((c) => c.author === 'user' && c.editedAt !== undefined && c.editedAt > lastAgentAt);
+}
+
 function statusLabel(state: ThreadState): string | undefined {
   const agent = state.lastAgentName ?? DEFAULT_AGENT_NAME;
   switch (state.status) {
@@ -36,6 +54,6 @@ function statusLabel(state: ThreadState): string | undefined {
     case 'addressed':
       return `✅ Addressed by ${agent} — please verify`;
     case 'open':
-      return state.lastAuthor === 'agent' ? `💬 ${agent} replied` : `Waiting for ${agent}`;
+      return agentsTurn(state) ? `Waiting for ${agent}` : `💬 ${agent} replied`;
   }
 }

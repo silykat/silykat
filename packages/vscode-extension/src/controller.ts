@@ -64,9 +64,11 @@ interface Managed {
 /** Comments the user made visible to the agent: to hand over to its session. */
 export interface Publication {
   root: string;
-  kind: 'comment' | 'reply' | 'review';
+  kind: 'comment' | 'reply' | 'review' | 'edit' | 'delete';
   threadIds: string[];
   reviewId?: string;
+  /** Files of threads that no longer exist (deleted), by thread id: to know who to tell. */
+  files?: Record<string, string>;
 }
 
 export interface AgentReply {
@@ -587,8 +589,11 @@ export class ReviewController implements vscode.Disposable {
     }
     try {
       comment.mode = vscode.CommentMode.Preview; // leave edit mode so the refresh re-renders it
+      const wasPublished = !managed.state.comments.find((c) => c.id === comment.commentId)?.isDraft;
       const state = await managed.root.store.editComment(comment.threadId, comment.commentId, text, 'user');
       this.adopt(managed.root, state, managed.thread);
+      // Agents saw the old version: they are told (a draft was never seen by anyone).
+      if (wasPublished) this.published.fire({ root: managed.root.path, kind: 'edit', threadIds: [state.id] });
     } catch (err) {
       comment.mode = vscode.CommentMode.Editing;
       managed.thread.comments = [...managed.thread.comments];
@@ -622,9 +627,17 @@ export class ReviewController implements vscode.Disposable {
       ));
     if (!confirmed) return;
     try {
+      const file = this.fileOf(managed.root, managed.state);
       const state = await managed.root.store.deleteComment(comment.threadId, comment.commentId, 'user');
       if (state.deleted) this.forget(state.id);
       else this.adopt(managed.root, state, managed.thread);
+      if (!isDraft)
+        this.published.fire({
+          root: managed.root.path,
+          kind: 'delete',
+          threadIds: [state.id],
+          files: { [state.id]: file },
+        });
     } catch (err) {
       this.log.error('Failed to delete the comment', err);
       void vscode.window.showErrorMessage(`Local Review: the comment could not be deleted (${String(err)}).`);
@@ -646,8 +659,16 @@ export class ReviewController implements vscode.Disposable {
       ));
     if (!confirmed) return;
     try {
+      const file = this.fileOf(managed.root, managed.state);
       await managed.root.store.deleteThread(threadId, 'user');
       this.forget(threadId);
+      if (managed.state.hasPublished)
+        this.published.fire({
+          root: managed.root.path,
+          kind: 'delete',
+          threadIds: [threadId],
+          files: { [threadId]: file },
+        });
     } catch (err) {
       this.log.error('Failed to delete the thread', err);
       void vscode.window.showErrorMessage(`Local Review: the thread could not be deleted (${String(err)}).`);

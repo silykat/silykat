@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import type { CommentState, ThreadState } from '@local-review/core';
 import { commentContextValue, threadContextValue } from './contextValue';
-import { DEFAULT_AGENT_NAME, outdatedQuote, threadLabel } from './labels';
+import { DEFAULT_AGENT_NAME, editedAfterAgentReplied, outdatedQuote, threadLabel } from './labels';
 import { toZeroBasedLines } from './range';
 
 export { DEFAULT_AGENT_NAME } from './labels';
@@ -45,6 +45,8 @@ export class LrComment implements vscode.Comment {
     c: CommentState,
     ctx: RenderContext,
     prefix = '',
+    /** The agent that had replied when the user edited this comment, if any (for the label). */
+    editedAfterReplyOf?: string,
   ) {
     this.commentId = c.id;
     this.isUserComment = c.author === 'user';
@@ -57,7 +59,8 @@ export class LrComment implements vscode.Comment {
         : { name: c.agentName ?? DEFAULT_AGENT_NAME, iconPath: ctx.agentIcon };
     this.timestamp = new Date(c.createdAt);
     this.contextValue = commentContextValue(c);
-    this.label = [c.isDraft ? 'Pending' : '', c.editedAt ? 'edited' : ''].filter(Boolean).join(' · ') || undefined;
+    const edited = c.editedAt ? (editedAfterReplyOf ? `edited after ${editedAfterReplyOf} replied` : 'edited') : '';
+    this.label = [c.isDraft ? 'Pending' : '', edited].filter(Boolean).join(' · ') || undefined;
   }
 
   /** Switches to the inline editor, on the stored text only (never the rendering prefix). */
@@ -102,7 +105,9 @@ export function applyThreadState(
   );
   const quote = opts.outdated ? outdatedQuote(state.anchor.snippet) : '';
   thread.comments = state.comments.map(
-    (c, i) => editing.get(c.id) ?? new LrComment(state.id, c, ctx, i === 0 ? quote : ''),
+    (c, i) =>
+      editing.get(c.id) ??
+      new LrComment(state.id, c, ctx, i === 0 ? quote : '', editedAfterAgentReplied(state.comments, c)),
   );
   thread.label = threadLabel(state, opts.outdated);
   thread.contextValue = threadContextValue(state);
