@@ -187,17 +187,22 @@ async function forThisSession(
   const session = sessionOfProcess(sessions, (await io.ancestors?.()) ?? (await processAncestors()));
   if (!session) return { located };
   const subs = session.subscriptions;
-  const covered = (l: Located) =>
-    subs.some((sub) =>
+  const covered = async (l: Located) => {
+    const file = join(store.root, ...l.view.thread.anchor.path.split('/'));
+    // A thread made before branches (or outside VS Code) has none recorded: the branch of its file now.
+    const branch = l.view.thread.branch ?? branchOfTopic(await topicOf(file));
+    return subs.some((sub) =>
       sub.topic.kind === 'path'
-        ? isWithin(join(store.root, ...l.view.thread.anchor.path.split('/')), sub.topic.path)
-        : branchKey(branchOfTopic(sub.topic)) === branchKey(l.view.thread.branch),
+        ? isWithin(file, sub.topic.path)
+        : branch !== null && branchKey(branchOfTopic(sub.topic)) === branchKey(branch),
     );
+  };
   const scope =
     subs.length === 0
       ? 'this session is subscribed to nothing (lr subscribe, or --any-topic to see every thread)'
       : `only what this session is subscribed to: ${subs.map((x) => topicLabel(x.topic)).join(', ')} (--any-topic for every thread)`;
-  return { located: located.filter(covered), scope };
+  const keep = await Promise.all(located.map(covered));
+  return { located: located.filter((_, i) => keep[i]), scope };
 }
 
 async function status(rest: string[], io: Io): Promise<number> {

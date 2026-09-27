@@ -1195,11 +1195,16 @@ async function forThisSession(located, store, values, io) {
   const session2 = sessionOfProcess(sessions2, await io.ancestors?.() ?? await processAncestors());
   if (!session2) return { located };
   const subs = session2.subscriptions;
-  const covered = (l) => subs.some(
-    (sub) => sub.topic.kind === "path" ? isWithin((0, import_node_path6.join)(store.root, ...l.view.thread.anchor.path.split("/")), sub.topic.path) : branchKey(branchOfTopic(sub.topic)) === branchKey(l.view.thread.branch)
-  );
+  const covered = async (l) => {
+    const file = (0, import_node_path6.join)(store.root, ...l.view.thread.anchor.path.split("/"));
+    const branch = l.view.thread.branch ?? branchOfTopic(await topicOf(file));
+    return subs.some(
+      (sub) => sub.topic.kind === "path" ? isWithin(file, sub.topic.path) : branch !== null && branchKey(branchOfTopic(sub.topic)) === branchKey(branch)
+    );
+  };
   const scope = subs.length === 0 ? "this session is subscribed to nothing (lr subscribe, or --any-topic to see every thread)" : `only what this session is subscribed to: ${subs.map((x) => topicLabel(x.topic)).join(", ")} (--any-topic for every thread)`;
-  return { located: located.filter(covered), scope };
+  const keep = await Promise.all(located.map(covered));
+  return { located: located.filter((_, i) => keep[i]), scope };
 }
 async function status(rest, io) {
   const { values } = parse(rest, { "any-topic": { type: "boolean" } });
