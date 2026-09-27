@@ -41,6 +41,8 @@ When a thread's code disappears (rewritten or deleted elsewhere, stashed away, o
 
 **Review mode.** Instead of **Comment**, click **Start Review**: the comment is saved as a **Pending** draft, and the status bar shows **Review · N**. While the review is in progress, **Add to Review** adds more drafts, and **Comment Now** still publishes right away. Click the status bar to **Submit Review**, with an optional summary, or to **Show Pending Comments**. During a review, replying in a published thread offers **Add to Review** (a draft reply, published with the review; it then hands the thread back to the agent) and **Reply Now**. **Discard Review** deletes all drafts after confirmation: threads that only held drafts disappear, published threads are kept. Drafts survive a restart, and the agent does not see them until the review is submitted.
 
+**Threads belong to their git branch.** A thread remembers the branch of its file (a new file not added to git yet included). Switch branches (`git checkout`) and VS Code shows only the threads of the branch checked out; the others come back with their branch. Each git worktree has its own branch, even one inside another open folder. There is one review per branch, submitted apart: the status bar and **Submit Review** act on the review of the branch of the file you have open. Rename a branch and its threads and review follow it; delete it and they are deleted too. Files ignored by git, and files outside git, are not on a branch: their threads always show.
+
 Until the first agent integration ships, **Local Review (dev): Simulate Agent Reply** writes a reply as the agent from a separate process, through the same path a real integration will use.
 
 ## Agent integration (Claude Code)
