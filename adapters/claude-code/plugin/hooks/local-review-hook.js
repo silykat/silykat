@@ -36,16 +36,50 @@ var SessionRegistry = class {
     await (0, import_promises.writeFile)(tmp, JSON.stringify(record, null, 2) + "\n");
     await (0, import_promises.rename)(tmp, target);
   }
-  /** The session now works in `dir` (on `branch`). No-op for an unknown session. */
+  /**
+   * The session now works in `dir`, on `branch` (a function to compute it only when the session did
+   * move). No-op for an unknown session, or one already there.
+   */
   async moveTo(id, dir, branch) {
     const record = await readRecord(this.file(id, "json"));
-    if (!record || record.workingDir === dir && record.branch === branch) return;
-    await this.register({ ...record, workingDir: dir, branch });
+    if (!record || (record.workingDir ?? record.cwd) === dir) return;
+    await this.register({
+      ...record,
+      workingDir: dir,
+      branch: typeof branch === "function" ? await branch(dir) : branch
+    });
   }
+  /** Everything the registry keeps about a session goes with it. */
   async unregister(id) {
-    await (0, import_promises.rm)(this.file(id, "json"), { force: true });
-    await (0, import_promises.rm)(this.file(id, "touched"), { force: true });
-    await (0, import_promises.rm)(this.file(id, "inbox"), { force: true });
+    this.file(id, "json");
+    let names = [];
+    try {
+      names = await (0, import_promises.readdir)(this.dir);
+    } catch {
+      return;
+    }
+    await Promise.all(names.filter((n) => n.startsWith(`${id}.`)).map((n) => (0, import_promises.rm)((0, import_node_path.join)(this.dir, n), { force: true })));
+  }
+  /** A small note an adapter keeps about a session between two hooks (removed with the session). */
+  async setNote(id, key, value) {
+    await (0, import_promises.mkdir)(this.dir, { recursive: true });
+    await (0, import_promises.writeFile)(this.note(id, key), value);
+  }
+  /** Reads and removes a note; `undefined` when there is none. */
+  async takeNote(id, key) {
+    const file = this.note(id, key);
+    try {
+      const value = await (0, import_promises.readFile)(file, "utf8");
+      await (0, import_promises.rm)(file, { force: true });
+      return value;
+    } catch {
+      return void 0;
+    }
+  }
+  note(id, key) {
+    if (!SESSION_ID.test(key)) throw new Error(`Invalid note key: ${key}`);
+    this.file(id, "json");
+    return (0, import_node_path.join)(this.dir, `${id}.note-${key}`);
   }
   /** Records that a session wrote a file. Appended, so concurrent hooks never lose an entry. */
   async touch(id, absolutePath) {
@@ -171,6 +205,7 @@ function parseDelivery(line) {
 
 // src/hook.ts
 var import_node_child_process = require("node:child_process");
+var import_promises2 = require("node:fs/promises");
 var import_node_path2 = require("node:path");
 
 // src/channelFlag.ts
@@ -222,7 +257,18 @@ async function handleHook(input, deps) {
       if (dir) await deps.registry.moveTo(id, dir, await deps.gitBranch(dir));
       return;
     }
+    case "PreToolUse": {
+      if (input.tool_name === "Bash") await deps.registry.setNote(id, bashNote(input), String(deps.now().getTime()));
+      return;
+    }
     case "PostToolUse": {
+      if (input.cwd) await deps.registry.moveTo(id, input.cwd, deps.gitBranch);
+      if (input.tool_name === "Bash") {
+        const since = Number(await deps.registry.takeNote(id, bashNote(input)));
+        if (!input.cwd || !Number.isFinite(since) || since <= 0) return;
+        for (const file of await deps.changedFiles(input.cwd, since)) await deps.registry.touch(id, file);
+        return;
+      }
       if (!WRITE_TOOLS.includes(input.tool_name ?? "")) return;
       const target = input.tool_input?.file_path ?? input.tool_input?.notebook_path;
       if (typeof target !== "string" || target === "") return;
@@ -231,10 +277,26 @@ async function handleHook(input, deps) {
     }
   }
 }
-function run(cmd, args, cwd) {
+var bashNote = (input) => `bash-${/^[A-Za-z0-9_-]{1,100}$/.test(input.tool_use_id ?? "") ? input.tool_use_id : "command"}`;
+function run(cmd, args, cwd, raw = false) {
   return new Promise(
-    (done) => (0, import_node_child_process.execFile)(cmd, args, { cwd, timeout: 3e3 }, (err, stdout) => done(err ? null : stdout.trim()))
+    (done) => (0, import_node_child_process.execFile)(
+      cmd,
+      args,
+      { cwd, timeout: 3e3, maxBuffer: 16 * 1024 * 1024 },
+      (err, stdout) => done(err ? null : raw ? stdout : stdout.trim())
+    )
   );
+}
+async function changedFiles(cwd, sinceMs) {
+  const top = await run("git", ["rev-parse", "--show-toplevel"], cwd);
+  const status = top ? await run("git", ["status", "--porcelain", "-z"], cwd, true) : null;
+  if (!top || !status) return [];
+  const paths = status.split("\0").filter((entry) => entry.length > 3 && entry[0] !== "R" && entry[1] !== "D").map((entry) => (0, import_node_path2.join)(top, entry.slice(3)));
+  const recent = await Promise.all(
+    paths.map(async (p) => ((await (0, import_promises2.stat)(p).catch(() => null))?.mtimeMs ?? 0) >= sinceMs - 1e3)
+  );
+  return paths.filter((_, i) => recent[i]);
 }
 var gitBranch = async (cwd) => await run("git", ["symbolic-ref", "--quiet", "--short", "HEAD"], cwd) || null;
 var commandLine = (pid) => run("ps", ["-o", "args=", "-p", String(pid)]);
@@ -261,6 +323,7 @@ async function main() {
     claudePid: () => findClaudePid(),
     commandLine,
     gitBranch,
+    changedFiles,
     now: () => /* @__PURE__ */ new Date()
   });
 }

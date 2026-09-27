@@ -39,16 +39,50 @@ var SessionRegistry = class {
     await (0, import_promises.writeFile)(tmp, JSON.stringify(record, null, 2) + "\n");
     await (0, import_promises.rename)(tmp, target);
   }
-  /** The session now works in `dir` (on `branch`). No-op for an unknown session. */
+  /**
+   * The session now works in `dir`, on `branch` (a function to compute it only when the session did
+   * move). No-op for an unknown session, or one already there.
+   */
   async moveTo(id, dir, branch) {
     const record = await readRecord(this.file(id, "json"));
-    if (!record || record.workingDir === dir && record.branch === branch) return;
-    await this.register({ ...record, workingDir: dir, branch });
+    if (!record || (record.workingDir ?? record.cwd) === dir) return;
+    await this.register({
+      ...record,
+      workingDir: dir,
+      branch: typeof branch === "function" ? await branch(dir) : branch
+    });
   }
+  /** Everything the registry keeps about a session goes with it. */
   async unregister(id) {
-    await (0, import_promises.rm)(this.file(id, "json"), { force: true });
-    await (0, import_promises.rm)(this.file(id, "touched"), { force: true });
-    await (0, import_promises.rm)(this.file(id, "inbox"), { force: true });
+    this.file(id, "json");
+    let names = [];
+    try {
+      names = await (0, import_promises.readdir)(this.dir);
+    } catch {
+      return;
+    }
+    await Promise.all(names.filter((n) => n.startsWith(`${id}.`)).map((n) => (0, import_promises.rm)((0, import_node_path.join)(this.dir, n), { force: true })));
+  }
+  /** A small note an adapter keeps about a session between two hooks (removed with the session). */
+  async setNote(id, key, value) {
+    await (0, import_promises.mkdir)(this.dir, { recursive: true });
+    await (0, import_promises.writeFile)(this.note(id, key), value);
+  }
+  /** Reads and removes a note; `undefined` when there is none. */
+  async takeNote(id, key) {
+    const file = this.note(id, key);
+    try {
+      const value = await (0, import_promises.readFile)(file, "utf8");
+      await (0, import_promises.rm)(file, { force: true });
+      return value;
+    } catch {
+      return void 0;
+    }
+  }
+  note(id, key) {
+    if (!SESSION_ID.test(key)) throw new Error(`Invalid note key: ${key}`);
+    this.file(id, "json");
+    return (0, import_node_path.join)(this.dir, `${id}.note-${key}`);
   }
   /** Records that a session wrote a file. Appended, so concurrent hooks never lose an entry. */
   async touch(id, absolutePath) {
@@ -296,9 +330,14 @@ var CHANNEL = "plugin:local-review@local-review";
 var LAUNCH_WITH_CHANNEL = `claude --dangerously-load-development-channels ${CHANNEL}`;
 
 // src/hook.ts
-function run(cmd, args, cwd) {
+function run(cmd, args, cwd, raw = false) {
   return new Promise(
-    (done) => (0, import_node_child_process.execFile)(cmd, args, { cwd, timeout: 3e3 }, (err, stdout) => done(err ? null : stdout.trim()))
+    (done) => (0, import_node_child_process.execFile)(
+      cmd,
+      args,
+      { cwd, timeout: 3e3, maxBuffer: 16 * 1024 * 1024 },
+      (err, stdout) => done(err ? null : raw ? stdout : stdout.trim())
+    )
   );
 }
 async function findClaudePid(startPid = process.ppid, maxHops = 6) {
@@ -322,7 +361,7 @@ async function main() {
     claudePid: await findClaudePid(process.ppid),
     send: (message) => process.stdout.write(JSON.stringify(message) + "\n"),
     now: () => Date.now(),
-    version: "0.4.1"
+    version: "0.4.2"
   });
   const lines = (0, import_node_readline.createInterface)({ input: process.stdin });
   lines.on("line", (line) => {

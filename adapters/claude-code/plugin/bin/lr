@@ -589,16 +589,50 @@ var SessionRegistry = class {
     await (0, import_promises2.writeFile)(tmp, JSON.stringify(record, null, 2) + "\n");
     await (0, import_promises2.rename)(tmp, target);
   }
-  /** The session now works in `dir` (on `branch`). No-op for an unknown session. */
+  /**
+   * The session now works in `dir`, on `branch` (a function to compute it only when the session did
+   * move). No-op for an unknown session, or one already there.
+   */
   async moveTo(id, dir, branch) {
     const record = await readRecord(this.file(id, "json"));
-    if (!record || record.workingDir === dir && record.branch === branch) return;
-    await this.register({ ...record, workingDir: dir, branch });
+    if (!record || (record.workingDir ?? record.cwd) === dir) return;
+    await this.register({
+      ...record,
+      workingDir: dir,
+      branch: typeof branch === "function" ? await branch(dir) : branch
+    });
   }
+  /** Everything the registry keeps about a session goes with it. */
   async unregister(id) {
-    await (0, import_promises2.rm)(this.file(id, "json"), { force: true });
-    await (0, import_promises2.rm)(this.file(id, "touched"), { force: true });
-    await (0, import_promises2.rm)(this.file(id, "inbox"), { force: true });
+    this.file(id, "json");
+    let names = [];
+    try {
+      names = await (0, import_promises2.readdir)(this.dir);
+    } catch {
+      return;
+    }
+    await Promise.all(names.filter((n) => n.startsWith(`${id}.`)).map((n) => (0, import_promises2.rm)((0, import_node_path2.join)(this.dir, n), { force: true })));
+  }
+  /** A small note an adapter keeps about a session between two hooks (removed with the session). */
+  async setNote(id, key, value) {
+    await (0, import_promises2.mkdir)(this.dir, { recursive: true });
+    await (0, import_promises2.writeFile)(this.note(id, key), value);
+  }
+  /** Reads and removes a note; `undefined` when there is none. */
+  async takeNote(id, key) {
+    const file = this.note(id, key);
+    try {
+      const value = await (0, import_promises2.readFile)(file, "utf8");
+      await (0, import_promises2.rm)(file, { force: true });
+      return value;
+    } catch {
+      return void 0;
+    }
+  }
+  note(id, key) {
+    if (!SESSION_ID.test(key)) throw new Error(`Invalid note key: ${key}`);
+    this.file(id, "json");
+    return (0, import_node_path2.join)(this.dir, `${id}.note-${key}`);
   }
   /** Records that a session wrote a file. Appended, so concurrent hooks never lose an entry. */
   async touch(id, absolutePath) {
