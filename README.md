@@ -43,6 +43,8 @@ When a thread's code disappears (rewritten or deleted elsewhere, stashed away, o
 
 **Threads belong to their git branch.** A thread remembers the branch of its file (a new file not added to git yet included). Switch branches (`git checkout`) and VS Code shows only the threads of the branch checked out; the others come back with their branch. Each git worktree has its own branch, even one inside another open folder. There is one review per branch, submitted apart: the status bar and **Submit Review** act on the review of the branch of the file you have open. Rename a branch and its threads and review follow it; delete it and they are deleted too. Files ignored by git, and files outside git, are not on a branch: their threads always show.
 
+**Files outside the open folders.** A file in none of the folders open in VS Code (e.g. a spec an agent wrote in a parent folder) can be commented too. Its threads are kept in the machine store, `~/.local-review/files/` (or `$LOCAL_REVIEW_HOME/files/`), with the file's full path, and show in any VS Code window where the file is opened. Agents read them with `--root /`. For now these files have no git features (comments on a diff side, following a rename with git).
+
 Until the first agent integration ships, **Local Review (dev): Simulate Agent Reply** writes a reply as the agent from a separate process, through the same path a real integration will use.
 
 ## Agent integration (Claude Code)
