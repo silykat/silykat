@@ -35,6 +35,8 @@ export interface LocalReviewApi {
   setDeliveryWarner(warner: Warner | undefined): void;
   /** Tests only: look at the git branches now (also done every few seconds). */
   refreshBranches(): Promise<void>;
+  /** Tests only: whether a review is in progress anywhere, and on the active editor's branch. */
+  reviewContext(): { active: boolean; here: boolean };
   /** Tests only: threads kept for branches that are not checked out. */
   hiddenThreads(): string[];
   /** Tests only: answer "publish without subscribers?" without showing it. */
@@ -132,6 +134,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
     },
     refreshBranches: () => review.refreshBranches(),
     hiddenThreads: () => review.hiddenThreads(),
+    reviewContext: () => ({ ...review.reviewContext }),
     setNoSubscriberPrompt: (prompt) => {
       deliveries.askNoSubscriber = prompt ?? defaultNoSubscriberPrompt;
     },

@@ -97,6 +97,23 @@ describe('Threads belong to their git branch', () => {
     git('branch', '-D', 'other-2');
   });
 
+  it('offers drafts first only where a review is in progress: on the branch of the file shown', async () => {
+    const waitHere = async (expected: boolean) => {
+      for (let i = 0; i < 80 && api.reviewContext().here !== expected; i++) await new Promise((r) => setTimeout(r, 25));
+      return api.reviewContext();
+    };
+    await vscode.window.showTextDocument(uri);
+    assert.deepEqual(await waitHere(false), { active: false, here: false });
+    await comment('Draft here', 1, 'localReview.addToReview');
+    assert.deepEqual(await waitHere(true), { active: true, here: true });
+
+    await checkout('-b', 'other-4'); // the review stays on the home branch
+    assert.deepEqual(await waitHere(false), { active: true, here: false });
+    await checkout(home);
+    assert.deepEqual(await waitHere(true), { active: true, here: true });
+    git('branch', '-D', 'other-4');
+  });
+
   it('follows a renamed branch, and deletes the threads and review of a deleted one', async () => {
     await checkout('-b', 'to-rename');
     const kept = await comment('Survives the rename', 1);

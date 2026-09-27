@@ -201,7 +201,7 @@
         },
         {
           "command": "localReview.startReview",
-          "when": "!localReview.reviewActive"
+          "when": "!localReview.reviewActiveHere"
         },
         {
           "command": "localReview.submitReview",
@@ -246,22 +246,22 @@
       "comments/commentThread/context": [
         {
           "command": "localReview.submitComment",
-          "when": "commentController == local-review && commentThreadIsEmpty && !commentIsEmpty && !localReview.reviewActive",
+          "when": "commentController == local-review && commentThreadIsEmpty && !commentIsEmpty && !localReview.reviewActiveHere",
           "group": "inline@1"
         },
         {
           "command": "localReview.startReview",
-          "when": "commentController == local-review && commentThreadIsEmpty && !commentIsEmpty && !localReview.reviewActive",
+          "when": "commentController == local-review && commentThreadIsEmpty && !commentIsEmpty && !localReview.reviewActiveHere",
           "group": "inline@2"
         },
         {
           "command": "localReview.addToReview",
-          "when": "commentController == local-review && commentThreadIsEmpty && !commentIsEmpty && localReview.reviewActive",
+          "when": "commentController == local-review && commentThreadIsEmpty && !commentIsEmpty && localReview.reviewActiveHere",
           "group": "inline@1"
         },
         {
           "command": "localReview.commentNow",
-          "when": "commentController == local-review && commentThreadIsEmpty && !commentIsEmpty && localReview.reviewActive",
+          "when": "commentController == local-review && commentThreadIsEmpty && !commentIsEmpty && localReview.reviewActiveHere",
           "group": "inline@2"
         },
         {
@@ -276,17 +276,17 @@
         },
         {
           "command": "localReview.reply",
-          "when": "commentController == local-review && !commentThreadIsEmpty && !commentIsEmpty && commentThread =~ /^lr (open|needs-info|addressed|resolved)( diff)?$/ && !localReview.reviewActive",
+          "when": "commentController == local-review && !commentThreadIsEmpty && !commentIsEmpty && commentThread =~ /^lr (open|needs-info|addressed|resolved)( diff)?$/ && !localReview.reviewActiveHere",
           "group": "inline@1"
         },
         {
           "command": "localReview.addToReview",
-          "when": "commentController == local-review && !commentThreadIsEmpty && !commentIsEmpty && commentThread =~ /^lr (open|needs-info|addressed|resolved)( diff)?$/ && localReview.reviewActive",
+          "when": "commentController == local-review && !commentThreadIsEmpty && !commentIsEmpty && commentThread =~ /^lr (open|needs-info|addressed|resolved)( diff)?$/ && localReview.reviewActiveHere",
           "group": "inline@1"
         },
         {
           "command": "localReview.replyNow",
-          "when": "commentController == local-review && !commentThreadIsEmpty && !commentIsEmpty && commentThread =~ /^lr (open|needs-info|addressed|resolved)( diff)?$/ && localReview.reviewActive",
+          "when": "commentController == local-review && !commentThreadIsEmpty && !commentIsEmpty && commentThread =~ /^lr (open|needs-info|addressed|resolved)( diff)?$/ && localReview.reviewActiveHere",
           "group": "inline@2"
         }
       ],

@@ -474,9 +474,34 @@ export class ReviewController implements vscode.Disposable {
     else this.activeReviews.set(reviewKey(root, review.branch), { root, review });
   }
 
+  /** The contexts last set, for tests: a review in progress anywhere, and on the active editor's branch. */
+  readonly reviewContext = { active: false, here: false };
+
+  /**
+   * `localReview.reviewActive`: a review is in progress somewhere (Submit, Discard…).
+   * `localReview.reviewActiveHere`: one is in progress on the branch of the active editor's file,
+   * which decides whether new comments are drafts first ("Add to Review") or published first.
+   */
   private updateReviewContext(): void {
-    void vscode.commands.executeCommand('setContext', 'localReview.reviewActive', this.activeReviews.size > 0);
+    this.setReviewContext('active', this.activeReviews.size > 0);
     this.changed.fire();
+    void this.reviewHere().then((here) => this.setReviewContext('here', here));
+  }
+
+  private setReviewContext(which: 'active' | 'here', value: boolean): void {
+    this.reviewContext[which] = value;
+    const key = which === 'active' ? 'localReview.reviewActive' : 'localReview.reviewActiveHere';
+    void vscode.commands.executeCommand('setContext', key, value);
+  }
+
+  /** Whether a review is in progress on the branch of the active editor's file. */
+  private async reviewHere(): Promise<boolean> {
+    const uri = vscode.window.activeTextEditor?.document.uri;
+    const file = uri ? this.commentedFile(uri) : undefined;
+    const root = file ? this.roots.forFile(file) : undefined;
+    if (!file || !root) return false;
+    const branch = branchOfTopic(await topicOf(file));
+    return this.activeReviews.has(reviewKey(root, branch));
   }
 
   /** Root of the active editor, else the first one. */
@@ -691,6 +716,8 @@ export class ReviewController implements vscode.Disposable {
       vscode.workspace.onDidOpenTextDocument((doc) => void this.onDocumentOpened(doc)),
       vscode.workspace.onDidCloseTextDocument((doc) => void this.onDocumentClosed(doc)),
       vscode.workspace.onDidRenameFiles((e) => void this.onFilesRenamed(e)),
+      // Draft first or publish first depends on the review of the branch of the file shown.
+      vscode.window.onDidChangeActiveTextEditor(() => this.updateReviewContext()),
     );
   }
 
@@ -1134,6 +1161,7 @@ export class ReviewController implements vscode.Disposable {
 
   /** Shows, or hides, the threads of worktrees whose branch changed. */
   private async applyBranches(): Promise<void> {
+    this.updateReviewContext(); // the branch of the active editor may have changed
     for (const m of [...this.managed.values()]) if (!this.onItsBranch(m.root, m.state)) this.hide(m.root, m.state);
     for (const { root, state } of [...this.hidden.values()]) {
       if (!this.onItsBranch(root, state)) continue;
