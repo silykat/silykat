@@ -8,6 +8,11 @@ var import_node_readline = require("node:readline");
 var import_promises = require("node:fs/promises");
 var import_node_os = require("node:os");
 var import_node_path = require("node:path");
+
+// ../../packages/core/src/topics.ts
+var topicKey = (t) => t.kind === "branch" ? `branch:${t.repo}#${t.branch}` : `path:${t.path}`;
+
+// ../../packages/core/src/sessions.ts
 function localReviewHome(env = process.env) {
   return env.LOCAL_REVIEW_HOME?.trim() || (0, import_node_path.join)((0, import_node_os.homedir)(), ".local-review");
 }
@@ -38,19 +43,6 @@ var SessionRegistry = class {
     const tmp = `${target}.${process.pid}.tmp`;
     await (0, import_promises.writeFile)(tmp, JSON.stringify(record, null, 2) + "\n");
     await (0, import_promises.rename)(tmp, target);
-  }
-  /**
-   * The session now works in `dir`, on `branch` (a function to compute it only when the session did
-   * move). No-op for an unknown session, or one already there.
-   */
-  async moveTo(id, dir, branch) {
-    const record = await readRecord(this.file(id, "json"));
-    if (!record || (record.workingDir ?? record.cwd) === dir) return;
-    await this.register({
-      ...record,
-      workingDir: dir,
-      branch: typeof branch === "function" ? await branch(dir) : branch
-    });
   }
   /** Everything the registry keeps about a session goes with it. */
   async unregister(id) {
@@ -84,13 +76,49 @@ var SessionRegistry = class {
     this.file(id, "json");
     return (0, import_node_path.join)(this.dir, `${id}.note-${key}`);
   }
-  /** Records that a session wrote a file. Appended, so concurrent hooks never lose an entry. */
-  async touch(id, absolutePath) {
+  /**
+   * Subscribes a session to a topic. Resolves to `true` when it was not subscribed yet (e.g. to tell
+   * the agent). Appended, so concurrent hooks never lose an entry.
+   */
+  async subscribe(id, topic, reason) {
+    const already = (await this.subscriptions(id)).some((s) => topicKey(s.topic) === topicKey(topic));
+    if (already) return false;
+    await this.appendSubscription(id, { op: "add", topic, reason, at: (/* @__PURE__ */ new Date()).toISOString() });
+    return true;
+  }
+  /** Unsubscribes a session from a topic, or from everything. Resolves to what it was subscribed to. */
+  async unsubscribe(id, topic) {
+    const current = await this.subscriptions(id);
+    const gone = topic === "all" ? current : current.filter((s) => topicKey(s.topic) === topicKey(topic));
+    for (const s of gone)
+      await this.appendSubscription(id, { op: "remove", topic: s.topic, at: (/* @__PURE__ */ new Date()).toISOString() });
+    return gone;
+  }
+  /** What a session is subscribed to, oldest first. */
+  async subscriptions(id) {
+    let text;
+    try {
+      text = await (0, import_promises.readFile)(this.file(id, "subscriptions"), "utf8");
+    } catch {
+      return [];
+    }
+    const current = /* @__PURE__ */ new Map();
+    for (const line of text.split("\n")) {
+      try {
+        const e = JSON.parse(line);
+        if (!e.topic || e.topic.kind !== "branch" && e.topic.kind !== "path") continue;
+        const key = topicKey(e.topic);
+        if (e.op === "remove") current.delete(key);
+        else if (e.op === "add" && !current.has(key))
+          current.set(key, { topic: e.topic, reason: e.reason ?? "user", at: e.at ?? "" });
+      } catch {
+      }
+    }
+    return [...current.values()];
+  }
+  async appendSubscription(id, event) {
     await (0, import_promises.mkdir)(this.dir, { recursive: true });
-    await (0, import_promises.appendFile)(
-      this.file(id, "touched"),
-      JSON.stringify({ path: absolutePath, at: (/* @__PURE__ */ new Date()).toISOString() }) + "\n"
-    );
+    await (0, import_promises.appendFile)(this.file(id, "subscriptions"), JSON.stringify(event) + "\n");
   }
   /** Hands threads to a session. Appended to its inbox, which its agent's adapter watches. */
   async deliver(id, delivery) {
@@ -142,30 +170,9 @@ var SessionRegistry = class {
         await this.unregister(record.id).catch(() => void 0);
         continue;
       }
-      const writtenAt = await this.readTouched(record.id);
-      sessions.push({ ...record, touched: Object.keys(writtenAt), writtenAt });
+      sessions.push({ ...record, subscriptions: await this.subscriptions(record.id) });
     }
     return sessions;
-  }
-  /** The files a session wrote, each once with its last write, ordered by it (most recent last). */
-  async readTouched(id) {
-    let text;
-    try {
-      text = await (0, import_promises.readFile)(this.file(id, "touched"), "utf8");
-    } catch {
-      return {};
-    }
-    const order = /* @__PURE__ */ new Map();
-    for (const line of text.split("\n")) {
-      try {
-        const { path, at } = JSON.parse(line);
-        if (typeof path !== "string") continue;
-        order.delete(path);
-        order.set(path, typeof at === "string" ? at : "");
-      } catch {
-      }
-    }
-    return Object.fromEntries(order);
   }
 };
 async function readRecord(file) {
@@ -176,7 +183,6 @@ async function readRecord(file) {
       id: raw.id,
       agent: raw.agent,
       cwd: raw.cwd,
-      workingDir: typeof raw.workingDir === "string" ? raw.workingDir : null,
       branch: typeof raw.branch === "string" ? raw.branch : null,
       pid: typeof raw.pid === "number" ? raw.pid : null,
       startedAt: typeof raw.startedAt === "string" ? raw.startedAt : "",
@@ -199,7 +205,8 @@ function parseDelivery(line) {
       root: raw.root,
       kind,
       threadIds: raw.threadIds.filter((t) => typeof t === "string"),
-      ...typeof raw.reviewId === "string" ? { reviewId: raw.reviewId } : {}
+      ...typeof raw.reviewId === "string" ? { reviewId: raw.reviewId } : {},
+      ...Array.isArray(raw.recipients) ? { recipients: raw.recipients.filter((r) => typeof r === "string") } : {}
     };
   } catch {
     return null;
@@ -296,7 +303,12 @@ var LocalReviewChannel = class {
         method: "notifications/claude/channel",
         params: {
           content: describe(root, deliveries),
-          meta: { store: root, threads: threadIds(deliveries).join(" ") }
+          meta: {
+            store: root,
+            threads: threadIds(deliveries).join(" "),
+            // Every session these comments went to (e.g. a developer and a reviewer): for debugging.
+            recipients: [...new Set(deliveries.flatMap((d) => d.recipients ?? []))].join(" ")
+          }
         }
       });
     }
@@ -330,14 +342,9 @@ var CHANNEL = "plugin:local-review@local-review";
 var LAUNCH_WITH_CHANNEL = `claude --dangerously-load-development-channels ${CHANNEL}`;
 
 // src/hook.ts
-function run(cmd, args, cwd, raw = false) {
+function run(cmd, args, cwd) {
   return new Promise(
-    (done) => (0, import_node_child_process.execFile)(
-      cmd,
-      args,
-      { cwd, timeout: 3e3, maxBuffer: 16 * 1024 * 1024 },
-      (err, stdout) => done(err ? null : raw ? stdout : stdout.trim())
-    )
+    (done) => (0, import_node_child_process.execFile)(cmd, args, { cwd, timeout: 3e3 }, (err, stdout) => done(err ? null : stdout.trim()))
   );
 }
 async function findClaudePid(startPid = process.ppid, maxHops = 6) {
@@ -361,7 +368,7 @@ async function main() {
     claudePid: await findClaudePid(process.ppid),
     send: (message) => process.stdout.write(JSON.stringify(message) + "\n"),
     now: () => Date.now(),
-    version: "0.4.2"
+    version: "0.5.0"
   });
   const lines = (0, import_node_readline.createInterface)({ input: process.stdin });
   lines.on("line", (line) => {

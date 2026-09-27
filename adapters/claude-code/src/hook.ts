@@ -1,7 +1,6 @@
 import { execFile } from 'node:child_process';
-import { stat } from 'node:fs/promises';
-import { basename, isAbsolute, join, resolve } from 'node:path';
-import type { SessionRegistry } from '@local-review/core';
+import { basename, isAbsolute, resolve } from 'node:path';
+import { topicKey, topicLabel, type SessionRegistry, type Topic } from '@local-review/core';
 import { hasChannel, LAUNCH_WITH_CHANNEL } from './channelFlag';
 
 // Claude Code hooks → the neutral session registry. Everything here is specific to Claude Code:
@@ -15,28 +14,31 @@ export interface HookInput {
   tool_name?: string;
   tool_use_id?: string;
   tool_input?: { file_path?: unknown; notebook_path?: unknown };
-  /** CwdChanged: where Claude works now. */
-  new_cwd?: string;
 }
 
 export interface HookDeps {
-  registry: Pick<SessionRegistry, 'register' | 'unregister' | 'touch' | 'moveTo' | 'setNote' | 'takeNote'>;
+  registry: Pick<SessionRegistry, 'register' | 'unregister' | 'subscribe' | 'subscriptions' | 'setNote' | 'takeNote'>;
   /** The Claude Code process of this session, to notice when it is gone. */
   claudePid(): Promise<number | null>;
   /** The command line of a process, to know whether Claude Code was launched with the channel. */
   commandLine(pid: number): Promise<string | null>;
   gitBranch(cwd: string): Promise<string | null>;
-  /** Files of the git repository of `cwd` changed since `sinceMs` (absolute paths). */
-  changedFiles(cwd: string, sinceMs: number): Promise<string[]>;
+  topicOf(path: string): Promise<Topic>;
+  gitWorktreeOf(dir: string): Promise<{ repo: string; branch: string; worktree: string } | null>;
+  filesChangedSince(dir: string, sinceMs: number): Promise<string[]>;
   now(): Date;
 }
 
-/** Tools that write files; their target is where "the session wrote this file" comes from. */
+/** Tools that write files: their target is a file the session modified. */
 export const WRITE_TOOLS = ['Write', 'Edit', 'MultiEdit', 'NotebookEdit'];
 
-export async function handleHook(input: HookInput, deps: HookDeps): Promise<void> {
+/**
+ * Handles one hook call. Resolves to a message for Claude (added to its context), e.g. to tell it
+ * that the session was just subscribed to a branch, so that it tells the user.
+ */
+export async function handleHook(input: HookInput, deps: HookDeps): Promise<string | undefined> {
   const id = input.session_id;
-  if (!id) return;
+  if (!id) return undefined;
   switch (input.hook_event_name) {
     case 'SessionStart': {
       const cwd = input.cwd ?? process.cwd();
@@ -53,69 +55,63 @@ export async function handleHook(input: HookInput, deps: HookDeps): Promise<void
         push,
         pushCommand: push === true ? null : LAUNCH_WITH_CHANNEL,
       });
-      return;
+      // Started in a git worktree: the session works on its branch.
+      const wt = await deps.gitWorktreeOf(cwd);
+      if (!wt) return undefined;
+      const topic: Topic = { kind: 'branch', ...wt };
+      return (await deps.registry.subscribe(id, topic, 'launch'))
+        ? subscribed(topic, 'you were started in its worktree')
+        : undefined;
     }
     case 'SessionEnd':
       await deps.registry.unregister(id);
-      return;
-    case 'CwdChanged': {
-      // Where the session works now (e.g. after `cd` into a worktree): comments there are for it.
-      const dir = input.new_cwd ?? input.cwd;
-      if (dir) await deps.registry.moveTo(id, dir, await deps.gitBranch(dir));
-      return;
-    }
-    case 'PreToolUse': {
+      return undefined;
+    case 'PreToolUse':
       // Claude often edits files with shell commands: note when the command starts, to see after
       // it which files it changed.
       if (input.tool_name === 'Bash') await deps.registry.setNote(id, bashNote(input), String(deps.now().getTime()));
-      return;
-    }
+      return undefined;
     case 'PostToolUse': {
-      // Where Claude works now: `cwd` follows its `cd`s (e.g. into a worktree).
-      if (input.cwd) await deps.registry.moveTo(id, input.cwd, deps.gitBranch);
-      if (input.tool_name === 'Bash') {
-        const since = Number(await deps.registry.takeNote(id, bashNote(input)));
-        if (!input.cwd || !Number.isFinite(since) || since <= 0) return;
-        for (const file of await deps.changedFiles(input.cwd, since)) await deps.registry.touch(id, file);
-        return;
-      }
-      if (!WRITE_TOOLS.includes(input.tool_name ?? '')) return;
+      if (input.tool_name === 'Bash') return afterShellCommand(id, input, deps);
+      if (!WRITE_TOOLS.includes(input.tool_name ?? '')) return undefined;
       const target = input.tool_input?.file_path ?? input.tool_input?.notebook_path;
-      if (typeof target !== 'string' || target === '') return;
-      await deps.registry.touch(id, isAbsolute(target) ? target : resolve(input.cwd ?? process.cwd(), target));
-      return;
+      if (typeof target !== 'string' || target === '') return undefined;
+      const file = isAbsolute(target) ? target : resolve(input.cwd ?? process.cwd(), target);
+      const topic = await deps.topicOf(file);
+      return (await deps.registry.subscribe(id, topic, 'modified'))
+        ? subscribed(topic, 'you modified a file there')
+        : undefined;
     }
   }
+  return undefined;
 }
+
+/** After a shell command: if it changed files of a branch the session is not subscribed to yet, subscribe. */
+async function afterShellCommand(id: string, input: HookInput, deps: HookDeps): Promise<string | undefined> {
+  const since = Number(await deps.registry.takeNote(id, bashNote(input)));
+  if (!input.cwd || !Number.isFinite(since) || since <= 0) return undefined;
+  const wt = await deps.gitWorktreeOf(input.cwd);
+  if (!wt) return undefined; // outside git, shell commands are not followed
+  const topic: Topic = { kind: 'branch', ...wt };
+  const already = (await deps.registry.subscriptions(id)).some((s) => topicKey(s.topic) === topicKey(topic));
+  if (already || (await deps.filesChangedSince(input.cwd, since)).length === 0) return undefined;
+  return (await deps.registry.subscribe(id, topic, 'modified'))
+    ? subscribed(topic, 'you modified files there')
+    : undefined;
+}
+
+const subscribed = (topic: Topic, why: string) =>
+  `Local Review: this session is now subscribed to ${topicLabel(topic)} (${why}): the comments the user publishes ` +
+  'there will come to you. Tell the user in one short sentence.';
 
 /** One note per shell command, as several may run at once. */
 const bashNote = (input: HookInput) =>
   `bash-${/^[A-Za-z0-9_-]{1,100}$/.test(input.tool_use_id ?? '') ? input.tool_use_id : 'command'}`;
 
-function run(cmd: string, args: string[], cwd?: string, raw = false): Promise<string | null> {
+function run(cmd: string, args: string[], cwd?: string): Promise<string | null> {
   return new Promise((done) =>
-    execFile(cmd, args, { cwd, timeout: 3000, maxBuffer: 16 * 1024 * 1024 }, (err, stdout) =>
-      done(err ? null : raw ? stdout : stdout.trim()),
-    ),
+    execFile(cmd, args, { cwd, timeout: 3000 }, (err, stdout) => done(err ? null : stdout.trim())),
   );
-}
-
-/**
- * Files git sees as changed or new in the repository of `cwd` whose content changed since
- * `sinceMs` (a second of slack for coarse file times). Nothing outside a git repository.
- */
-export async function changedFiles(cwd: string, sinceMs: number): Promise<string[]> {
-  const top = await run('git', ['rev-parse', '--show-toplevel'], cwd);
-  const status = top ? await run('git', ['status', '--porcelain', '-z'], cwd, true) : null;
-  if (!top || !status) return [];
-  const paths = status
-    .split('\0')
-    .filter((entry) => entry.length > 3 && entry[0] !== 'R' && entry[1] !== 'D')
-    .map((entry) => join(top, entry.slice(3)));
-  const recent = await Promise.all(
-    paths.map(async (p) => ((await stat(p).catch(() => null))?.mtimeMs ?? 0) >= sinceMs - 1000),
-  );
-  return paths.filter((_, i) => recent[i]);
 }
 
 /** Current branch; also works in a repository without any commit yet. `null` when detached. */

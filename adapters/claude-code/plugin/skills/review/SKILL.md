@@ -50,6 +50,16 @@ Always pass the body on stdin with `--body -` and a quoted heredoc as above, so 
 - A thread where you already asked a question and the user has not answered yet is not listed: leave it alone.
 - You never resolve threads: only the user does.
 
-## 4. Finish
+## 4. Subscriptions: which comments come to you
+
+Local Review publishes each comment to the sessions **subscribed** to its branch (or, outside git, its file or folder). This session is subscribed automatically when it was started in a git worktree, and when it modifies a file (you are then told so: pass it on to the user). The user may also ask you:
+
+- "subscribe to this branch / this repo / this folder" → `lr subscribe [<folder or file>]` (`--path` for a folder or file rather than its branch);
+- "unsubscribe" → `lr unsubscribe [<folder or file>]`, or `lr unsubscribe --all`;
+- "what are you subscribed to?" → `lr subscriptions`.
+
+Whenever a subscription changes, say so in your reply, in one short sentence. Being subscribed does not mean doing everything: a comment may also go to other sessions (e.g. a reviewer); do what fits your role in this session.
+
+## 5. Finish
 
 Run `lr status` to check that nothing is left, then give the user a short summary: threads addressed, questions asked, files changed.

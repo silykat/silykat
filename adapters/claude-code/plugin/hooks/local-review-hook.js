@@ -2,11 +2,77 @@
 "use strict";
 
 // ../../packages/core/src/sessions.ts
-var import_promises = require("node:fs/promises");
+var import_promises2 = require("node:fs/promises");
 var import_node_os = require("node:os");
+var import_node_path2 = require("node:path");
+
+// ../../packages/core/src/topics.ts
+var import_node_child_process = require("node:child_process");
+var import_promises = require("node:fs/promises");
 var import_node_path = require("node:path");
+var topicKey = (t) => t.kind === "branch" ? `branch:${t.repo}#${t.branch}` : `path:${t.path}`;
+function topicLabel(t) {
+  if (t.kind === "path") return t.path;
+  const repoName = (0, import_node_path.basename)(t.repo) === ".git" ? (0, import_node_path.basename)((0, import_node_path.dirname)(t.repo)) : (0, import_node_path.basename)(t.repo).replace(/\.git$/, "");
+  return `${repoName} \xB7 ${t.branch}`;
+}
+function git(args, cwd, raw = false) {
+  return new Promise(
+    (done) => (0, import_node_child_process.execFile)(
+      "git",
+      args,
+      { cwd, timeout: 3e3, maxBuffer: 16 * 1024 * 1024 },
+      (err, stdout) => done(err ? null : raw ? stdout : stdout.trim())
+    )
+  );
+}
+async function existingDir(path) {
+  let dir = path;
+  for (; ; ) {
+    const s = await (0, import_promises.stat)(dir).catch(() => null);
+    if (s) return s.isDirectory() ? dir : (0, import_node_path.dirname)(dir);
+    const parent = (0, import_node_path.dirname)(dir);
+    if (parent === dir) return dir;
+    dir = parent;
+  }
+}
+async function gitWorktreeOf(dir) {
+  const out = await git(["rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel"], dir);
+  if (!out) return null;
+  const [commonDir, worktree] = out.split("\n");
+  if (!commonDir || !worktree) return null;
+  const branch = await git(["symbolic-ref", "--quiet", "--short", "HEAD"], dir);
+  if (!branch) return null;
+  return { repo: await (0, import_promises.realpath)(commonDir).catch(() => commonDir), branch, worktree };
+}
+async function topicOf(path, opts = {}) {
+  if (!opts.asPath) {
+    const wt = await gitWorktreeOf(await existingDir(path));
+    if (wt) return { kind: "branch", ...wt };
+  }
+  return { kind: "path", path };
+}
+async function filesChangedSince(dir, sinceMs) {
+  const top = await git(["rev-parse", "--show-toplevel"], dir);
+  const status = top ? await git(["status", "--porcelain", "-z"], dir, true) : null;
+  if (!top || !status) return [];
+  const entries = status.split("\0");
+  const paths = [];
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (entry.length < 4) continue;
+    if (entry[0] === "R" || entry[0] === "C") i++;
+    if (entry[1] !== "D" && entry[0] !== "D") paths.push((0, import_node_path.join)(top, entry.slice(3)));
+  }
+  const recent = await Promise.all(
+    paths.map(async (p) => ((await (0, import_promises.stat)(p).catch(() => null))?.mtimeMs ?? 0) >= sinceMs - 1e3)
+  );
+  return paths.filter((_, i) => recent[i]);
+}
+
+// ../../packages/core/src/sessions.ts
 function localReviewHome(env = process.env) {
-  return env.LOCAL_REVIEW_HOME?.trim() || (0, import_node_path.join)((0, import_node_os.homedir)(), ".local-review");
+  return env.LOCAL_REVIEW_HOME?.trim() || (0, import_node_path2.join)((0, import_node_os.homedir)(), ".local-review");
 }
 var SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/;
 function isProcessAlive(pid) {
@@ -20,57 +86,44 @@ function isProcessAlive(pid) {
 var SessionRegistry = class {
   constructor(home = localReviewHome(), isAlive = isProcessAlive) {
     this.isAlive = isAlive;
-    this.dir = (0, import_node_path.join)(home, "sessions");
+    this.dir = (0, import_node_path2.join)(home, "sessions");
   }
   isAlive;
   dir;
   file(id, kind) {
     if (!SESSION_ID.test(id)) throw new Error(`Invalid session id: ${id}`);
-    return (0, import_node_path.join)(this.dir, kind === "json" ? `${id}.json` : `${id}.${kind}.jsonl`);
+    return (0, import_node_path2.join)(this.dir, kind === "json" ? `${id}.json` : `${id}.${kind}.jsonl`);
   }
   /** Registers (or refreshes) a session. Written atomically: readers never see half a file. */
   async register(record) {
-    await (0, import_promises.mkdir)(this.dir, { recursive: true });
+    await (0, import_promises2.mkdir)(this.dir, { recursive: true });
     const target = this.file(record.id, "json");
     const tmp = `${target}.${process.pid}.tmp`;
-    await (0, import_promises.writeFile)(tmp, JSON.stringify(record, null, 2) + "\n");
-    await (0, import_promises.rename)(tmp, target);
-  }
-  /**
-   * The session now works in `dir`, on `branch` (a function to compute it only when the session did
-   * move). No-op for an unknown session, or one already there.
-   */
-  async moveTo(id, dir, branch) {
-    const record = await readRecord(this.file(id, "json"));
-    if (!record || (record.workingDir ?? record.cwd) === dir) return;
-    await this.register({
-      ...record,
-      workingDir: dir,
-      branch: typeof branch === "function" ? await branch(dir) : branch
-    });
+    await (0, import_promises2.writeFile)(tmp, JSON.stringify(record, null, 2) + "\n");
+    await (0, import_promises2.rename)(tmp, target);
   }
   /** Everything the registry keeps about a session goes with it. */
   async unregister(id) {
     this.file(id, "json");
     let names = [];
     try {
-      names = await (0, import_promises.readdir)(this.dir);
+      names = await (0, import_promises2.readdir)(this.dir);
     } catch {
       return;
     }
-    await Promise.all(names.filter((n) => n.startsWith(`${id}.`)).map((n) => (0, import_promises.rm)((0, import_node_path.join)(this.dir, n), { force: true })));
+    await Promise.all(names.filter((n) => n.startsWith(`${id}.`)).map((n) => (0, import_promises2.rm)((0, import_node_path2.join)(this.dir, n), { force: true })));
   }
   /** A small note an adapter keeps about a session between two hooks (removed with the session). */
   async setNote(id, key, value) {
-    await (0, import_promises.mkdir)(this.dir, { recursive: true });
-    await (0, import_promises.writeFile)(this.note(id, key), value);
+    await (0, import_promises2.mkdir)(this.dir, { recursive: true });
+    await (0, import_promises2.writeFile)(this.note(id, key), value);
   }
   /** Reads and removes a note; `undefined` when there is none. */
   async takeNote(id, key) {
     const file = this.note(id, key);
     try {
-      const value = await (0, import_promises.readFile)(file, "utf8");
-      await (0, import_promises.rm)(file, { force: true });
+      const value = await (0, import_promises2.readFile)(file, "utf8");
+      await (0, import_promises2.rm)(file, { force: true });
       return value;
     } catch {
       return void 0;
@@ -79,20 +132,56 @@ var SessionRegistry = class {
   note(id, key) {
     if (!SESSION_ID.test(key)) throw new Error(`Invalid note key: ${key}`);
     this.file(id, "json");
-    return (0, import_node_path.join)(this.dir, `${id}.note-${key}`);
+    return (0, import_node_path2.join)(this.dir, `${id}.note-${key}`);
   }
-  /** Records that a session wrote a file. Appended, so concurrent hooks never lose an entry. */
-  async touch(id, absolutePath) {
-    await (0, import_promises.mkdir)(this.dir, { recursive: true });
-    await (0, import_promises.appendFile)(
-      this.file(id, "touched"),
-      JSON.stringify({ path: absolutePath, at: (/* @__PURE__ */ new Date()).toISOString() }) + "\n"
-    );
+  /**
+   * Subscribes a session to a topic. Resolves to `true` when it was not subscribed yet (e.g. to tell
+   * the agent). Appended, so concurrent hooks never lose an entry.
+   */
+  async subscribe(id, topic, reason) {
+    const already = (await this.subscriptions(id)).some((s) => topicKey(s.topic) === topicKey(topic));
+    if (already) return false;
+    await this.appendSubscription(id, { op: "add", topic, reason, at: (/* @__PURE__ */ new Date()).toISOString() });
+    return true;
+  }
+  /** Unsubscribes a session from a topic, or from everything. Resolves to what it was subscribed to. */
+  async unsubscribe(id, topic) {
+    const current = await this.subscriptions(id);
+    const gone = topic === "all" ? current : current.filter((s) => topicKey(s.topic) === topicKey(topic));
+    for (const s of gone)
+      await this.appendSubscription(id, { op: "remove", topic: s.topic, at: (/* @__PURE__ */ new Date()).toISOString() });
+    return gone;
+  }
+  /** What a session is subscribed to, oldest first. */
+  async subscriptions(id) {
+    let text;
+    try {
+      text = await (0, import_promises2.readFile)(this.file(id, "subscriptions"), "utf8");
+    } catch {
+      return [];
+    }
+    const current = /* @__PURE__ */ new Map();
+    for (const line of text.split("\n")) {
+      try {
+        const e = JSON.parse(line);
+        if (!e.topic || e.topic.kind !== "branch" && e.topic.kind !== "path") continue;
+        const key = topicKey(e.topic);
+        if (e.op === "remove") current.delete(key);
+        else if (e.op === "add" && !current.has(key))
+          current.set(key, { topic: e.topic, reason: e.reason ?? "user", at: e.at ?? "" });
+      } catch {
+      }
+    }
+    return [...current.values()];
+  }
+  async appendSubscription(id, event) {
+    await (0, import_promises2.mkdir)(this.dir, { recursive: true });
+    await (0, import_promises2.appendFile)(this.file(id, "subscriptions"), JSON.stringify(event) + "\n");
   }
   /** Hands threads to a session. Appended to its inbox, which its agent's adapter watches. */
   async deliver(id, delivery) {
-    await (0, import_promises.mkdir)(this.dir, { recursive: true });
-    await (0, import_promises.appendFile)(this.file(id, "inbox"), JSON.stringify(delivery) + "\n");
+    await (0, import_promises2.mkdir)(this.dir, { recursive: true });
+    await (0, import_promises2.appendFile)(this.file(id, "inbox"), JSON.stringify(delivery) + "\n");
   }
   /**
    * Deliveries appended to a session's inbox since `cursor` (none: from the start), and the cursor
@@ -101,7 +190,7 @@ var SessionRegistry = class {
   async readInbox(id, cursor) {
     let handle;
     try {
-      handle = await (0, import_promises.open)(this.file(id, "inbox"), "r");
+      handle = await (0, import_promises2.open)(this.file(id, "inbox"), "r");
     } catch (err) {
       if (err.code === "ENOENT") return { deliveries: [], cursor: { file: 0, offset: 0 } };
       throw err;
@@ -126,54 +215,32 @@ var SessionRegistry = class {
   async list() {
     let names;
     try {
-      names = (await (0, import_promises.readdir)(this.dir)).filter((n) => n.endsWith(".json"));
+      names = (await (0, import_promises2.readdir)(this.dir)).filter((n) => n.endsWith(".json"));
     } catch (err) {
       if (err.code === "ENOENT") return [];
       throw err;
     }
     const sessions = [];
     for (const name of names.sort()) {
-      const record = await readRecord((0, import_node_path.join)(this.dir, name));
+      const record = await readRecord((0, import_node_path2.join)(this.dir, name));
       if (!record || !SESSION_ID.test(record.id)) continue;
       if (record.pid !== null && !this.isAlive(record.pid)) {
         await this.unregister(record.id).catch(() => void 0);
         continue;
       }
-      const writtenAt = await this.readTouched(record.id);
-      sessions.push({ ...record, touched: Object.keys(writtenAt), writtenAt });
+      sessions.push({ ...record, subscriptions: await this.subscriptions(record.id) });
     }
     return sessions;
-  }
-  /** The files a session wrote, each once with its last write, ordered by it (most recent last). */
-  async readTouched(id) {
-    let text;
-    try {
-      text = await (0, import_promises.readFile)(this.file(id, "touched"), "utf8");
-    } catch {
-      return {};
-    }
-    const order = /* @__PURE__ */ new Map();
-    for (const line of text.split("\n")) {
-      try {
-        const { path, at } = JSON.parse(line);
-        if (typeof path !== "string") continue;
-        order.delete(path);
-        order.set(path, typeof at === "string" ? at : "");
-      } catch {
-      }
-    }
-    return Object.fromEntries(order);
   }
 };
 async function readRecord(file) {
   try {
-    const raw = JSON.parse(await (0, import_promises.readFile)(file, "utf8"));
+    const raw = JSON.parse(await (0, import_promises2.readFile)(file, "utf8"));
     if (typeof raw.id !== "string" || typeof raw.agent !== "string" || typeof raw.cwd !== "string") return null;
     return {
       id: raw.id,
       agent: raw.agent,
       cwd: raw.cwd,
-      workingDir: typeof raw.workingDir === "string" ? raw.workingDir : null,
       branch: typeof raw.branch === "string" ? raw.branch : null,
       pid: typeof raw.pid === "number" ? raw.pid : null,
       startedAt: typeof raw.startedAt === "string" ? raw.startedAt : "",
@@ -196,7 +263,8 @@ function parseDelivery(line) {
       root: raw.root,
       kind,
       threadIds: raw.threadIds.filter((t) => typeof t === "string"),
-      ...typeof raw.reviewId === "string" ? { reviewId: raw.reviewId } : {}
+      ...typeof raw.reviewId === "string" ? { reviewId: raw.reviewId } : {},
+      ...Array.isArray(raw.recipients) ? { recipients: raw.recipients.filter((r) => typeof r === "string") } : {}
     };
   } catch {
     return null;
@@ -204,9 +272,8 @@ function parseDelivery(line) {
 }
 
 // src/hook.ts
-var import_node_child_process = require("node:child_process");
-var import_promises2 = require("node:fs/promises");
-var import_node_path2 = require("node:path");
+var import_node_child_process2 = require("node:child_process");
+var import_node_path3 = require("node:path");
 
 // src/channelFlag.ts
 var CHANNEL = "plugin:local-review@local-review";
@@ -230,7 +297,7 @@ var isOurChannel = (value) => value === CHANNEL || /^plugin:local-review@[\w.-]+
 var WRITE_TOOLS = ["Write", "Edit", "MultiEdit", "NotebookEdit"];
 async function handleHook(input, deps) {
   const id = input.session_id;
-  if (!id) return;
+  if (!id) return void 0;
   switch (input.hook_event_name) {
     case "SessionStart": {
       const cwd = input.cwd ?? process.cwd();
@@ -247,56 +314,45 @@ async function handleHook(input, deps) {
         push,
         pushCommand: push === true ? null : LAUNCH_WITH_CHANNEL
       });
-      return;
+      const wt = await deps.gitWorktreeOf(cwd);
+      if (!wt) return void 0;
+      const topic = { kind: "branch", ...wt };
+      return await deps.registry.subscribe(id, topic, "launch") ? subscribed(topic, "you were started in its worktree") : void 0;
     }
     case "SessionEnd":
       await deps.registry.unregister(id);
-      return;
-    case "CwdChanged": {
-      const dir = input.new_cwd ?? input.cwd;
-      if (dir) await deps.registry.moveTo(id, dir, await deps.gitBranch(dir));
-      return;
-    }
-    case "PreToolUse": {
+      return void 0;
+    case "PreToolUse":
       if (input.tool_name === "Bash") await deps.registry.setNote(id, bashNote(input), String(deps.now().getTime()));
-      return;
-    }
+      return void 0;
     case "PostToolUse": {
-      if (input.cwd) await deps.registry.moveTo(id, input.cwd, deps.gitBranch);
-      if (input.tool_name === "Bash") {
-        const since = Number(await deps.registry.takeNote(id, bashNote(input)));
-        if (!input.cwd || !Number.isFinite(since) || since <= 0) return;
-        for (const file of await deps.changedFiles(input.cwd, since)) await deps.registry.touch(id, file);
-        return;
-      }
-      if (!WRITE_TOOLS.includes(input.tool_name ?? "")) return;
+      if (input.tool_name === "Bash") return afterShellCommand(id, input, deps);
+      if (!WRITE_TOOLS.includes(input.tool_name ?? "")) return void 0;
       const target = input.tool_input?.file_path ?? input.tool_input?.notebook_path;
-      if (typeof target !== "string" || target === "") return;
-      await deps.registry.touch(id, (0, import_node_path2.isAbsolute)(target) ? target : (0, import_node_path2.resolve)(input.cwd ?? process.cwd(), target));
-      return;
+      if (typeof target !== "string" || target === "") return void 0;
+      const file = (0, import_node_path3.isAbsolute)(target) ? target : (0, import_node_path3.resolve)(input.cwd ?? process.cwd(), target);
+      const topic = await deps.topicOf(file);
+      return await deps.registry.subscribe(id, topic, "modified") ? subscribed(topic, "you modified a file there") : void 0;
     }
   }
+  return void 0;
 }
+async function afterShellCommand(id, input, deps) {
+  const since = Number(await deps.registry.takeNote(id, bashNote(input)));
+  if (!input.cwd || !Number.isFinite(since) || since <= 0) return void 0;
+  const wt = await deps.gitWorktreeOf(input.cwd);
+  if (!wt) return void 0;
+  const topic = { kind: "branch", ...wt };
+  const already = (await deps.registry.subscriptions(id)).some((s) => topicKey(s.topic) === topicKey(topic));
+  if (already || (await deps.filesChangedSince(input.cwd, since)).length === 0) return void 0;
+  return await deps.registry.subscribe(id, topic, "modified") ? subscribed(topic, "you modified files there") : void 0;
+}
+var subscribed = (topic, why) => `Local Review: this session is now subscribed to ${topicLabel(topic)} (${why}): the comments the user publishes there will come to you. Tell the user in one short sentence.`;
 var bashNote = (input) => `bash-${/^[A-Za-z0-9_-]{1,100}$/.test(input.tool_use_id ?? "") ? input.tool_use_id : "command"}`;
-function run(cmd, args, cwd, raw = false) {
+function run(cmd, args, cwd) {
   return new Promise(
-    (done) => (0, import_node_child_process.execFile)(
-      cmd,
-      args,
-      { cwd, timeout: 3e3, maxBuffer: 16 * 1024 * 1024 },
-      (err, stdout) => done(err ? null : raw ? stdout : stdout.trim())
-    )
+    (done) => (0, import_node_child_process2.execFile)(cmd, args, { cwd, timeout: 3e3 }, (err, stdout) => done(err ? null : stdout.trim()))
   );
-}
-async function changedFiles(cwd, sinceMs) {
-  const top = await run("git", ["rev-parse", "--show-toplevel"], cwd);
-  const status = top ? await run("git", ["status", "--porcelain", "-z"], cwd, true) : null;
-  if (!top || !status) return [];
-  const paths = status.split("\0").filter((entry) => entry.length > 3 && entry[0] !== "R" && entry[1] !== "D").map((entry) => (0, import_node_path2.join)(top, entry.slice(3)));
-  const recent = await Promise.all(
-    paths.map(async (p) => ((await (0, import_promises2.stat)(p).catch(() => null))?.mtimeMs ?? 0) >= sinceMs - 1e3)
-  );
-  return paths.filter((_, i) => recent[i]);
 }
 var gitBranch = async (cwd) => await run("git", ["symbolic-ref", "--quiet", "--short", "HEAD"], cwd) || null;
 var commandLine = (pid) => run("ps", ["-o", "args=", "-p", String(pid)]);
@@ -307,7 +363,7 @@ async function findClaudePid(startPid = process.ppid, maxHops = 6) {
     if (!line) return null;
     const match = /^\s*(\d+)\s+(.*)$/.exec(line);
     if (!match) return null;
-    if ((0, import_node_path2.basename)(match[2].trim()) === "claude") return pid;
+    if ((0, import_node_path3.basename)(match[2].trim()) === "claude") return pid;
     pid = Number(match[1]);
   }
   return null;
@@ -318,13 +374,20 @@ async function main() {
   const chunks = [];
   for await (const chunk of process.stdin) chunks.push(chunk);
   const input = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-  await handleHook(input, {
+  const message = await handleHook(input, {
     registry: new SessionRegistry(localReviewHome()),
     claudePid: () => findClaudePid(),
     commandLine,
     gitBranch,
-    changedFiles,
+    topicOf: (path) => topicOf(path),
+    gitWorktreeOf,
+    filesChangedSince,
     now: () => /* @__PURE__ */ new Date()
   });
+  if (message && input.hook_event_name) {
+    process.stdout.write(
+      JSON.stringify({ hookSpecificOutput: { hookEventName: input.hook_event_name, additionalContext: message } })
+    );
+  }
 }
 main().catch(() => void 0).finally(() => process.exit(0));

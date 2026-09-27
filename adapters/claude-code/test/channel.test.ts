@@ -100,7 +100,7 @@ describe('The channel server', () => {
           'The user published a review and 1 new comment in Local Review (3 threads), in /repo. ' +
           'Process them now with the local-review review skill, running every lr command with --root "/repo", ' +
           `and listing only these threads: lr list --root "/repo" --thread ${first.threadIds[0]} --thread t_a --thread t_b`,
-        meta: { store: '/repo', threads: `${first.threadIds[0]} t_a t_b` },
+        meta: { store: '/repo', threads: `${first.threadIds[0]} t_a t_b`, recipients: '' },
       },
     ]);
     now += BATCH_MS;

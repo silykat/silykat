@@ -122,7 +122,12 @@ export class LocalReviewChannel {
         method: 'notifications/claude/channel',
         params: {
           content: describe(root, deliveries),
-          meta: { store: root, threads: threadIds(deliveries).join(' ') },
+          meta: {
+            store: root,
+            threads: threadIds(deliveries).join(' '),
+            // Every session these comments went to (e.g. a developer and a reviewer): for debugging.
+            recipients: [...new Set(deliveries.flatMap((d) => d.recipients ?? []))].join(' '),
+          },
         },
       });
     }

@@ -2,13 +2,21 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { SessionRegistry } from '@local-review/core';
+import { SessionRegistry, topicLabel } from '@local-review/core';
 import { LAUNCH_WITH_CHANNEL } from '../src/channelFlag';
-import { changedFiles, findClaudePid, handleHook, type HookDeps } from '../src/hook';
+import { findClaudePid, handleHook, type HookDeps } from '../src/hook';
 
 let home: string;
 let registry: SessionRegistry;
 let deps: HookDeps;
+
+/** A fake file system: worktrees by folder, everything else is outside git. */
+const WORKTREES: Record<string, string> = { '/work/app': 'main', '/work/wt-feat': 'feat' };
+const worktreeOf = async (dir: string) => {
+  const top = Object.keys(WORKTREES).find((w) => dir === w || dir.startsWith(`${w}/`));
+  return top ? { repo: '/work/app/.git', branch: WORKTREES[top]!, worktree: top } : null;
+};
+const subs = async (id = 's1') => (await registry.subscriptions(id)).map((s) => `${topicLabel(s.topic)} (${s.reason})`);
 
 beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), 'lr-hook-'));
@@ -17,8 +25,13 @@ beforeEach(async () => {
     registry,
     claudePid: async () => 4242,
     commandLine: async () => 'claude',
-    gitBranch: async () => 'feature-x',
-    changedFiles: async () => [],
+    gitBranch: async () => null,
+    topicOf: async (path) => {
+      const wt = await worktreeOf(path);
+      return wt ? { kind: 'branch', ...wt } : { kind: 'path', path };
+    },
+    gitWorktreeOf: worktreeOf,
+    filesChangedSince: async () => [],
     now: () => new Date('2026-09-26T10:00:00.000Z'),
   };
 });
@@ -26,79 +39,98 @@ afterEach(async () => {
   await rm(home, { recursive: true, force: true });
 });
 
+const start = (cwd: string) => handleHook({ hook_event_name: 'SessionStart', session_id: 's1', cwd }, deps);
+
 describe('Claude Code hooks', () => {
   it('registers the session on SessionStart', async () => {
-    await handleHook({ hook_event_name: 'SessionStart', session_id: 's1', cwd: '/repo' }, deps);
+    deps.gitBranch = async () => 'feature-x';
+    expect(await start('/work')).toBeUndefined(); // outside git: nothing to subscribe to
     expect(await registry.list()).toEqual([
       {
         id: 's1',
         agent: 'Claude',
-        cwd: '/repo',
-        workingDir: null,
+        cwd: '/work',
         branch: 'feature-x',
         pid: 4242,
         startedAt: '2026-09-26T10:00:00.000Z',
         push: false,
         pushCommand: LAUNCH_WITH_CHANNEL,
-        touched: [],
-        writtenAt: {},
+        subscriptions: [],
       },
     ]);
   });
 
+  it('subscribes a session started in a worktree to its branch, and tells Claude', async () => {
+    const message = await start('/work/wt-feat/src');
+    expect(message).toContain('now subscribed to app · feat (you were started in its worktree)');
+    expect(await subs()).toEqual(['app · feat (launch)']);
+  });
+
   it('records whether the session was launched with the channel', async () => {
     deps.commandLine = async () => LAUNCH_WITH_CHANNEL;
-    await handleHook({ hook_event_name: 'SessionStart', session_id: 's1', cwd: '/repo' }, deps);
+    await start('/work');
     expect(await registry.list()).toMatchObject([{ push: true, pushCommand: null }]);
     deps.claudePid = async () => null; // unknown process: unknown
-    await handleHook({ hook_event_name: 'SessionStart', session_id: 's1', cwd: '/repo' }, deps);
+    await start('/work');
     expect(await registry.list()).toMatchObject([{ push: null }]);
   });
 
-  it('records the files Claude writes, and only those', async () => {
-    await handleHook({ hook_event_name: 'SessionStart', session_id: 's1', cwd: '/repo' }, deps);
-    const post = (tool_name: string, tool_input: object) =>
-      handleHook({ hook_event_name: 'PostToolUse', session_id: 's1', cwd: '/repo', tool_name, tool_input }, deps);
-    await post('Write', { file_path: '/specs/plan.md' });
-    await post('Edit', { file_path: 'src/a.ts' }); // relative: resolved against the session folder
-    await post('NotebookEdit', { notebook_path: '/repo/nb.ipynb' });
-    await post('Read', { file_path: '/repo/ignored.ts' });
-    expect((await registry.list())[0]!.touched).toEqual(['/specs/plan.md', '/repo/src/a.ts', '/repo/nb.ipynb']);
+  it('subscribes to the branch of a file Claude writes, once, and tells Claude the first time', async () => {
+    await start('/work');
+    const write = (file_path: string, tool_name = 'Edit') =>
+      handleHook(
+        { hook_event_name: 'PostToolUse', session_id: 's1', cwd: '/work', tool_name, tool_input: { file_path } },
+        deps,
+      );
+    expect(await write('/work/wt-feat/a.ts')).toContain('now subscribed to app · feat (you modified a file there)');
+    expect(await write('wt-feat/b.ts', 'Write')).toBeUndefined(); // relative to the cwd; already subscribed
+    expect(await write('/specs/plan.md')).toContain('now subscribed to /specs/plan.md'); // outside git: the file
+    expect(
+      await handleHook(
+        {
+          hook_event_name: 'PostToolUse',
+          session_id: 's1',
+          tool_name: 'Read',
+          tool_input: { file_path: '/work/app/x.ts' },
+        },
+        deps,
+      ),
+    ).toBeUndefined();
+    expect(await subs()).toEqual(['app · feat (modified)', '/specs/plan.md (modified)']);
   });
 
-  it('follows the session when it changes folder', async () => {
-    await handleHook({ hook_event_name: 'SessionStart', session_id: 's1', cwd: '/work' }, deps);
-    deps.gitBranch = async (dir) => (dir === '/work/wt-test' ? 'feature-w' : null);
-    await handleHook(
-      { hook_event_name: 'CwdChanged', session_id: 's1', cwd: '/work/wt-test', new_cwd: '/work/wt-test' },
-      deps,
-    );
-    expect(await registry.list()).toMatchObject([{ cwd: '/work', workingDir: '/work/wt-test', branch: 'feature-w' }]);
-  });
-
-  it('follows where Claude works from the cwd of each tool call', async () => {
-    await handleHook({ hook_event_name: 'SessionStart', session_id: 's1', cwd: '/work' }, deps);
-    const post = { hook_event_name: 'PostToolUse', session_id: 's1', tool_name: 'Bash', tool_use_id: 'toolu_1' };
-    await handleHook({ ...post, cwd: '/work/wt-test' }, deps);
-    expect(await registry.list()).toMatchObject([{ workingDir: '/work/wt-test' }]);
-  });
-
-  it('records the files a shell command changed', async () => {
-    await handleHook({ hook_event_name: 'SessionStart', session_id: 's1', cwd: '/repo' }, deps);
+  it('subscribes to the branch where a shell command changed files', async () => {
+    await start('/work');
     const seen: [string, number][] = [];
-    deps.changedFiles = async (cwd, since) => (seen.push([cwd, since]), ['/repo/a.py']);
-    const call = { session_id: 's1', cwd: '/repo', tool_name: 'Bash', tool_use_id: 'toolu_2' };
-    await handleHook({ ...call, hook_event_name: 'PostToolUse' }, deps); // no start noted: nothing
+    deps.filesChangedSince = async (cwd, since) => (seen.push([cwd, since]), ['/work/app/a.py']);
+    const call = { session_id: 's1', cwd: '/work/app', tool_name: 'Bash', tool_use_id: 'toolu_2' };
+    expect(await handleHook({ ...call, hook_event_name: 'PostToolUse' }, deps)).toBeUndefined(); // no start noted
+    await handleHook({ ...call, hook_event_name: 'PreToolUse' }, deps);
+    expect(await handleHook({ ...call, hook_event_name: 'PostToolUse' }, deps)).toContain('app · main');
+    expect(seen).toEqual([['/work/app', new Date('2026-09-26T10:00:00.000Z').getTime()]]);
+    expect(await subs()).toEqual(['app · main (modified)']);
+
+    // Already subscribed there: nothing more to look at.
     await handleHook({ ...call, hook_event_name: 'PreToolUse' }, deps);
     await handleHook({ ...call, hook_event_name: 'PostToolUse' }, deps);
-    expect(seen).toEqual([['/repo', new Date('2026-09-26T10:00:00.000Z').getTime()]]);
-    expect((await registry.list())[0]!.touched).toEqual(['/repo/a.py']);
+    expect(seen).toHaveLength(1);
   });
 
-  it('unregisters the session on SessionEnd', async () => {
-    await handleHook({ hook_event_name: 'SessionStart', session_id: 's1', cwd: '/repo' }, deps);
+  it('does not subscribe when a shell command changed nothing, or ran outside git', async () => {
+    await start('/work');
+    for (const cwd of ['/work/app', '/tmp']) {
+      const call = { session_id: 's1', cwd, tool_name: 'Bash', tool_use_id: 'toolu_3' };
+      await handleHook({ ...call, hook_event_name: 'PreToolUse' }, deps);
+      await handleHook({ ...call, hook_event_name: 'PostToolUse' }, deps);
+    }
+    expect(await subs()).toEqual([]);
+  });
+
+  it('unregisters the session, and its subscriptions, on SessionEnd', async () => {
+    await start('/work/app');
     await handleHook({ hook_event_name: 'SessionEnd', session_id: 's1' }, deps);
     expect(await registry.list()).toEqual([]);
+    expect(await registry.subscriptions('s1')).toEqual([]);
   });
 
   it('ignores other events and input without a session', async () => {
@@ -106,30 +138,10 @@ describe('Claude Code hooks', () => {
     await handleHook({ hook_event_name: 'SessionStart' }, deps);
     expect(await registry.list()).toEqual([]);
   });
-
-  it('finds no claude process above a test runner', async () => {
-    // The test runs under node/vitest, not claude: the walk ends without a match.
-    expect(await findClaudePid(process.pid, 3)).toBeNull();
-  });
 });
 
-describe('changedFiles', () => {
-  it('lists the files of the repository changed since a time, and nothing outside git', async () => {
-    const { execFileSync } = await import('node:child_process');
-    const { writeFile, utimes } = await import('node:fs/promises');
-    const repo = await mkdtemp(join(tmpdir(), 'lr-git-'));
-    try {
-      execFileSync('git', ['init', '-q'], { cwd: repo });
-      await writeFile(join(repo, 'old.txt'), 'old');
-      await writeFile(join(repo, 'new.txt'), 'new');
-      const past = new Date(Date.now() - 60_000);
-      await utimes(join(repo, 'old.txt'), past, past);
-      const since = Date.now() - 10_000;
-      const real = (p: string) => execFileSync('realpath', [p], { encoding: 'utf8' }).trim();
-      expect(await changedFiles(repo, since)).toEqual([join(real(repo), 'new.txt')]);
-      expect(await changedFiles(tmpdir(), since)).toEqual([]);
-    } finally {
-      await rm(repo, { recursive: true, force: true });
-    }
+describe('findClaudePid', () => {
+  it('returns null when no claude process is found above', async () => {
+    expect(await findClaudePid(process.pid, 3)).toBeNull();
   });
 });

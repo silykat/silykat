@@ -1,6 +1,6 @@
 {
   "name": "local-review",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "Local Review for Claude Code: address the review comments left in VS Code with the Local Review extension, and reply in their threads.",
   "author": {
     "name": "Lakhdar Benamer"
