@@ -1,6 +1,6 @@
 import { basename } from 'node:path';
 import * as vscode from 'vscode';
-import { branchKey, type ReviewState } from '@local-review/core';
+import type { ReviewState } from '@local-review/core';
 import type { ReviewController } from './controller';
 import type { Root } from './roots';
 
@@ -12,7 +12,16 @@ interface InProgress {
 
 /** A review as the user tells it apart: its folder and branch, e.g. "therapy · feature-x". */
 const reviewLabel = (r: InProgress) =>
-  `${r.root.loose ? 'files outside the workspace' : basename(r.root.path)}${r.review.branch ? ` · ${r.review.branch.branch}` : ''}`;
+  `${r.root.loose ? 'files outside the workspace' : basename(r.root.path)}${
+    r.review.branch
+      ? ` · ${r.review.branch.branch}`
+      : r.review.path
+        ? ` · ${folderLabel(r.review.path, r.root.loose)}`
+        : ''
+  }`;
+
+/** A folder reviewed off any branch, as shown: relative to its root (full path outside the workspace). */
+const folderLabel = (path: string, loose?: boolean): string => (loose ? `/${path}` : path === '.' ? './' : `${path}/`);
 
 /** Asks for the optional review summary. `undefined` means the user cancelled (Esc). Replaceable in tests. */
 export type SummaryPrompt = () => Promise<string | undefined>;
@@ -72,9 +81,8 @@ export class ReviewUi implements vscode.Disposable {
       this.statusBar.hide();
       return;
     }
-    const branch = this.review.activeEditorCheckedOut();
-    const mine =
-      branch === undefined ? undefined : inProgress.find((r) => branchKey(r.review.branch) === branchKey(branch));
+    const here = this.review.reviewOfActiveEditor();
+    const mine = here && inProgress.find((r) => r.review.id === here.id);
     const shown = mine ?? (inProgress.length === 1 ? inProgress[0]! : undefined);
     const drafts = shown ? shown.drafts : inProgress.reduce((n, r) => n + r.drafts, 0);
     this.statusBar.text = shown
@@ -83,15 +91,14 @@ export class ReviewUi implements vscode.Disposable {
     this.statusBar.tooltip =
       inProgress.length === 1
         ? `Local Review: review in progress (${reviewLabel(inProgress[0]!)}), ${drafts} pending comment${drafts === 1 ? '' : 's'}. Click to submit it or see them.`
-        : `Local Review: reviews in progress, one per branch: ${inProgress.map((r) => `${reviewLabel(r)} (${r.drafts})`).join(', ')}.`;
+        : `Local Review: reviews in progress, one per branch (or folder, off any branch): ${inProgress.map((r) => `${reviewLabel(r)} (${r.drafts})`).join(', ')}.`;
     this.statusBar.show();
   }
 
-  /** The review of the branch of the active editor's file, if one is in progress. */
+  /** The review of the active editor's file (its branch, or its folder), if one is in progress. */
   private async ofActiveEditor(inProgress: InProgress[]): Promise<InProgress | undefined> {
-    if (!vscode.window.activeTextEditor) return undefined;
-    const branch = await this.review.activeEditorBranch();
-    return inProgress.find((r) => branchKey(r.review.branch) === branchKey(branch));
+    const here = await this.review.activeEditorReview();
+    return here && inProgress.find((r) => r.review.id === here.review.id);
   }
 
   /** "Start Review": from a comment input, it also adds that comment as the first draft. */

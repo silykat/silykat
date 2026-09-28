@@ -5,11 +5,13 @@ import { foldReview, foldThread } from './fold';
 import { newCommentId, newReviewId, newThreadId } from './ids';
 import {
   branchKey,
+  reviewScopeKey,
   SCHEMA_VERSION,
   STORE_DIR,
   type Anchor,
   type Author,
   type BranchRef,
+  type ReviewScope,
   type ReviewState,
   type ThreadState,
   type ThreadStatus,
@@ -113,28 +115,30 @@ export class Store {
     return { reviews, warnings };
   }
 
-  /** The review in progress, if any. There is at most one per store (V1). */
-  /** The review in progress for a branch (`null`: outside git), if any. */
-  async activeReview(branch: BranchRef | null = null): Promise<ReviewState | null> {
+  /** The review in progress for a branch, or off any branch (`null`) for a folder, if any. */
+  async activeReview(branch: BranchRef | null = null, path: string | null = null): Promise<ReviewState | null> {
     const { reviews } = await this.loadReviews();
-    return latestActive(reviews, branch);
+    return latestActive(reviews, { branch, path });
   }
 
-  /** Every review in progress: at most one per branch. */
+  /** Every review in progress: at most one per branch, and off any branch one per folder. */
   async activeReviews(): Promise<ReviewState[]> {
     const { reviews } = await this.loadReviews();
     const latest = new Map<string, ReviewState>();
     for (const r of reviews.values()) {
       if (r.state !== 'active') continue;
-      const current = latest.get(branchKey(r.branch));
-      if (!current || r.startedAt > current.startedAt) latest.set(branchKey(r.branch), r);
+      const current = latest.get(reviewScopeKey(r));
+      if (!current || r.startedAt > current.startedAt) latest.set(reviewScopeKey(r), r);
     }
     return [...latest.values()];
   }
 
-  /** Starts a review of a branch, or returns the one already in progress there. */
-  async startReview(branch: BranchRef | null = null): Promise<ReviewState> {
-    const active = await this.activeReview(branch);
+  /**
+   * Starts a review of a branch, or off any branch (`branch` = `null`) of the folder at `path`;
+   * or returns the one already in progress there.
+   */
+  async startReview(branch: BranchRef | null = null, path: string | null = null): Promise<ReviewState> {
+    const active = await this.activeReview(branch, path);
     if (active) return active;
     await this.ensureInitialized();
     const reviewId = newReviewId();
@@ -144,7 +148,7 @@ export class Store {
       at: new Date().toISOString(),
       by: 'user',
       reviewId,
-      ...(branch ? { branch } : {}),
+      ...(branch ? { branch } : path ? { path } : {}),
     };
     await appendFile(this.reviewFile(reviewId), serializeEvents([event]), { flag: 'a' });
     return foldReview([event])!;
@@ -405,8 +409,9 @@ async function listJournals(dir: string): Promise<string[]> {
   }
 }
 
-function latestActive(reviews: Reviews, branch: BranchRef | null): ReviewState | null {
-  const active = [...reviews.values()].filter((r) => r.state === 'active' && branchKey(r.branch) === branchKey(branch));
+function latestActive(reviews: Reviews, scope: ReviewScope): ReviewState | null {
+  const key = reviewScopeKey(scope);
+  const active = [...reviews.values()].filter((r) => r.state === 'active' && reviewScopeKey(r) === key);
   active.sort((a, b) => b.startedAt.localeCompare(a.startedAt) || b.id.localeCompare(a.id));
   return active[0] ?? null;
 }

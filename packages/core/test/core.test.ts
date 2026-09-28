@@ -165,9 +165,9 @@ describe('foldThread', () => {
 
   it('computes drafts from review states', () => {
     const reviews = new Map<string, ReviewState>([
-      ['r_active', { id: 'r_active', state: 'active', branch: null, startedAt: 't' }],
-      ['r_done', { id: 'r_done', state: 'submitted', branch: null, startedAt: 't' }],
-      ['r_gone', { id: 'r_gone', state: 'discarded', branch: null, startedAt: 't' }],
+      ['r_active', { id: 'r_active', state: 'active', branch: null, path: null, startedAt: 't' }],
+      ['r_done', { id: 'r_done', state: 'submitted', branch: null, path: null, startedAt: 't' }],
+      ['r_gone', { id: 'r_gone', state: 'discarded', branch: null, path: null, startedAt: 't' }],
     ]);
     const draftOnly = foldThread([created(), added('c_1', 'user', 'x', 'r_active')], { reviews })!;
     expect(draftOnly).toMatchObject({ onlyDrafts: true, hasPublished: false });
@@ -872,6 +872,29 @@ describe('Store — branches', () => {
     expect((await store.activeReview({ ...A, branch: 'a2' }))?.id).toBe(ra.id);
     await store.submitReview(rb.id);
     expect((await store.activeReviews()).map((r) => r.branch?.branch)).toEqual(['a2']);
+  });
+
+  it('has one review in progress per folder off any branch', async () => {
+    const r1 = await store.startReview(null, 'notes');
+    const r2 = await store.startReview(null, 'specs');
+    expect(r1.id).not.toBe(r2.id);
+    expect(r1).toMatchObject({ branch: null, path: 'notes' });
+    expect((await store.startReview(null, 'notes')).id).toBe(r1.id);
+    expect((await store.activeReview(null, 'specs'))?.id).toBe(r2.id);
+    expect(await store.activeReview(null)).toBeNull();
+    expect((await store.activeReviews()).map((r) => r.path).sort()).toEqual(['notes', 'specs']);
+
+    // On a branch, the review is the branch's: the folder does not count.
+    const ra = await store.startReview(A, 'notes');
+    expect(ra).toMatchObject({ branch: A, path: null });
+    expect((await store.startReview(A, 'specs')).id).toBe(ra.id);
+  });
+
+  it('keeps a review started off any branch before folders had their own, for no file', async () => {
+    const legacy = await store.startReview(null);
+    expect(legacy.path).toBeNull();
+    expect((await store.startReview(null, 'notes')).id).not.toBe(legacy.id);
+    expect((await store.activeReviews()).map((r) => r.id)).toContain(legacy.id);
   });
 });
 

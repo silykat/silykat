@@ -32,6 +32,7 @@ var import_node_util = require("node:util");
 var SCHEMA_VERSION = 1;
 var STORE_DIR = ".local-review";
 var branchKey = (b) => b ? `${b.repo}#${b.branch}` : "";
+var reviewScopeKey = (s) => s.branch ? branchKey(s.branch) : s.path ? `path:${s.path}` : "";
 
 // ../core/src/ids.ts
 var import_node_crypto = require("node:crypto");
@@ -205,7 +206,13 @@ function foldThread(events, opts = {}) {
 function foldReview(events) {
   const first = events[0];
   if (!first || first.type !== "review.started") return null;
-  const state = { id: first.reviewId, state: "active", branch: first.branch ?? null, startedAt: first.at };
+  const state = {
+    id: first.reviewId,
+    state: "active",
+    branch: first.branch ?? null,
+    path: first.branch ? null : first.path ?? null,
+    startedAt: first.at
+  };
   for (const e of events.slice(1)) {
     if (state.state !== "active") break;
     if (e.type === "review.branch.changed") state.branch = e.branch;
@@ -286,26 +293,28 @@ var Store = class {
     }
     return { reviews, warnings };
   }
-  /** The review in progress, if any. There is at most one per store (V1). */
-  /** The review in progress for a branch (`null`: outside git), if any. */
-  async activeReview(branch = null) {
+  /** The review in progress for a branch, or off any branch (`null`) for a folder, if any. */
+  async activeReview(branch = null, path = null) {
     const { reviews } = await this.loadReviews();
-    return latestActive(reviews, branch);
+    return latestActive(reviews, { branch, path });
   }
-  /** Every review in progress: at most one per branch. */
+  /** Every review in progress: at most one per branch, and off any branch one per folder. */
   async activeReviews() {
     const { reviews } = await this.loadReviews();
     const latest = /* @__PURE__ */ new Map();
     for (const r of reviews.values()) {
       if (r.state !== "active") continue;
-      const current = latest.get(branchKey(r.branch));
-      if (!current || r.startedAt > current.startedAt) latest.set(branchKey(r.branch), r);
+      const current = latest.get(reviewScopeKey(r));
+      if (!current || r.startedAt > current.startedAt) latest.set(reviewScopeKey(r), r);
     }
     return [...latest.values()];
   }
-  /** Starts a review of a branch, or returns the one already in progress there. */
-  async startReview(branch = null) {
-    const active = await this.activeReview(branch);
+  /**
+   * Starts a review of a branch, or off any branch (`branch` = `null`) of the folder at `path`;
+   * or returns the one already in progress there.
+   */
+  async startReview(branch = null, path = null) {
+    const active = await this.activeReview(branch, path);
     if (active) return active;
     await this.ensureInitialized();
     const reviewId = newReviewId();
@@ -315,7 +324,7 @@ var Store = class {
       at: (/* @__PURE__ */ new Date()).toISOString(),
       by: "user",
       reviewId,
-      ...branch ? { branch } : {}
+      ...branch ? { branch } : path ? { path } : {}
     };
     await (0, import_promises.appendFile)(this.reviewFile(reviewId), serializeEvents([event]), { flag: "a" });
     return foldReview([event]);
@@ -545,8 +554,9 @@ async function listJournals(dir) {
     throw err;
   }
 }
-function latestActive(reviews, branch) {
-  const active = [...reviews.values()].filter((r) => r.state === "active" && branchKey(r.branch) === branchKey(branch));
+function latestActive(reviews, scope) {
+  const key = reviewScopeKey(scope);
+  const active = [...reviews.values()].filter((r) => r.state === "active" && reviewScopeKey(r) === key);
   active.sort((a, b) => b.startedAt.localeCompare(a.startedAt) || b.id.localeCompare(a.id));
   return active[0] ?? null;
 }

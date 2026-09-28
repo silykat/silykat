@@ -1,9 +1,10 @@
 import { access, readFile } from 'node:fs/promises';
 import { userInfo } from 'node:os';
-import { basename, isAbsolute, join, sep } from 'node:path';
+import { basename, isAbsolute, join, posix, sep } from 'node:path';
 import * as vscode from 'vscode';
 import {
   branchKey,
+  reviewScopeKey,
   branchOfTopic,
   buildAnchorContext,
   localBranches,
@@ -15,6 +16,7 @@ import {
   type AnchorSide,
   type DiffInfo,
   type LineRange,
+  type ReviewScope,
   type ReviewState,
   type ThreadState,
 } from '@local-review/core';
@@ -99,12 +101,14 @@ export class ReviewController implements vscode.Disposable {
   private readonly settleTimers = new Map<string, NodeJS.Timeout>();
   /** Threads whose code is no longer in the file. Derived state: never written. */
   private readonly outdated = new Set<string>();
-  /** The reviews in progress: one per branch of each root, by `reviewKey`. */
+  /** The reviews in progress: one per branch of each root (off any branch, one per folder), by `reviewKey`. */
   private readonly activeReviews = new Map<string, { root: Root; review: ReviewState }>();
   /** Which branch is checked out where, to show each thread on its branch only. */
   readonly branches = new Branches();
   /** The document of the last active editor that is not a comment input. */
   private lastEditorUri: vscode.Uri | undefined;
+  /** The review in progress for the active editor's file, as last computed. */
+  private reviewShownHere: ReviewState | undefined;
   /** Threads of branches that are not checked out: kept, but not shown. */
   private readonly hidden = new Map<string, { root: Root; state: ThreadState }>();
   /**
@@ -214,7 +218,8 @@ export class ReviewController implements vscode.Disposable {
       const file = join(root.path, ...base.path.split('/'));
       const branch = branchOfTopic(await topicOf(file));
       await this.branches.learn(file);
-      const reviewId = opts.draft ? (await this.ensureReview(root, branch)).id : null;
+      const scope: ReviewScope = branch ? { branch } : { branch: null, path: folderOf(base.path) };
+      const reviewId = opts.draft ? (await this.ensureReview(root, scope)).id : null;
       const state = await root.store.createThread(anchor, { author: 'user', body: text, reviewId }, branch);
       if (this.threadUri(root, state.anchor).toString() === thread.uri.toString()) {
         this.adopt(root, state, thread);
@@ -240,7 +245,7 @@ export class ReviewController implements vscode.Disposable {
 
     try {
       if (!opts.draft && !(await this.publishGate(managed.root.path, [this.threadFile(threadId)!]))) return;
-      const reviewId = opts.draft ? (await this.ensureReview(managed.root, managed.state.branch)).id : null;
+      const reviewId = opts.draft ? (await this.reviewOfThread(managed.root, managed.state)).id : null;
       const state = await managed.root.store.addComment(threadId, { author: 'user', body: text, reviewId });
       this.adopt(managed.root, state, managed.thread);
       if (!reviewId) this.published.fire({ root: managed.root.path, kind: 'reply', threadIds: [threadId] });
@@ -266,33 +271,58 @@ export class ReviewController implements vscode.Disposable {
   }
 
   /**
-   * Starts a review of a branch (by default: the branch of the active editor's file, in its root),
-   * or returns the one in progress there.
+   * Starts a review (by default: of the active editor's file, in its root), or returns the one in
+   * progress there. A review is about a branch; off any branch (outside git, or a file ignored by
+   * git), about the direct parent folder of the file.
    */
-  async ensureReview(root?: Root, branch?: BranchRef | null): Promise<ReviewState> {
+  async ensureReview(root?: Root, scope?: ReviewScope): Promise<ReviewState> {
     const target = root ?? this.defaultRoot();
     if (!target) throw new Error('No workspace folder');
-    const onBranch = branch !== undefined ? branch : await this.activeEditorBranch();
-    const existing = this.activeReviews.get(reviewKey(target, onBranch));
+    const about = scope ?? (await this.activeEditorScope(target));
+    const existing = this.activeReviews.get(reviewKey(target, about));
     if (existing) return existing.review;
-    const review = await target.store.startReview(onBranch);
+    const review = await target.store.startReview(about.branch, about.path ?? null);
     this.setActiveReview(target, review);
     this.updateReviewContext();
     return review;
   }
 
-  /** The branch checked out where the active editor's file is, as last seen (no git call). */
-  activeEditorCheckedOut(): BranchRef | null | undefined {
-    const uri = this.activeEditorUri();
-    const file = uri ? this.commentedFile(uri) : undefined;
-    return file ? this.branches.checkedOut(file) : undefined;
+  /** The review a draft reply goes to: the one its thread is already in, else the one of its file. */
+  private async reviewOfThread(root: Root, state: ThreadState): Promise<ReviewState> {
+    const inProgress = [...this.activeReviews.values()].filter((r) => r.root === root).map((r) => r.review);
+    const current = inProgress.find((r) => state.comments.some((c) => c.isDraft && c.reviewId === r.id));
+    if (current) return current;
+    return this.ensureReview(
+      root,
+      state.branch ? { branch: state.branch } : { branch: null, path: folderOf(state.anchor.path) },
+    );
   }
 
-  /** The branch of the file in the active editor, if any. */
-  async activeEditorBranch(): Promise<BranchRef | null> {
+  /** What a review of this file is about: its branch, or when it is on none, its folder. */
+  private async scopeOfFile(root: Root, file: string): Promise<ReviewScope> {
+    const branch = branchOfTopic(await topicOf(file));
+    return branch ? { branch } : { branch: null, path: folderOf(Roots.anchorPath(root, file)) };
+  }
+
+  /** The scope of the active editor's file, when it is in `root`. */
+  private async activeEditorScope(root: Root): Promise<ReviewScope> {
     const uri = this.activeEditorUri();
     const file = uri ? this.commentedFile(uri) : undefined;
-    return file ? branchOfTopic(await topicOf(file)) : null;
+    return file && this.roots.forFile(file) === root ? this.scopeOfFile(root, file) : { branch: null };
+  }
+
+  /** The review in progress for the active editor's file, if any. */
+  async activeEditorReview(): Promise<{ root: Root; review: ReviewState } | undefined> {
+    const uri = this.activeEditorUri();
+    const file = uri ? this.commentedFile(uri) : undefined;
+    const root = file ? this.roots.forFile(file) : undefined;
+    if (!file || !root) return undefined;
+    return this.activeReviews.get(reviewKey(root, await this.scopeOfFile(root, file)));
+  }
+
+  /** The review in progress for the active editor's file, as last computed (no git call). */
+  reviewOfActiveEditor(): ReviewState | undefined {
+    return this.reviewShownHere;
   }
 
   /** Publishes a review in progress. Returns how many comments were published. */
@@ -478,8 +508,8 @@ export class ReviewController implements vscode.Disposable {
 
   /** Records a review in progress; with `null` as third argument, that it is over. */
   private setActiveReview(root: Root, review: ReviewState, ended?: null): void {
-    if (ended === null) this.activeReviews.delete(reviewKey(root, review.branch));
-    else this.activeReviews.set(reviewKey(root, review.branch), { root, review });
+    if (ended === null) this.activeReviews.delete(reviewKey(root, review));
+    else this.activeReviews.set(reviewKey(root, review), { root, review });
   }
 
   /** The contexts last set, for tests: a review in progress anywhere, and on the active editor's branch. */
@@ -487,29 +517,24 @@ export class ReviewController implements vscode.Disposable {
 
   /**
    * `localReview.reviewActive`: a review is in progress somewhere (Submit, Discard…).
-   * `localReview.reviewActiveHere`: one is in progress on the branch of the active editor's file,
-   * which decides whether new comments are drafts first ("Add to Review") or published first.
+   * `localReview.reviewActiveHere`: one is in progress for the active editor's file (its branch, or
+   * the file itself off any branch), which decides whether new comments are drafts first ("Add to
+   * Review") or published first.
    */
   private updateReviewContext(): void {
     this.setReviewContext('active', this.activeReviews.size > 0);
     this.changed.fire();
-    void this.reviewHere().then((here) => this.setReviewContext('here', here));
+    void this.activeEditorReview().then((here) => {
+      this.reviewShownHere = here?.review;
+      this.setReviewContext('here', here !== undefined);
+      this.changed.fire();
+    });
   }
 
   private setReviewContext(which: 'active' | 'here', value: boolean): void {
     this.reviewContext[which] = value;
     const key = which === 'active' ? 'localReview.reviewActive' : 'localReview.reviewActiveHere';
     void vscode.commands.executeCommand('setContext', key, value);
-  }
-
-  /** Whether a review is in progress on the branch of the active editor's file. */
-  private async reviewHere(): Promise<boolean> {
-    const uri = this.activeEditorUri();
-    const file = uri ? this.commentedFile(uri) : undefined;
-    const root = file ? this.roots.forFile(file) : undefined;
-    if (!file || !root) return false;
-    const branch = branchOfTopic(await topicOf(file));
-    return this.activeReviews.has(reviewKey(root, branch));
   }
 
   /** Root of the active editor, else the first one. */
@@ -1367,7 +1392,10 @@ function isBlank(doc: vscode.TextDocument, start: number, end: number): boolean 
 }
 
 /** One review per branch of each root. */
-const reviewKey = (root: Root, branch: BranchRef | null): string => `${root.path}|${branchKey(branch)}`;
+const reviewKey = (root: Root, scope: ReviewScope): string => `${root.path}|${reviewScopeKey(scope)}`;
+
+/** The direct parent folder of an anchor path (`.` at the root). */
+const folderOf = (anchorPath: string): string => posix.dirname(anchorPath);
 
 async function exists(path: string): Promise<boolean> {
   try {

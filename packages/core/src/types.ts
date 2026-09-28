@@ -67,6 +67,21 @@ export interface BranchRef {
 /** Identity of a branch (`''` for none): two refs with the same key are the same branch. */
 export const branchKey = (b: BranchRef | null | undefined): string => (b ? `${b.repo}#${b.branch}` : '');
 
+/**
+ * What a review is about: a branch, or off any branch (outside git, or files ignored by git) a
+ * folder: the direct parent of the files, as an anchor path (`.` for the root itself). Reviews
+ * started off any branch before folders had their own have neither: they cover no file.
+ */
+export interface ReviewScope {
+  branch: BranchRef | null;
+  /** Off any branch only: the folder reviewed. */
+  path?: string | null;
+}
+
+/** Identity of a review scope: two reviews with the same key are about the same thing. */
+export const reviewScopeKey = (s: ReviewScope): string =>
+  s.branch ? branchKey(s.branch) : s.path ? `path:${s.path}` : '';
+
 export interface ThreadState {
   id: string;
   anchor: Anchor;
@@ -90,6 +105,8 @@ export interface ReviewState {
   state: 'active' | 'submitted' | 'discarded';
   /** The branch it reviews (one review per branch); `null` outside git. */
   branch: BranchRef | null;
+  /** Off any branch: the folder it reviews (one review per folder), as an anchor path. */
+  path: string | null;
   summary?: string;
   startedAt: string;
   submittedAt?: string;

@@ -99,7 +99,13 @@ export function foldThread(events: readonly ThreadEvent[], opts: FoldOptions = {
 export function foldReview(events: readonly ReviewEvent[]): ReviewState | null {
   const first = events[0];
   if (!first || first.type !== 'review.started') return null;
-  const state: ReviewState = { id: first.reviewId, state: 'active', branch: first.branch ?? null, startedAt: first.at };
+  const state: ReviewState = {
+    id: first.reviewId,
+    state: 'active',
+    branch: first.branch ?? null,
+    path: first.branch ? null : (first.path ?? null),
+    startedAt: first.at,
+  };
   for (const e of events.slice(1)) {
     // Once submitted or discarded, a review is closed for good.
     if (state.state !== 'active') break;

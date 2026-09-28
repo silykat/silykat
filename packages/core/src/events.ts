@@ -37,7 +37,7 @@ const THREAD_EVENT_TYPES: ReadonlySet<string> = new Set<ThreadEventType>([
 /** Events of a review journal (`reviews/<id>.jsonl`). */
 export type ReviewEvent = BaseEvent &
   (
-    | { type: 'review.started'; reviewId: string; branch?: BranchRef | null }
+    | { type: 'review.started'; reviewId: string; branch?: BranchRef | null; path?: string | null }
     /** Its branch was renamed. */
     | { type: 'review.branch.changed'; branch: BranchRef | null }
     /** `summary` is the optional overall comment, like a GitHub review body. */

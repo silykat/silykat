@@ -107,6 +107,13 @@ Markdown is supported. The **Comments** panel of VS Code lists every thread and 
 
 Click **Start Review** instead of **Comment**: the comment becomes a **Pending** draft and the status bar shows **Review · N**. Add more with **Add to Review** (or publish one right away with **Comment Now**). Click the status bar to **Submit Review**, with an optional summary, to **Show Pending Comments**, or to **Discard Review**. The agent sees nothing until you submit. Drafts survive a restart.
 
+What a review covers:
+
+- **Files tracked by git**: the branch. There is one review per branch: every file of the branch can join it (see [Branches and worktrees](#branches-and-worktrees)).
+- **Files not tracked by git** (outside any repository, or ignored by git): the folder that directly holds the file. There is one review per folder, so `specs/a.md` and `specs/b.md` share a review, while `notes/c.md` gets its own. Comments on a file of another folder offer **Start Review** again.
+
+When several reviews are in progress, the status bar shows the review of the file you have open (**Review · N**), or **N reviews** when that file has none.
+
 ### Diffs
 
 Comment in any diff: your changes (click a file in **Source Control**, both sides, including deleted lines), staged changes (`HEAD` ↔ index), a past commit (from the **Timeline**), or two files compared (**Select for Compare** → **Compare with Selected**). A thread on an older version says which one in its header (**Index**, **HEAD a92bf1e**), and **Open Original Diff** reopens that exact diff later.
@@ -117,7 +124,7 @@ Threads move with the lines when you edit above or inside them; the new position
 
 ### Branches and worktrees
 
-A thread belongs to the branch of its file. After `git checkout`, VS Code shows only the threads of the branch checked out; the others come back with their branch. Each worktree has its own branch, and there is **one review per branch**: the status bar and **Submit Review** act on the review of the branch of the file you have open. Renaming a branch keeps its threads; deleting it deletes them. Files ignored by git, and files outside git, are on no branch: their threads always show.
+A thread belongs to the branch of its file. After `git checkout`, VS Code shows only the threads of the branch checked out; the others come back with their branch. Each worktree has its own branch, and there is **one review per branch** (one per folder for files not tracked by git, see [Review mode](#review-mode)): the status bar and **Submit Review** act on the review of the file you have open. Renaming a branch keeps its threads; deleting it deletes them. Files ignored by git, and files outside git, are on no branch: their threads always show.
 
 ### Files outside the open folders
 

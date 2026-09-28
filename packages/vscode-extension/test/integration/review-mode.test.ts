@@ -1,6 +1,6 @@
 import * as assert from 'node:assert/strict';
 import { fork } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
 import type { LocalReviewApi } from '../../src/extension';
@@ -182,6 +182,48 @@ describe('Review mode: drafts, then submit', () => {
     assert.equal(api.reviewContext().here, true, 'drafts first, as in the file');
 
     await vscode.window.showTextDocument(editor.document); // back to the file
+  });
+
+  it('off any branch, has one review per folder: the direct parent of the file', async () => {
+    const exclude = join(ws, '.git', 'info', 'exclude');
+    const excluded = existsSync(exclude) ? readFileSync(exclude, 'utf8') : '';
+    writeFileSync(exclude, `${excluded}\noff-branch/\n`);
+    const file = (path: string) => {
+      mkdirSync(join(ws, 'off-branch', path, '..'), { recursive: true });
+      writeFileSync(join(ws, 'off-branch', path), 'one\ntwo\nthree\n');
+      return vscode.Uri.file(join(ws, 'off-branch', path));
+    };
+    const [a, b, c] = [file('specs/deep/a.md'), file('specs/deep/b.md'), file('specs/c.md')];
+    const waitHere = async (expected: boolean) => {
+      for (let i = 0; i < 80 && api.reviewContext().here !== expected; i++) await new Promise((r) => setTimeout(r, 25));
+      return api.reviewContext().here;
+    };
+    const comment = async (command: string, target: vscode.Uri, text: string) => {
+      await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(target));
+      const thread = api.controller.createCommentThread(target, new vscode.Range(1, 0, 1, 0), []);
+      await vscode.commands.executeCommand(command, { thread, text });
+      return byThread(thread).id;
+    };
+    try {
+      const first = await comment('localReview.startReview', a, 'on a');
+      await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(b));
+      assert.equal(await waitHere(true), true, 'same folder: "Add to Review"');
+      const second = await comment('localReview.addToReview', b, 'on b');
+      await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(c));
+      assert.equal(await waitHere(false), false, 'the parent folder is another one: "Start Review"');
+      const third = await comment('localReview.startReview', c, 'on c');
+
+      const reviews = api.reviewsInProgress();
+      assert.deepEqual(reviews.map((r) => r.review.path).sort(), ['off-branch/specs', 'off-branch/specs/deep']);
+      const reviewOf = (id: string) => managed(id).state.comments[0]!.reviewId;
+      assert.equal(reviewOf(first), reviewOf(second));
+      assert.notEqual(reviewOf(first), reviewOf(third));
+      await waitHere(true);
+      assert.equal(api.reviewStatusText(), '$(comment-draft) Review · 1', 'the review of the folder shown');
+    } finally {
+      writeFileSync(exclude, excluded);
+      rmSync(join(ws, 'off-branch'), { recursive: true, force: true });
+    }
   });
 
   it('says so when there is nothing to submit', async () => {
