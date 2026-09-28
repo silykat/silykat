@@ -103,6 +103,8 @@ export class ReviewController implements vscode.Disposable {
   private readonly activeReviews = new Map<string, { root: Root; review: ReviewState }>();
   /** Which branch is checked out where, to show each thread on its branch only. */
   readonly branches = new Branches();
+  /** The document of the last active editor that is not a comment input. */
+  private lastEditorUri: vscode.Uri | undefined;
   /** Threads of branches that are not checked out: kept, but not shown. */
   private readonly hidden = new Map<string, { root: Root; state: ThreadState }>();
   /**
@@ -281,14 +283,14 @@ export class ReviewController implements vscode.Disposable {
 
   /** The branch checked out where the active editor's file is, as last seen (no git call). */
   activeEditorCheckedOut(): BranchRef | null | undefined {
-    const uri = vscode.window.activeTextEditor?.document.uri;
+    const uri = this.activeEditorUri();
     const file = uri ? this.commentedFile(uri) : undefined;
     return file ? this.branches.checkedOut(file) : undefined;
   }
 
   /** The branch of the file in the active editor, if any. */
   async activeEditorBranch(): Promise<BranchRef | null> {
-    const uri = vscode.window.activeTextEditor?.document.uri;
+    const uri = this.activeEditorUri();
     const file = uri ? this.commentedFile(uri) : undefined;
     return file ? branchOfTopic(await topicOf(file)) : null;
   }
@@ -502,7 +504,7 @@ export class ReviewController implements vscode.Disposable {
 
   /** Whether a review is in progress on the branch of the active editor's file. */
   private async reviewHere(): Promise<boolean> {
-    const uri = vscode.window.activeTextEditor?.document.uri;
+    const uri = this.activeEditorUri();
     const file = uri ? this.commentedFile(uri) : undefined;
     const root = file ? this.roots.forFile(file) : undefined;
     if (!file || !root) return false;
@@ -512,8 +514,19 @@ export class ReviewController implements vscode.Disposable {
 
   /** Root of the active editor, else the first one. */
   private defaultRoot(): Root | undefined {
-    const active = vscode.window.activeTextEditor?.document.uri;
+    const active = this.activeEditorUri();
     return (active?.scheme === 'file' ? this.roots.forFile(active.fsPath) : undefined) ?? this.roots.all()[0];
+  }
+
+  /**
+   * The document of the active editor. While a comment input has focus, VS Code reports that input
+   * as the active editor: the document is then the one of the editor it was opened in.
+   */
+  private activeEditorUri(): vscode.Uri | undefined {
+    const uri = vscode.window.activeTextEditor?.document.uri;
+    if (uri?.scheme === 'comment') return this.lastEditorUri;
+    this.lastEditorUri = uri;
+    return uri;
   }
 
   /**

@@ -164,6 +164,26 @@ describe('Review mode: drafts, then submit', () => {
     assert.equal(managed(id).state.comments.length, 1);
   });
 
+  it('still offers "Add to Review" while typing in a new comment input', async () => {
+    const waitFor = async (probe: () => boolean) => {
+      for (let i = 0; i < 80 && !probe(); i++) await new Promise((r) => setTimeout(r, 25));
+    };
+    const editor = await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri));
+    await onNewThread('localReview.startReview', 3, 'First remark');
+    await waitFor(() => api.reviewContext().here);
+    assert.equal(api.reviewContext().here, true);
+
+    // The input of a new comment gets the focus: VS Code reports it as the active editor.
+    editor.selection = new vscode.Selection(10, 0, 10, 0);
+    await vscode.commands.executeCommand('workbench.action.addComment');
+    await waitFor(() => vscode.window.activeTextEditor?.document.uri.scheme === 'comment');
+    assert.equal(vscode.window.activeTextEditor?.document.uri.scheme, 'comment');
+    await new Promise((r) => setTimeout(r, 200)); // let the review context follow
+    assert.equal(api.reviewContext().here, true, 'drafts first, as in the file');
+
+    await vscode.window.showTextDocument(editor.document); // back to the file
+  });
+
   it('says so when there is nothing to submit', async () => {
     await vscode.commands.executeCommand('localReview.startReview'); // from the command palette
     assert.equal(api.reviewStatusText(), '$(comment-draft) Review · 0');
