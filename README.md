@@ -43,7 +43,7 @@ Local Review is agent-agnostic by design; **Claude Code** is the first supported
 
 ## Requirements
 
-- **VS Code** 1.100 or later.
+- **VS Code** 1.100 or later (or an editor based on it: see [Other editors based on VS Code](#other-editors-based-on-vs-code-cursor-vscodium-windsurf)).
 - **Node.js** 22.12 or later, with **npm** 11.10 or later, and **git**, to build the extension (it is not on the Marketplace yet).
 - For the agent integration: **Claude Code** in a terminal, logged in with a claude.ai account (Pro or Max) or a Console API key. Team and Enterprise organizations must enable channels (see [Known limitations](#known-limitations)).
 
@@ -59,6 +59,21 @@ npm run install-ext
 ```
 
 This builds `packages/vscode-extension/dist/local-review.vsix` and installs it with the `code` command (it must be on your PATH: in VS Code, **Shell Command: Install 'code' command in PATH**). Then reload VS Code (**Developer: Reload Window**).
+
+#### Other editors based on VS Code (Cursor, VSCodium, Windsurf…)
+
+These editors are not tested yet. The editor must be based on VS Code 1.100 or later.
+
+1. Build the extension without installing it:
+
+   ```sh
+   npm run package
+   ```
+
+2. In the editor, run **Extensions: Install from VSIX…** from the Command Palette, and pick `packages/vscode-extension/dist/local-review.vsix`.
+3. Reload the editor (**Developer: Reload Window**).
+
+The Claude Code plugin (next step) does not depend on the editor.
 
 ### 2. The Claude Code plugin
 
