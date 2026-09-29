@@ -1,0 +1,17 @@
+# Formats the staged files with Prettier, then lints the repository.
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+if [ -n "$staged" ]; then
+  # A file with unstaged changes is only checked: rewriting it would stage those changes too.
+  partial=$(git diff --name-only)
+  for file in $staged; do
+    if printf '%s\n' "$partial" | grep -qxF "$file"; then
+      npx --no -- prettier --check --ignore-unknown "$file" || {
+        echo "Format $file (npm run format), or stage all of its changes, then commit again."
+        exit 1
+      }
+    else
+      npx --no -- prettier --write --ignore-unknown --log-level warn "$file" && git add "$file"
+    fi
+  done
+fi
+npm run --silent lint

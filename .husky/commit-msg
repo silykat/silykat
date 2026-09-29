@@ -1,0 +1,2 @@
+# Commit messages follow Conventional Commits (see CONTRIBUTING.md).
+npx --no -- commitlint --edit "$1"
