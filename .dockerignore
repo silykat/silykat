@@ -1,0 +1,8 @@
+# The Linux test image (scripts/linux/Dockerfile) installs its own dependencies.
+**/node_modules/
+**/.vscode-test/
+**/dist/
+**/out/
+coverage/
+.local-review/
+*.vsix
