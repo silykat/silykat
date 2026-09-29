@@ -23,11 +23,18 @@ The repository is an npm workspaces monorepo: `packages/core`, `packages/cli`, `
 | `npm run lint`                 | oxlint, with type information, on the whole repository                                                                        |
 | `npm test`                     | Unit tests (vitest), dependency boundaries, and the freshness of the committed plugin bundles                                 |
 | `npm run test:integration`     | Integration tests in a dedicated VS Code instance (downloaded into `.vscode-test/`), on a temporary git workspace             |
+| `npm run test:linux`           | The whole suite (checks, unit and integration tests) on Linux, in a Docker container: see below                               |
 | `npm run coverage`             | Coverage of the unit tests (report in `coverage/unit/`); fails below the floors of `vitest.config.mjs`                        |
 | `npm run coverage:integration` | Coverage of the integration tests (report in `coverage/integration/`); fails below the floors of `scripts/check-coverage.mjs` |
 | `npm run format`               | Prettier (`npm run format:check` to only check)                                                                               |
 | `npm run install-ext`          | Build the `.vsix` and install it into your VS Code (then **Developer: Reload Window**)                                        |
 | `npm run build:claude-plugin`  | Rebuild the plugin bundles (`plugin/bin/lr`, `plugin/hooks/`, `plugin/channel/`)                                              |
+
+## Testing on Linux
+
+`npm run test:linux` builds a Linux image (`scripts/linux/Dockerfile`: the Node.js of `.nvmrc`, and what VS Code needs) and runs in it what `scripts/linux/run-tests.sh` lists: typecheck, lint, format, unit tests, and the integration tests on a virtual display (`xvfb-run`). It needs Docker. The first run downloads VS Code for Linux into a Docker volume (`local-review-linux-vscode`), kept for the next runs. The CI is to reuse the same image.
+
+On a Mac with Apple silicon, the container is Linux arm64; the CI runs on x86-64.
 
 ## Working on the Claude Code plugin
 
