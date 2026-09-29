@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SessionRegistry, topicLabel } from '@local-review/core';
 import { LAUNCH_WITH_CHANNEL } from '../src/channelFlag';
-import { findClaudePid, handleHook, type HookDeps } from '../src/hook';
+import { findClaudePid, handleHook, runsClaude, type HookDeps } from '../src/hook';
 
 let home: string;
 let registry: SessionRegistry;
@@ -143,5 +143,20 @@ describe('Claude Code hooks', () => {
 describe('findClaudePid', () => {
   it('returns null when no claude process is found above', async () => {
     expect(await findClaudePid(process.pid, 3)).toBeNull();
+  });
+});
+
+describe('runsClaude', () => {
+  it('recognizes the claude executable, or a claude script run by node', () => {
+    expect(runsClaude('claude --dangerously-load-development-channels plugin:local-review@local-review')).toBe(true);
+    expect(runsClaude('/home/me/.local/bin/claude')).toBe(true);
+    expect(runsClaude('node /usr/lib/node_modules/@anthropic-ai/claude-code/bin/claude -p hi')).toBe(true);
+  });
+
+  it('does not take other commands for claude', () => {
+    expect(runsClaude('vim CLAUDE.md')).toBe(false);
+    expect(runsClaude('node /usr/bin/npm test claude')).toBe(false);
+    expect(runsClaude('')).toBe(false);
+    expect(runsClaude(null)).toBe(false);
   });
 });

@@ -365,6 +365,10 @@ function run(cmd, args, cwd) {
     (done) => (0, import_node_child_process.execFile)(cmd, args, { cwd, timeout: 3e3 }, (err, stdout) => done(err ? null : stdout.trim()))
   );
 }
+var commandLine = (pid) => run("ps", ["-o", "args=", "-p", String(pid)]);
+function runsClaude(args) {
+  return (args ?? "").trim().split(/\s+/).slice(0, 2).some((arg) => (0, import_node_path2.basename)(arg) === "claude");
+}
 async function findClaudePid(startPid = process.ppid, maxHops = 6) {
   let pid = startPid;
   for (let hop = 0; hop < maxHops && pid > 1; hop++) {
@@ -372,7 +376,7 @@ async function findClaudePid(startPid = process.ppid, maxHops = 6) {
     if (!line) return null;
     const match = /^\s*(\d+)\s+(.*)$/.exec(line);
     if (!match) return null;
-    if ((0, import_node_path2.basename)(match[2].trim()) === "claude") return pid;
+    if ((0, import_node_path2.basename)(match[2].trim()) === "claude" || runsClaude(await commandLine(pid))) return pid;
     pid = Number(match[1]);
   }
   return null;

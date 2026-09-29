@@ -370,6 +370,9 @@ function run(cmd, args, cwd) {
 }
 var gitBranch = async (cwd) => await run("git", ["symbolic-ref", "--quiet", "--short", "HEAD"], cwd) || null;
 var commandLine = (pid) => run("ps", ["-o", "args=", "-p", String(pid)]);
+function runsClaude(args) {
+  return (args ?? "").trim().split(/\s+/).slice(0, 2).some((arg) => (0, import_node_path3.basename)(arg) === "claude");
+}
 async function findClaudePid(startPid = process.ppid, maxHops = 6) {
   let pid = startPid;
   for (let hop = 0; hop < maxHops && pid > 1; hop++) {
@@ -377,7 +380,7 @@ async function findClaudePid(startPid = process.ppid, maxHops = 6) {
     if (!line) return null;
     const match = /^\s*(\d+)\s+(.*)$/.exec(line);
     if (!match) return null;
-    if ((0, import_node_path3.basename)(match[2].trim()) === "claude") return pid;
+    if ((0, import_node_path3.basename)(match[2].trim()) === "claude" || runsClaude(await commandLine(pid))) return pid;
     pid = Number(match[1]);
   }
   return null;

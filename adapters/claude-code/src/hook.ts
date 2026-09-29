@@ -120,6 +120,15 @@ export const gitBranch = async (cwd: string): Promise<string | null> =>
 
 export const commandLine = (pid: number): Promise<string | null> => run('ps', ['-o', 'args=', '-p', String(pid)]);
 
+/** Whether a command line runs Claude Code: `claude …`, or a `claude` script (`node …/claude …`). */
+export function runsClaude(args: string | null): boolean {
+  return (args ?? '')
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .some((arg) => basename(arg) === 'claude');
+}
+
 /**
  * Walks up from this hook's process to the `claude` process that runs the session (the hook may
  * run through a shell). `null` if it cannot be found, e.g. on a platform without `ps`.
@@ -131,7 +140,9 @@ export async function findClaudePid(startPid: number = process.ppid, maxHops = 6
     if (!line) return null;
     const match = /^\s*(\d+)\s+(.*)$/.exec(line);
     if (!match) return null;
-    if (basename(match[2]!.trim()) === 'claude') return pid;
+    // On Linux, `comm` is the name of the main thread, which Node.js renames `MainThread`: the
+    // command line tells then.
+    if (basename(match[2]!.trim()) === 'claude' || runsClaude(await commandLine(pid))) return pid;
     pid = Number(match[1]);
   }
   return null;
