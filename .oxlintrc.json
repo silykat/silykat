@@ -1,0 +1,21 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "ignorePatterns": [
+    "adapters/claude-code/plugin/**",
+    "**/dist/**",
+    "**/out/**",
+    "**/.vscode-test/**",
+    "**/coverage/**"
+  ],
+  "rules": {
+    // `[...map.values()]` copies on purpose where the loop changes the map it goes through.
+    "unicorn/no-useless-spread": "off"
+  },
+  "overrides": [
+    {
+      // Tests sort strings (or `undefined`) to compare lists: the default order is what they want.
+      "files": ["**/test/**"],
+      "rules": { "typescript/require-array-sort-compare": "off" }
+    }
+  ]
+}
