@@ -19,7 +19,7 @@ async function main(): Promise<void> {
       agent: { type: 'string', default: 'Claude' },
     },
   });
-  const { root, thread, body, status = 'none', agent } = values;
+  const { root, thread, body, status, agent } = values;
   if (!root || !thread || !body) throw new Error('--root, --thread and --body are required');
   if (!STATUSES.has(status)) throw new Error(`--status must be one of: ${[...STATUSES].join(', ')}`);
 

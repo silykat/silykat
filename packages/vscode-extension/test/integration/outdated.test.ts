@@ -205,7 +205,7 @@ describe('A comment becomes outdated when its code disappears', () => {
   });
 
   it('is outdated when other code is pasted over its lines', async () => {
-    const { id, doc } = await threadOnIfBlock();
+    const { id } = await threadOnIfBlock();
     // Like a paste over the selected lines. Through the editor on purpose: a workspace edit would be
     // reduced by VS Code to the smallest change (the common trailing newline is left out).
     const editor = vscode.window.activeTextEditor!;

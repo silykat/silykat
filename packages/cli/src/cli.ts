@@ -333,7 +333,7 @@ async function sessions(rest: string[], io: Io): Promise<number> {
 
 async function session(rest: string[], io: Io): Promise<number> {
   const [action, ...args] = rest;
-  const { values, positionals } = parse(args, {
+  const { values } = parse(args, {
     id: { type: 'string' },
     agent: { type: 'string' },
     cwd: { type: 'string' },

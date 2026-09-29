@@ -4,7 +4,6 @@ import { parseJournal, parseReviewJournal, serializeEvents, type ReviewEvent, ty
 import { foldReview, foldThread } from './fold';
 import { newCommentId, newReviewId, newThreadId } from './ids';
 import {
-  branchKey,
   reviewScopeKey,
   SCHEMA_VERSION,
   STORE_DIR,

@@ -12,6 +12,12 @@ runCli(process.argv.slice(2), {
   out: (text) => process.stdout.write(text + '\n'),
   err: (text) => process.stderr.write(text + '\n'),
   readStdin,
-}).then((code) => {
-  process.exitCode = code;
-});
+}).then(
+  (code) => {
+    process.exitCode = code;
+  },
+  (err: unknown) => {
+    process.stderr.write(`lr: ${String(err)}\n`);
+    process.exitCode = 1;
+  },
+);

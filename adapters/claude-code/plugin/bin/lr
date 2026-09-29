@@ -1338,7 +1338,7 @@ async function sessions(rest, io) {
 }
 async function session(rest, io) {
   const [action, ...args] = rest;
-  const { values, positionals } = parse(args, {
+  const { values } = parse(args, {
     id: { type: "string" },
     agent: { type: "string" },
     cwd: { type: "string" },
@@ -1495,6 +1495,13 @@ runCli(process.argv.slice(2), {
   out: (text) => process.stdout.write(text + "\n"),
   err: (text) => process.stderr.write(text + "\n"),
   readStdin
-}).then((code) => {
-  process.exitCode = code;
-});
+}).then(
+  (code) => {
+    process.exitCode = code;
+  },
+  (err) => {
+    process.stderr.write(`lr: ${String(err)}
+`);
+    process.exitCode = 1;
+  }
+);
