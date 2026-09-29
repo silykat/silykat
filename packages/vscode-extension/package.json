@@ -412,14 +412,15 @@
     "typecheck": "tsc --noEmit -p .",
     "test": "vitest run",
     "test:integration": "node esbuild.mjs --tests && vscode-test",
+    "test:integration:coverage": "node esbuild.mjs --tests && vscode-test --coverage --coverage-output ../../coverage/integration",
     "package": "node esbuild.mjs --production && node scripts/check-local-only.mjs && vsce package --no-dependencies --skip-license -o dist/local-review.vsix"
   },
   "devDependencies": {
     "@local-review/core": "0.1.0",
-    "@types/mocha": "^10.0.10",
-    "@types/vscode": "~1.100.0",
-    "@vscode/test-cli": "^0.0.15",
-    "@vscode/test-electron": "^3.1.0",
-    "@vscode/vsce": "^4.0.0"
+    "@types/mocha": "10.0.10",
+    "@types/vscode": "1.100.0",
+    "@vscode/test-cli": "0.0.15",
+    "@vscode/test-electron": "3.1.0",
+    "@vscode/vsce": "4.0.0"
   }
 }
