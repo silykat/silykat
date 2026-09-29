@@ -4,26 +4,30 @@ Thanks for your interest! This guide covers the development setup, the tests and
 
 ## Development setup
 
-Requirements: Node.js 20 or later, npm, git, VS Code with the `code` command on your PATH, and Claude Code to work on the agent integration.
+Requirements: git, VS Code with the `code` command on your PATH, Claude Code to work on the agent integration, and the Node.js version of [`.nvmrc`](.nvmrc) (with npm 11.10 or later). `npm install` refuses to run with another Node.js or an older npm, and says which versions it needs.
 
 ```sh
 git clone git@github.com:lbenamer/local-review.git
 cd local-review
-npm install
+nvm use        # or install the version of .nvmrc with your Node.js manager
+npm install    # also installs the git hooks
 ```
 
 The repository is an npm workspaces monorepo: `packages/core`, `packages/cli`, `packages/vscode-extension` and `adapters/claude-code`.
 
 ## Everyday commands
 
-| Command                       | What it does                                                                                                      |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `npm run typecheck`           | TypeScript checks, all packages                                                                                   |
-| `npm test`                    | Unit tests (vitest), dependency boundaries, and the freshness of the committed plugin bundles                     |
-| `npm run test:integration`    | Integration tests in a dedicated VS Code instance (downloaded into `.vscode-test/`), on a temporary git workspace |
-| `npm run format`              | Prettier (`npm run format:check` to only check)                                                                   |
-| `npm run install-ext`         | Build the `.vsix` and install it into your VS Code (then **Developer: Reload Window**)                            |
-| `npm run build:claude-plugin` | Rebuild the plugin bundles (`plugin/bin/lr`, `plugin/hooks/`, `plugin/channel/`)                                  |
+| Command                        | What it does                                                                                                                  |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `npm run typecheck`            | TypeScript checks, all packages                                                                                               |
+| `npm run lint`                 | oxlint, with type information, on the whole repository                                                                        |
+| `npm test`                     | Unit tests (vitest), dependency boundaries, and the freshness of the committed plugin bundles                                 |
+| `npm run test:integration`     | Integration tests in a dedicated VS Code instance (downloaded into `.vscode-test/`), on a temporary git workspace             |
+| `npm run coverage`             | Coverage of the unit tests (report in `coverage/unit/`); fails below the floors of `vitest.config.mjs`                        |
+| `npm run coverage:integration` | Coverage of the integration tests (report in `coverage/integration/`); fails below the floors of `scripts/check-coverage.mjs` |
+| `npm run format`               | Prettier (`npm run format:check` to only check)                                                                               |
+| `npm run install-ext`          | Build the `.vsix` and install it into your VS Code (then **Developer: Reload Window**)                                        |
+| `npm run build:claude-plugin`  | Rebuild the plugin bundles (`plugin/bin/lr`, `plugin/hooks/`, `plugin/channel/`)                                              |
 
 ## Working on the Claude Code plugin
 
@@ -45,19 +49,35 @@ Unit and integration tests do not run Claude. For behaviour that depends on Clau
 
 Verify technical assumptions (what a hook receives, when a channel message arrives…) by trying them: documentation can be ambiguous.
 
+## Dependencies
+
+- **Exact versions only** (`.npmrc`: `save-exact`), and `npm ci` to install from the lockfile.
+- **No version published less than 7 days ago** (`.npmrc`: `min-release-age=7`), against supply-chain attacks: npm refuses it. A needed exception is decided by the maintainer, for one command (`--min-release-age-exclude=<package>`), never in `.npmrc`.
+- The product has **no runtime dependency** outside the repository: everything in `package.json` is a development tool.
+
+## Git hooks
+
+`npm install` installs them (husky):
+
+- **pre-commit**: formats the staged files with Prettier (a file with unstaged changes is only checked), then runs `npm run lint`;
+- **commit-msg**: the message must follow Conventional Commits (commitlint, see below).
+
 ## Conventions
 
 - **English everywhere in the repository**: code, comments, docs, commit messages, and the whole user interface.
-- **TypeScript strict**, bundled with esbuild. Prettier (single quotes, 120 columns, trailing commas; version pinned): run `npm run format` before committing.
+- **TypeScript strict**, bundled with esbuild. Prettier (single quotes, 120 columns, trailing commas; version pinned): run `npm run format` before committing. **oxlint** (`.oxlintrc.json`) with type information: `npm run lint` reports nothing.
 - **Lines are 1-based and inclusive** in the stored format and in `lr`; the conversion to VS Code's 0-based ranges happens in the extension only.
 - **Every access to the stored data goes through `core`**. A format change means a schema version bump and a migration in `core`.
 - **No network calls and no telemetry**, anywhere. `npm run package` checks the extension bundle for it.
 - **Tests are named by feature** (`review-mode.test.ts`), never after a ticket, so that a file can take the tests added later on the same feature.
 - Integration tests drive the extension through the API returned by `activate()`. A test file that registers sessions or leaves comments waiting cleans up after itself, and no test relies on the window having the system focus.
 
-## Pull requests
+## Commits and pull requests
 
-- Branch from `main` (it is protected: every change goes through a pull request).
-- Keep commits small and coherent, with an English message that says why.
-- Before opening the PR: `npm run typecheck`, `npm test` and `npm run test:integration` pass, `npm run format:check` reports nothing, and the plugin bundles are rebuilt and committed if needed.
+- Branch from `main` (it is protected: every change goes through a pull request, merged with a squash).
+- Keep commits small and coherent. Commit messages and pull request titles follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/): `<type>(<scope>): <description>`, in English, imperative, lower case, no final period.
+  - Types: `feat`, `fix`, `docs`, `refactor`, `test`, `build`, `ci`, `perf`, `chore`.
+  - Scopes: `core`, `cli`, `vscode-extension`, `claude-code`, `deps`, or none when the change touches several parts.
+  - A breaking change (the `.local-review/` format, the `lr` commands, the settings): `!` after the scope and a `BREAKING CHANGE: …` footer.
+- Before opening the PR: `npm run typecheck`, `npm run lint`, `npm test` and `npm run test:integration` pass, `npm run format:check` reports nothing, and the plugin bundles are rebuilt and committed if needed.
 - Describe what changes for the user, how, and how it was tested (including with a real Claude Code when relevant).
