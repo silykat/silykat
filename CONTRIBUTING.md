@@ -4,12 +4,12 @@ Thanks for your interest! This guide covers the development setup, the tests and
 
 ## Development setup
 
-Requirements: git, VS Code with the `code` command on your PATH, Claude Code to work on the agent integration, and the Node.js version of [`.nvmrc`](.nvmrc) (with npm 11.10 or later). `npm install` refuses to run with another Node.js or an older npm, and says which versions it needs.
+Requirements: git, VS Code with the `code` command on your PATH, Claude Code to work on the agent integration, and Node.js 22.12 or later with npm 11.10 or later: `npm install` refuses older versions, and says which ones it needs. [`.nvmrc`](.nvmrc) gives the reference version, the one the CI uses.
 
 ```sh
 git clone git@github.com:lbenamer/local-review.git
 cd local-review
-nvm use        # or install the version of .nvmrc with your Node.js manager
+nvm use        # optional: the reference version of .nvmrc
 npm install    # also installs the git hooks
 ```
 
