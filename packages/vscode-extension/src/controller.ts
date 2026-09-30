@@ -108,6 +108,8 @@ export class ReviewController implements vscode.Disposable {
    * other files): an older one that finishes after a newer one would show a stale state.
    */
   private readonly loads = new Map<string, number>();
+  /** Folders already told that a newer version of Local Review wrote some of their comments. */
+  private readonly warnedNewer = new Set<string>();
   /** Which branch is checked out where, to show each thread on its branch only. */
   readonly branches = new Branches();
   /** The document of the last active editor that is not a comment input. */
@@ -1328,7 +1330,21 @@ export class ReviewController implements vscode.Disposable {
     this.log.info(`${root.path}: branch ${key} ${renamedTo ? `renamed to ${renamedTo.branch}` : 'deleted'}`);
   }
 
+  /**
+   * Once per folder: some of its comments were written by a newer version of Local Review (a newer
+   * format), so they cannot be changed here.
+   */
+  private warnIfNewer(root: Root, state: ThreadState): void {
+    if (!state.readOnly || this.warnedNewer.has(root.path)) return;
+    this.warnedNewer.add(root.path);
+    void this.choose(
+      `Local Review: some comments in ${root.path} were written by a newer version of Local Review. Update the extension to reply to them or change them.`,
+      [],
+    );
+  }
+
   private render(root: Root, state: ThreadState): void {
+    this.warnIfNewer(root, state);
     if (!this.onItsBranch(root, state)) {
       this.hide(root, state);
       return;
@@ -1346,6 +1362,7 @@ export class ReviewController implements vscode.Disposable {
   }
 
   private adopt(root: Root, state: ThreadState, thread: vscode.CommentThread): void {
+    this.warnIfNewer(root, state);
     this.hidden.delete(state.id);
     // The watcher may have rendered this thread before its creator adopted it: keep a single instance.
     const previous = this.managed.get(state.id);

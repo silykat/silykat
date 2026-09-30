@@ -322,7 +322,10 @@ export class Store {
     if (!state || state.deleted || (by === 'agent' && !state.hasPublished)) {
       throw new Error(`Thread not found: ${threadId}`);
     }
-    if (state.readOnly) throw new Error(`Thread ${threadId} was written by a newer version and is read-only`);
+    if (state.readOnly)
+      throw new Error(
+        `Thread ${threadId} was written by a newer version of Local Review, so it is read-only: update Local Review to change it`,
+      );
     return state;
   }
 

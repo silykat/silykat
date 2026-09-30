@@ -226,6 +226,15 @@ describe('lr reply / set-status', () => {
     expect((await lr(['show', t.id])).err).toContain('was deleted by the user');
   });
 
+  it('says to update Local Review when a newer version wrote the thread', async () => {
+    const t = await comment(anchorOn(3, 3), 'Why null?');
+    await writeFile(store.threadFile(t.id), '{"v":99,"type":"comment.added","future":true}\n', { flag: 'a' });
+    const r = await lr(['reply', t.id, '--agent', 'Claude', '--body', 'Done']);
+    expect(r.code).toBe(EXIT.ERROR);
+    expect(r.err).toContain('written by a newer version of Local Review');
+    expect(r.err).toContain('update Local Review');
+  });
+
   it('replies as the agent, with a status', async () => {
     const t = await comment(anchorOn(3, 3), 'Why null?');
     const { code, out } = await lr([
