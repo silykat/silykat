@@ -1,9 +1,10 @@
-import { existsSync, readdirSync, watch, type FSWatcher } from 'node:fs';
+import { readdirSync, statSync, watch, type FSWatcher } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import * as vscode from 'vscode';
 import { Store } from '@local-review/core';
 
 const DEBOUNCE_MS = 100;
+/** A new watch is not active right away (macOS): what is written meanwhile is read after this delay. */
+const SETTLE_MS = 500;
 
 export interface StoreListener {
   /** A thread journal changed. */
@@ -17,11 +18,11 @@ export interface StoreListener {
  * runs once per burst of events on the same journal.
  *
  * Node's watcher, not VS Code's: on Linux, VS Code's misses some writes made by other processes
- * (verified in the integration tests). The store may not exist yet (nothing commented so far) or be
- * removed: the nearest existing folder is watched until its folders are back, and the journals
- * already there are read then, as the watch may have started after their first write.
+ * (verified in the integration tests). The store may not exist yet (nothing commented so far), or be
+ * removed and created again: the folder that holds it is watched too, and the journals already in a
+ * folder that appears are read, as its watch may start after their first write.
  */
-export function watchStore(storeDir: string, listener: StoreListener): vscode.Disposable {
+export function watchStore(storeDir: string, listener: StoreListener): { dispose(): void } {
   const timers = new Map<string, NodeJS.Timeout>();
   const debounce = (key: string, run: () => void) => {
     clearTimeout(timers.get(key));
@@ -41,34 +42,17 @@ export function watchStore(storeDir: string, listener: StoreListener): vscode.Di
 
   const threadsDir = join(storeDir, 'threads');
   const reviewsDir = join(storeDir, 'reviews');
-  const watchers = new Map<string, FSWatcher>();
+  const store = basename(storeDir);
+  const watched = new Map<string, { watcher: FSWatcher; inode: number }>();
+  const settles = new Set<NodeJS.Timeout>();
   let disposed = false;
 
-  const close = (dir: string) => {
-    watchers.get(dir)?.close();
-    watchers.delete(dir);
-  };
-  /** Watches `dir`; false when it does not exist. */
-  const watchDir = (dir: string, onEvent: (name: string) => void): boolean => {
-    if (watchers.has(dir)) return true;
+  /** The folder's inode, or null when it does not exist. */
+  const inodeOf = (dir: string): number | null => {
     try {
-      const w = watch(dir, (_event, name) => {
-        if (!existsSync(dir)) {
-          // The folder was removed: wait for it again.
-          close(dir);
-          arm();
-          return;
-        }
-        onEvent(name?.toString() ?? '');
-      });
-      w.on('error', () => {
-        close(dir);
-        arm();
-      });
-      watchers.set(dir, w);
-      return true;
+      return statSync(dir).ino;
     } catch {
-      return false;
+      return null;
     }
   };
   /** Journals written before their folder was watched. */
@@ -78,38 +62,79 @@ export function watchStore(storeDir: string, listener: StoreListener): vscode.Di
         .filter((f) => f.endsWith('.jsonl'))
         .forEach(onFile);
     } catch {
-      // gone again: the next arm() handles it
+      // gone again: the next sync handles it
     }
   };
-  /** Watches a folder of journals; `catchUp`: also reads those already there. */
-  const journals = (dir: string, onFile: (name: string) => void, catchUp: boolean): boolean => {
-    const known = watchers.has(dir);
-    const watched = watchDir(dir, (name) => {
-      if (name.endsWith('.jsonl')) onFile(name);
-    });
-    if (watched && !known && catchUp) readJournals(dir, onFile);
-    return watched;
+  /**
+   * Watches `dir` if it exists, again when `renew` (it may have been created again: Linux often
+   * gives the new folder the same inode). Returns true when it starts a new watch.
+   */
+  const follow = (dir: string, onEvent: (name: string) => void, renew = false): boolean => {
+    const inode = inodeOf(dir);
+    const current = watched.get(dir);
+    if (current && current.inode === inode && !renew) return false;
+    current?.watcher.close();
+    watched.delete(dir);
+    if (inode === null) return false;
+    try {
+      const watcher = watch(dir, (_event, name) => {
+        if (inodeOf(dir) !== inode) sync(true, true);
+        else onEvent(name?.toString() ?? '');
+      });
+      watcher.on('error', () => sync(true, true));
+      watched.set(dir, { watcher, inode });
+      return true;
+    } catch {
+      return false;
+    }
   };
-  /** The first time, the caller loads the store itself: only later folders are caught up. */
-  function arm(first = false): void {
+  const journals = (dir: string, onFile: (name: string) => void, catchUp: boolean, renew: boolean) => {
+    const started = follow(
+      dir,
+      (name) => {
+        if (name.endsWith('.jsonl')) onFile(name);
+        else sync(true, true); // the folder itself (removed?)
+      },
+      renew,
+    );
+    if (!started) return;
+    if (catchUp) readJournals(dir, onFile);
+    const settle = setTimeout(() => {
+      settles.delete(settle);
+      if (!disposed) readJournals(dir, onFile);
+    }, SETTLE_MS);
+    settles.add(settle);
+  };
+  /**
+   * Every level stays watched: the folder that holds the store (for the store), the store (for its
+   * folders), its folders (for the journals). A removed folder does not always tell its watcher, so
+   * an event about a folder watches the levels below it again (`renew`). The first time, the caller
+   * loads the store itself: only the folders that appear later are caught up.
+   */
+  function sync(catchUp: boolean, renew = false): void {
     if (disposed) return;
-    const threads = journals(threadsDir, onThreadFile, !first);
-    const reviews = journals(reviewsDir, onReviewFile, !first);
-    if (threads && reviews) {
-      close(storeDir);
-      close(dirname(storeDir));
-      return;
-    }
-    // A folder is missing: watch the store for it, or the folder that holds the store.
-    if (watchDir(storeDir, () => arm())) close(dirname(storeDir));
-    else watchDir(dirname(storeDir), (name) => name === basename(storeDir) && arm());
+    follow(dirname(storeDir), (name) => {
+      if (name === store) sync(true, true);
+    });
+    follow(
+      storeDir,
+      (name) => {
+        if (name === 'threads' || name === 'reviews') sync(true, true);
+      },
+      renew,
+    );
+    journals(threadsDir, onThreadFile, catchUp, renew);
+    journals(reviewsDir, onReviewFile, catchUp, renew);
   }
-  arm(true);
+  sync(false);
 
-  return new vscode.Disposable(() => {
-    disposed = true;
-    timers.forEach(clearTimeout);
-    watchers.forEach((w) => w.close());
-    watchers.clear();
-  });
+  return {
+    dispose: () => {
+      disposed = true;
+      timers.forEach(clearTimeout);
+      settles.forEach(clearTimeout);
+      watched.forEach(({ watcher }) => watcher.close());
+      watched.clear();
+    },
+  };
 }
