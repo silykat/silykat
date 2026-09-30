@@ -13,6 +13,7 @@ var import_node_path = require("node:path");
 var topicKey = (t) => t.kind === "branch" ? `branch:${t.repo}#${t.branch}` : `path:${t.path}`;
 
 // ../../packages/core/src/sessions.ts
+var CURSOR_HEAD_BYTES = 256;
 function localReviewHome(env = process.env) {
   return env.LOCAL_REVIEW_HOME?.trim() || (0, import_node_path.join)((0, import_node_os.homedir)(), ".local-review");
 }
@@ -134,12 +135,18 @@ var SessionRegistry = class {
     try {
       handle = await (0, import_promises.open)(this.file(id, "inbox"), "r");
     } catch (err) {
-      if (err.code === "ENOENT") return { deliveries: [], cursor: { file: 0, offset: 0 } };
+      if (err.code === "ENOENT")
+        return { deliveries: [], cursor: { file: 0, head: "", offset: 0 } };
       throw err;
     }
     try {
       const { ino, size } = await handle.stat();
-      const from = cursor && cursor.file === ino && cursor.offset <= size ? cursor.offset : 0;
+      const start = Buffer.alloc(Math.min(size, CURSOR_HEAD_BYTES));
+      await handle.read(start, 0, start.length, 0);
+      const newline = start.indexOf(10);
+      const head = start.subarray(0, newline < 0 ? start.length : newline).toString("utf8");
+      const same = cursor && cursor.file === ino && cursor.head === head && cursor.offset <= size;
+      const from = same ? cursor.offset : 0;
       const buffer = Buffer.alloc(size - from);
       await handle.read(buffer, 0, buffer.length, from);
       const end = buffer.lastIndexOf(10) + 1;
@@ -148,7 +155,7 @@ var SessionRegistry = class {
         const delivery = parseDelivery(line);
         if (delivery) deliveries.push(delivery);
       }
-      return { deliveries, cursor: { file: ino, offset: from + end } };
+      return { deliveries, cursor: { file: ino, head, offset: from + end } };
     } finally {
       await handle.close();
     }

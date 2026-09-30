@@ -32,8 +32,16 @@ export interface SessionRecord {
 /** Where the last read of an inbox stopped. */
 export interface InboxCursor {
   file: number;
+  /**
+   * The start of the file's first line: with the inode, it tells the same file from a new one (on
+   * Linux, a file removed and created again often gets the same inode).
+   */
+  head: string;
   offset: number;
 }
+
+/** Bytes of the first line kept in a cursor: enough to tell two deliveries apart (their ids). */
+const CURSOR_HEAD_BYTES = 256;
 
 /** "The user published these threads": what the agent of a session is asked to process. */
 export interface Delivery {
@@ -226,13 +234,19 @@ export class SessionRegistry {
     try {
       handle = await open(this.file(id, 'inbox'), 'r');
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { deliveries: [], cursor: { file: 0, offset: 0 } };
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT')
+        return { deliveries: [], cursor: { file: 0, head: '', offset: 0 } };
       throw err;
     }
     try {
       const { ino, size } = await handle.stat();
+      const start = Buffer.alloc(Math.min(size, CURSOR_HEAD_BYTES));
+      await handle.read(start, 0, start.length, 0);
+      const newline = start.indexOf(0x0a);
+      const head = start.subarray(0, newline < 0 ? start.length : newline).toString('utf8');
       // Another file than last time: the inbox was removed and started again, read it all.
-      const from = cursor && cursor.file === ino && cursor.offset <= size ? cursor.offset : 0;
+      const same = cursor && cursor.file === ino && cursor.head === head && cursor.offset <= size;
+      const from = same ? cursor.offset : 0;
       const buffer = Buffer.alloc(size - from);
       await handle.read(buffer, 0, buffer.length, from);
       const end = buffer.lastIndexOf(0x0a) + 1;
@@ -241,7 +255,7 @@ export class SessionRegistry {
         const delivery = parseDelivery(line);
         if (delivery) deliveries.push(delivery);
       }
-      return { deliveries, cursor: { file: ino, offset: from + end } };
+      return { deliveries, cursor: { file: ino, head, offset: from + end } };
     } finally {
       await handle.close();
     }
