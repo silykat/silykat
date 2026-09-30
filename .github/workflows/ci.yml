@@ -1,0 +1,76 @@
+# Checks every pull request to main or to an epic branch. Actions are pinned by commit (Dependabot
+# updates them); Node.js comes from .nvmrc.
+name: CI
+
+on:
+  pull_request:
+    branches: [main, 'epic/**']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  HUSKY: 0 # no git hooks in the CI
+
+jobs:
+  title:
+    name: Pull request title
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Conventional Commits
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: printf '%s\n' "$TITLE" | npx --no -- commitlint
+
+  checks:
+    name: Checks, unit tests and package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm test # also dependency boundaries and the freshness of the plugin bundles
+      - run: npm run coverage
+      - run: npm run package # also checks that the extension makes no network call
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: local-review-vsix
+          path: packages/vscode-extension/dist/local-review.vsix
+          if-no-files-found: error
+
+  linux:
+    name: Integration tests (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The image of `npm run test:linux`: the same recipe as locally.
+      - run: docker build -f scripts/linux/Dockerfile -t local-review-linux-tests .
+      - run: docker run --rm local-review-linux-tests sh scripts/linux/run-tests.sh integration
+
+  macos:
+    name: Integration tests (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run test:integration

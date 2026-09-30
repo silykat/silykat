@@ -1,0 +1,28 @@
+# Weekly updates, never of a version published less than 7 days ago (like .npmrc's min-release-age).
+# Pull request titles follow Conventional Commits: dependencies shipped with the product are fixes (a
+# patch release), development tools are chores (no release).
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    versioning-strategy: increase # exact versions stay exact
+    commit-message:
+      prefix: fix(deps)
+      prefix-development: chore(deps)
+    groups:
+      development:
+        dependency-type: development
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: ci(deps)
