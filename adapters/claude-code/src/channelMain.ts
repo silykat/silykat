@@ -1,9 +1,22 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { localReviewHome, SessionRegistry } from '@local-review/core';
 import { LocalReviewChannel, type RpcMessage } from './channel';
 import { findClaudePid } from './hook';
 
-declare const PLUGIN_VERSION: string;
+/**
+ * The plugin's version, read when the server starts rather than built into the bundle: a release
+ * changes plugin.json only, and the committed bundle stays the same.
+ */
+function pluginVersion(): string {
+  try {
+    const manifest = join(__dirname, '..', '.claude-plugin', 'plugin.json');
+    return (JSON.parse(readFileSync(manifest, 'utf8')) as { version?: string }).version ?? 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
 
 const POLL_MS = 500;
 
@@ -15,7 +28,7 @@ async function main(): Promise<void> {
     claudePid: await findClaudePid(process.ppid),
     send: (message) => process.stdout.write(JSON.stringify(message) + '\n'),
     now: () => Date.now(),
-    version: PLUGIN_VERSION,
+    version: pluginVersion(),
   });
 
   const lines = createInterface({ input: process.stdin });

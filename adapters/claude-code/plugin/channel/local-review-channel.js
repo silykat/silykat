@@ -2,6 +2,8 @@
 "use strict";
 
 // src/channelMain.ts
+var import_node_fs = require("node:fs");
+var import_node_path3 = require("node:path");
 var import_node_readline = require("node:readline");
 
 // ../../packages/core/src/sessions.ts
@@ -390,6 +392,14 @@ async function findClaudePid(startPid = process.ppid, maxHops = 6) {
 }
 
 // src/channelMain.ts
+function pluginVersion() {
+  try {
+    const manifest = (0, import_node_path3.join)(__dirname, "..", ".claude-plugin", "plugin.json");
+    return JSON.parse((0, import_node_fs.readFileSync)(manifest, "utf8")).version ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+}
 var POLL_MS = 500;
 async function main() {
   const channel = new LocalReviewChannel({
@@ -397,7 +407,7 @@ async function main() {
     claudePid: await findClaudePid(process.ppid),
     send: (message) => process.stdout.write(JSON.stringify(message) + "\n"),
     now: () => Date.now(),
-    version: "0.8.2"
+    version: pluginVersion()
   });
   const lines = (0, import_node_readline.createInterface)({ input: process.stdin });
   lines.on("line", (line) => {

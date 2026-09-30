@@ -3,7 +3,7 @@
 // channel server.
 // `--out <dir>` builds elsewhere, to check that the committed bundles are up to date.
 import { execFileSync } from 'node:child_process';
-import { chmodSync, copyFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as esbuild from 'esbuild';
@@ -19,8 +19,6 @@ const lr = join(plugin, 'bin', 'lr');
 copyFileSync(join(repo, 'packages', 'cli', 'dist', 'lr.js'), lr);
 chmodSync(lr, 0o755);
 
-const { version } = JSON.parse(readFileSync(join(here, 'plugin', '.claude-plugin', 'plugin.json'), 'utf8'));
-
 /** A Node script of the plugin, self-contained. */
 async function bundle(entry, outfile) {
   mkdirSync(dirname(outfile), { recursive: true });
@@ -32,7 +30,6 @@ async function bundle(entry, outfile) {
     platform: 'node',
     target: 'node20',
     banner: { js: '#!/usr/bin/env node' },
-    define: { PLUGIN_VERSION: JSON.stringify(version) },
     // Paths in the bundle's comments are relative to this folder, wherever the build is run from:
     // builds are then byte-identical, which the freshness check relies on.
     absWorkingDir: here,
