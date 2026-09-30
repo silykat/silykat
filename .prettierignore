@@ -10,3 +10,6 @@ package-lock.json
 adapters/claude-code/plugin/bin/
 adapters/claude-code/plugin/hooks/*.js
 adapters/claude-code/plugin/channel/
+# Written by release-please, in its own format
+CHANGELOG.md
+.release-please-manifest.json

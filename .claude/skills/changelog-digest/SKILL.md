@@ -28,7 +28,9 @@ The pull requests merged into the epic branch (one per user story) say what chan
 
 ## 3. Put the block in the pull request description
 
-Keep the rest of the description (what, why, how it was tested). Add or replace the block at the end:
+Keep the rest of the description (what, why, how it was tested). Add or replace the block at the end.
+
+**The two markers must appear only there**, nowhere else in the description, not even in a sentence: release-please takes the text after the first `BEGIN_COMMIT_OVERRIDE` it finds, and a sentence that names it breaks the whole CHANGELOG entry (seen on the first release). Name it "the changelog block" in the prose.
 
 ```
 BEGIN_COMMIT_OVERRIDE

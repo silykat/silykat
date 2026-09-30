@@ -96,6 +96,7 @@ The extension and the plugin (with its `lr`) share **one version**. [release-ple
 - `feat` → minor, `fix` → patch, a breaking change → minor while in 0.x; `chore`, `ci`, `docs`, `test` and `build` alone make no release;
 - after each merge into `main`, the release pull request is opened or updated, with the next version and `CHANGELOG.md`;
 - merging it tags `vX.Y.Z` and creates the GitHub release. Nothing is published to a marketplace yet;
+- the checks of the release pull request need an approval (**Approve and run workflows** on the pull request), as GitHub Actions opened it;
 - `npm run build:release` builds the deliverables of the current version: the plugin bundles and the `.vsix`.
 
 Versions are never bumped by hand. The store format has its own version (`v` in each event): an extension or an `lr` that meets a newer format keeps those comments read-only and says to update Local Review.
