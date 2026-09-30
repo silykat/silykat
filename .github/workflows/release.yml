@@ -1,0 +1,25 @@
+# One product version for the extension and the plugin (with its `lr`). After each merge into main,
+# release-please opens or updates the release pull request (next version, CHANGELOG). Merging it
+# tags the version and creates the GitHub release. Nothing is published to a marketplace yet.
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

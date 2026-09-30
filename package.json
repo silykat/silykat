@@ -1,5 +1,6 @@
 {
   "name": "local-review-monorepo",
+  "version": "0.8.2",
   "private": true,
   "workspaces": [
     "packages/core",
@@ -18,6 +19,7 @@
     "coverage:integration": "npm run build -w packages/cli && npm run test:integration:coverage -w packages/vscode-extension && node scripts/check-coverage.mjs",
     "package": "npm run package -w packages/vscode-extension",
     "install-ext": "npm run package && code --install-extension packages/vscode-extension/dist/local-review.vsix --force",
+    "build:release": "npm run build:claude-plugin && npm run package",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "build:claude-plugin": "npm run build -w adapters/claude-code",
