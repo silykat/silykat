@@ -10,6 +10,14 @@ updates:
     cooldown:
       default-days: 7
     versioning-strategy: increase # exact versions stay exact
+    ignore:
+      # Must match engines.vscode, the oldest VS Code supported (vsce refuses newer types): bumped
+      # by hand, together with it.
+      - dependency-name: '@types/vscode'
+      # Must describe the Node.js the code runs on (VS Code's own, Node.js 20 or later for the
+      # plugin): newer major versions would allow APIs that users do not have.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
     commit-message:
       prefix: fix(deps)
       prefix-development: chore(deps)
