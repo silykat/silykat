@@ -64,7 +64,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The image of `npm run test:linux`: the same recipe as locally.
       - run: docker build -f scripts/linux/Dockerfile -t local-review-linux-tests .
-      - run: docker run --rm local-review-linux-tests sh scripts/linux/run-tests.sh integration
+      # VS Code's renderer crashes with Docker's default 64 MB of shared memory.
+      - run: docker run --rm --shm-size=2g local-review-linux-tests sh scripts/linux/run-tests.sh integration
 
   # Only by hand: macOS minutes cost about ten times those of Linux on a private repository, and the
   # maintainer runs these tests locally before each delivery.
