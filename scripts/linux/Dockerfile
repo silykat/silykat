@@ -13,7 +13,14 @@ USER node
 RUN git config --global user.name 'Local Review tests' && git config --global user.email 'tests@localhost'
 WORKDIR /home/node/repo
 
+# Dependencies first: they are installed again only when a manifest or the lockfile changes.
+COPY --chown=node:node package.json package-lock.json .npmrc ./
+COPY --chown=node:node packages/core/package.json packages/core/
+COPY --chown=node:node packages/cli/package.json packages/cli/
+COPY --chown=node:node packages/vscode-extension/package.json packages/vscode-extension/
+COPY --chown=node:node adapters/claude-code/package.json adapters/claude-code/
+RUN npm ci --ignore-scripts && mkdir -p packages/vscode-extension/.vscode-test
+
 COPY --chown=node:node . .
-RUN npm ci && mkdir -p packages/vscode-extension/.vscode-test
 
 CMD ["sh", "scripts/linux/run-tests.sh"]
