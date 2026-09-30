@@ -120,4 +120,4 @@ Whether a session was launched with the channel cannot be asked to Claude Code: 
 - `branches.ts`: which branch is checked out where (polled every 2 s).
 - `sessions.ts`, `agentReplies.ts`, `review.ts`: the status bar items and their menus.
 - `roots.ts`: stores of the open folders, plus the machine store as the last resort.
-- `watcher.ts`: stores are watched for writes by agents (VS Code's watcher in the workspace, Node's for the machine store).
+- `watcher.ts`: stores are watched for writes by agents, with Node's watcher (VS Code's misses some writes of other processes on Linux). A store that does not exist yet, or was removed, is waited for from its parent folder.
