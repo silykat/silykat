@@ -55,7 +55,14 @@ export class DeliveriesUi implements vscode.Disposable {
   ) {
     // One after the other, in the order of the user's actions (e.g. a comment, then its deletion).
     this.subscription = review.onDidPublish((p) => {
-      this.queue = this.queue.then(() => this.deliver(p)).then(() => undefined);
+      // Where each thread is now: it may be gone when its turn comes (a comment deleted right away).
+      const files: Record<string, string> = {};
+      for (const id of p.threadIds) {
+        const file = review.threadFile(id);
+        if (file) files[id] = file;
+      }
+      const published = { ...p, files: { ...files, ...p.files } };
+      this.queue = this.queue.then(() => this.deliver(published)).then(() => undefined);
     });
     review.publishGate = (root, files) => this.confirmPublish(root, files);
   }
