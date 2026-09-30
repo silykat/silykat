@@ -103,6 +103,11 @@ export class ReviewController implements vscode.Disposable {
   private readonly outdated = new Set<string>();
   /** The reviews in progress: one per branch of each root (off any branch, one per folder), by `reviewKey`. */
   private readonly activeReviews = new Map<string, { root: Root; review: ReviewState }>();
+  /**
+   * The last reload started, per thread and per root's reviews. Reloads read the disk, then wait (git,
+   * other files): an older one that finishes after a newer one would show a stale state.
+   */
+  private readonly loads = new Map<string, number>();
   /** Which branch is checked out where, to show each thread on its branch only. */
   readonly branches = new Branches();
   /** The document of the last active editor that is not a comment input. */
@@ -160,6 +165,7 @@ export class ReviewController implements vscode.Disposable {
     this.liveRanges.clear();
     this.outdated.clear();
     this.activeReviews.clear();
+    this.loads.clear();
     this.hidden.clear();
     this.branches.clear();
     this.disposeWatchers();
@@ -170,14 +176,10 @@ export class ReviewController implements vscode.Disposable {
 
     for (const root of this.roots.all()) {
       this.watchers.push(
-        watchStore(
-          root.store.dir,
-          {
-            onThread: (threadId) => void this.refreshThread(root, threadId),
-            onReviews: () => void this.refreshReviews(root),
-          },
-          { outsideWorkspace: root.loose === true },
-        ),
+        watchStore(root.store.dir, {
+          onThread: (threadId) => void this.refreshThread(root, threadId),
+          onReviews: () => void this.refreshReviews(root),
+        }),
       );
       try {
         const { threads: loaded, warnings } = await root.store.loadAll();
@@ -486,11 +488,24 @@ export class ReviewController implements vscode.Disposable {
     }
   }
 
+  /**
+   * Starts a reload of `key`: the function returned tells, after each wait, whether it is still the
+   * latest one, of a root that is still open (a newer reload, or of the whole window, wins).
+   */
+  private startLoad(key: string, root: Root): () => boolean {
+    const n = (this.loads.get(key) ?? 0) + 1;
+    this.loads.set(key, n);
+    return () => this.loads.get(key) === n && this.roots.all().includes(root);
+  }
+
   /** A review journal changed on disk (e.g. submitted from another window). */
   private async refreshReviews(root: Root): Promise<void> {
+    const latest = this.startLoad(`reviews|${root.path}`, root);
     try {
+      const reviews = await root.store.activeReviews();
+      if (!latest()) return;
       for (const [key, entry] of this.activeReviews) if (entry.root === root) this.activeReviews.delete(key);
-      for (const review of await root.store.activeReviews()) this.setActiveReview(root, review);
+      for (const review of reviews) this.setActiveReview(root, review);
       this.updateReviewContext();
       await this.refreshRoot(root);
     } catch (err) {
@@ -719,9 +734,11 @@ export class ReviewController implements vscode.Disposable {
 
   /** Re-reads one journal after it changed on disk, whoever wrote it. */
   async refreshThread(root: Root, threadId: string): Promise<void> {
+    const latest = this.startLoad(`thread|${root.path}|${threadId}`, root);
     let state: ThreadState | null;
     try {
       const loaded = await root.store.loadThread(threadId);
+      if (!latest()) return;
       loaded.warnings.forEach((w) => this.log.warn(`${root.path}: ${w}`));
       state = loaded.state;
     } catch (err) {
@@ -735,6 +752,7 @@ export class ReviewController implements vscode.Disposable {
       return;
     }
     await this.branches.learn(this.fileOf(root, state));
+    if (!latest()) return;
     if (!this.onItsBranch(root, state)) {
       this.hide(root, state);
       return;
