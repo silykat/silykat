@@ -60,6 +60,8 @@ describe('Review mode: drafts, then submit', () => {
     assert.equal(t.thread.comments[0]!.label, 'Pending');
     assert.equal(t.thread.label, 'Pending');
     assert.equal(t.thread.contextValue, 'lr draft open');
+    // The status bar follows the review of the active editor, computed in the background.
+    for (let i = 0; i < 80 && api.reviewStatusText() === undefined; i++) await new Promise((r) => setTimeout(r, 25));
     assert.equal(api.reviewStatusText(), '$(comment-draft) Review · 1');
     assert.deepEqual(
       reviewJournals().map((events) => events.map((e) => e.type)),
