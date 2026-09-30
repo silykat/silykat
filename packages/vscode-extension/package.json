@@ -418,7 +418,7 @@
   "devDependencies": {
     "@local-review/core": "0.1.0",
     "@types/mocha": "10.0.10",
-    "@types/vscode": "1.100.0",
+    "@types/vscode": "1.138.0",
     "@vscode/test-cli": "0.0.15",
     "@vscode/test-electron": "3.1.0",
     "@vscode/vsce": "4.0.0"
