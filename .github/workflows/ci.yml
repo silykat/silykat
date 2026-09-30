@@ -5,12 +5,14 @@ name: CI
 on:
   pull_request:
     branches: [main, 'epic/**']
+  # By hand (Actions tab, or `gh workflow run ci.yml`): the macOS integration tests, for a release.
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -19,6 +21,7 @@ env:
 jobs:
   title:
     name: Pull request title
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -63,8 +66,11 @@ jobs:
       - run: docker build -f scripts/linux/Dockerfile -t local-review-linux-tests .
       - run: docker run --rm local-review-linux-tests sh scripts/linux/run-tests.sh integration
 
+  # Only by hand: macOS minutes cost about ten times those of Linux on a private repository, and the
+  # maintainer runs these tests locally before each delivery.
   macos:
     name: Integration tests (macOS)
+    if: github.event_name == 'workflow_dispatch'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
