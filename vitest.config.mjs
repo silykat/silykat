@@ -8,6 +8,13 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['packages/*/src/**/*.ts', 'adapters/claude-code/src/**/*.ts'],
+      // Not worth unit tests: entry points that only wire the rest together, and development tools.
+      exclude: [
+        'packages/cli/src/main.ts',
+        'adapters/claude-code/src/hookMain.ts',
+        'adapters/claude-code/src/channelMain.ts',
+        'packages/vscode-extension/src/dev/**',
+      ],
       reporter: ['text', 'html'],
       reportsDirectory: 'coverage/unit',
       // Floors at the level reached, rounded down: the CI measures on Linux, a bit below macOS for some
@@ -15,8 +22,8 @@ export default defineConfig({
       // extension is mostly covered by its integration tests (`npm run coverage:integration`).
       thresholds: {
         'packages/core/src/**': { statements: 93, branches: 87, functions: 91, lines: 95 },
-        'packages/cli/src/**': { statements: 94, branches: 86, functions: 90, lines: 95 },
-        'adapters/claude-code/src/**': { statements: 78, branches: 77, functions: 65, lines: 80 },
+        'packages/cli/src/**': { statements: 97, branches: 86, functions: 98, lines: 99 },
+        'adapters/claude-code/src/**': { statements: 95, branches: 82, functions: 97, lines: 99 },
         'packages/vscode-extension/src/**': { statements: 4, branches: 6, functions: 4, lines: 4 },
       },
     },
