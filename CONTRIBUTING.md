@@ -30,6 +30,16 @@ The repository is an npm workspaces monorepo: `packages/core`, `packages/cli`, `
 | `npm run install-ext`          | Build the `.vsix` and install it into your VS Code (then **Developer: Reload Window**)                                        |
 | `npm run build:claude-plugin`  | Rebuild the plugin bundles (`plugin/bin/lr`, `plugin/hooks/`, `plugin/channel/`)                                              |
 
+## Continuous integration
+
+Every pull request to `main` or to an `epic/*` branch runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml), on Linux:
+
+- **Pull request title**: Conventional Commits (commitlint);
+- **Checks, unit tests and package**: typecheck, lint, format, unit tests (with dependency boundaries and plugin bundles), coverage floors, and the `.vsix`, downloadable from the run's artifacts;
+- **Integration tests (Linux)**: in the image of `npm run test:linux`.
+
+The macOS integration tests run on the maintainer's machine for now; the macOS job only runs when started by hand (it costs ten times the minutes of Linux on a private repository). Actions are pinned by commit, and [Dependabot](.github/dependabot.yml) proposes updates every week, never of a version published less than 7 days ago.
+
 ## Testing on Linux
 
 `npm run test:linux` builds a Linux image (`scripts/linux/Dockerfile`: the Node.js of `.nvmrc`, and what VS Code needs) and runs in it what `scripts/linux/run-tests.sh` lists: typecheck, lint, format, unit tests, and the integration tests on a virtual display (`xvfb-run`). It needs Docker. The first run downloads VS Code for Linux into a Docker volume (`local-review-linux-vscode`), kept for the next runs. The CI is to reuse the same image.
