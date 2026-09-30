@@ -50,7 +50,7 @@ On a Mac with Apple silicon, the container is Linux arm64; the CI runs on x86-64
 
 - Load your checkout for skills and hooks: `claude --plugin-dir adapters/claude-code/plugin`. The channel, however, only works with the installed plugin (`--dangerously-load-development-channels plugin:local-review@local-review`): add your checkout as a local marketplace (`claude plugin marketplace add /path/to/local-review`), then `claude plugin update local-review@local-review` after each change.
 - After any change to `core`, the CLI or the adapter, run `npm run build:claude-plugin` and **commit the bundles**: Claude Code installs plugins from git, and `npm test` fails when they are stale.
-- **Bump the plugin version** in `adapters/claude-code/plugin/.claude-plugin/plugin.json` for every change you ship: Claude Code only updates a plugin whose version changed.
+- Never bump the plugin version by hand: releases do it (see below). Claude Code only updates a plugin whose version changed.
 
 ### Without an agent
 
@@ -88,6 +88,22 @@ Verify technical assumptions (what a hook receives, when a channel message arriv
 - **No network calls and no telemetry**, anywhere. `npm run package` checks the extension bundle for it.
 - **Tests are named by feature** (`review-mode.test.ts`), never after a ticket, so that a file can take the tests added later on the same feature.
 - Integration tests drive the extension through the API returned by `activate()`. A test file that registers sessions or leaves comments waiting cleans up after itself, and no test relies on the window having the system focus.
+
+## Releases
+
+The extension and the plugin (with its `lr`) share **one version**. [release-please](https://github.com/googleapis/release-please) derives it from the Conventional Commits of `main` (`.github/workflows/release.yml`, `release-please-config.json`):
+
+- `feat` → minor, `fix` → patch, a breaking change → minor while in 0.x; `chore`, `ci`, `docs`, `test` and `build` alone make no release;
+- after each merge into `main`, the release pull request is opened or updated, with the next version and `CHANGELOG.md`;
+- merging it tags `vX.Y.Z` and creates the GitHub release. Nothing is published to a marketplace yet;
+- `npm run build:release` builds the deliverables of the current version: the plugin bundles and the `.vsix`.
+
+Versions are never bumped by hand. The store format has its own version (`v` in each event): an extension or an `lr` that meets a newer format keeps those comments read-only and says to update Local Review.
+
+## Branches
+
+- A user story, a fix or a chore: a branch from `main`, one pull request, merged with a squash.
+- An **epic** (a feature made of several user stories): an `epic/<slug>` branch from `main`. Each story reaches it by its own pull request; the epic reaches `main` by one pull request, merged with a squash. Its description ends with a `BEGIN_COMMIT_OVERRIDE` … `END_COMMIT_OVERRIDE` block, one line per change users can see, which release-please uses instead of the squashed commit message (the `changelog-digest` skill in `.claude/skills/` writes it). Fixes go to `main`, then `main` is merged into the epic branches in progress.
 
 ## Commits and pull requests
 
