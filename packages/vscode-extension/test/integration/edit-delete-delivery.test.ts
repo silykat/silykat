@@ -5,13 +5,14 @@ import * as vscode from 'vscode';
 import { localReviewHome, SessionRegistry, Store, topicOf, type Delivery } from '@local-review/core';
 import type { LocalReviewApi } from '../../src/extension';
 import type { LrComment } from '../../src/render';
+import { WAIT_MS } from './timing';
 
 const EXTENSION_ID = 'local.local-review';
 
 async function waitFor<T>(
   what: string,
   probe: () => Promise<T | undefined> | T | undefined,
-  timeoutMs = 3000,
+  timeoutMs = WAIT_MS,
 ): Promise<T> {
   const start = Date.now();
   for (;;) {

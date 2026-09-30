@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { join } from 'node:path';
 import * as vscode from 'vscode';
 import type { LocalReviewApi } from '../../src/extension';
+import { WAIT_MS } from './timing';
 
 const EXTENSION_ID = 'local.local-review';
 
@@ -61,7 +62,8 @@ describe('Review mode: drafts, then submit', () => {
     assert.equal(t.thread.label, 'Pending');
     assert.equal(t.thread.contextValue, 'lr draft open');
     // The status bar follows the review of the active editor, computed in the background.
-    for (let i = 0; i < 80 && api.reviewStatusText() === undefined; i++) await new Promise((r) => setTimeout(r, 25));
+    for (let i = 0; i < WAIT_MS / 25 && api.reviewStatusText() === undefined; i++)
+      await new Promise((r) => setTimeout(r, 25));
     assert.equal(api.reviewStatusText(), '$(comment-draft) Review · 1');
     assert.deepEqual(
       reviewJournals().map((events) => events.map((e) => e.type)),
@@ -168,7 +170,7 @@ describe('Review mode: drafts, then submit', () => {
 
   it('still offers "Add to Review" while typing in a new comment input', async () => {
     const waitFor = async (probe: () => boolean) => {
-      for (let i = 0; i < 80 && !probe(); i++) await new Promise((r) => setTimeout(r, 25));
+      for (let i = 0; i < WAIT_MS / 25 && !probe(); i++) await new Promise((r) => setTimeout(r, 25));
     };
     const editor = await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri));
     await onNewThread('localReview.startReview', 3, 'First remark');
@@ -197,7 +199,8 @@ describe('Review mode: drafts, then submit', () => {
     };
     const [a, b, c] = [file('specs/deep/a.md'), file('specs/deep/b.md'), file('specs/c.md')];
     const waitHere = async (expected: boolean) => {
-      for (let i = 0; i < 80 && api.reviewContext().here !== expected; i++) await new Promise((r) => setTimeout(r, 25));
+      for (let i = 0; i < WAIT_MS / 25 && api.reviewContext().here !== expected; i++)
+        await new Promise((r) => setTimeout(r, 25));
       return api.reviewContext().here;
     };
     const comment = async (command: string, target: vscode.Uri, text: string) => {

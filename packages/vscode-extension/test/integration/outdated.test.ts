@@ -3,6 +3,7 @@ import { existsSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'nod
 import { join } from 'node:path';
 import * as vscode from 'vscode';
 import type { LocalReviewApi } from '../../src/extension';
+import { WAIT_MS } from './timing';
 
 const EXTENSION_ID = 'local.local-review';
 const CODE = [
@@ -16,7 +17,7 @@ const CODE = [
 ];
 const FILE = [...Array.from({ length: 10 }, (_, i) => `// header ${i + 1}`), ...CODE, '// end'];
 
-async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs = 5000): Promise<T> {
+async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs = WAIT_MS): Promise<T> {
   const start = Date.now();
   for (;;) {
     const value = probe();

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import * as vscode from 'vscode';
 import { buildAnchorContext, Store } from '@local-review/core';
 import type { LocalReviewApi } from '../../src/extension';
+import { WAIT_MS } from './timing';
 
 const EXTENSION_ID = 'local.local-review';
 
@@ -99,7 +100,8 @@ describe('Threads belong to their git branch', () => {
 
   it('offers drafts first only where a review is in progress: on the branch of the file shown', async () => {
     const waitHere = async (expected: boolean) => {
-      for (let i = 0; i < 80 && api.reviewContext().here !== expected; i++) await new Promise((r) => setTimeout(r, 25));
+      for (let i = 0; i < WAIT_MS / 25 && api.reviewContext().here !== expected; i++)
+        await new Promise((r) => setTimeout(r, 25));
       return api.reviewContext();
     };
     await vscode.window.showTextDocument(uri);

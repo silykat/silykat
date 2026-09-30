@@ -3,10 +3,11 @@ import { readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
 import type { LocalReviewApi } from '../../src/extension';
+import { WAIT_MS } from './timing';
 
 const EXTENSION_ID = 'local.local-review';
 
-async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs = 1500): Promise<T> {
+async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs = WAIT_MS): Promise<T> {
   const start = Date.now();
   for (;;) {
     const value = probe();

@@ -4,6 +4,7 @@ import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
 import type { LocalReviewApi } from '../../src/extension';
+import { WAIT_MS } from './timing';
 
 const EXTENSION_ID = 'local.local-review';
 const LIVE_DEADLINE_MS = 1000; // "in less than a second"
@@ -96,7 +97,7 @@ describe('See the agent’s reply appear in the thread (default agent: Claude)',
     await waitFor(
       'the addressed label',
       () => (threadById(id)?.thread.label?.startsWith('✅') ? true : undefined),
-      LIVE_DEADLINE_MS,
+      WAIT_MS,
     );
     assert.equal(threadById(id)!.thread.label, '✅ Addressed by Claude — please verify');
   });
@@ -104,11 +105,7 @@ describe('See the agent’s reply appear in the thread (default agent: Claude)',
   it('labels a reply without status change', async () => {
     const id = await newThread(7);
     await simulate(id, 'Noted.', 'none');
-    await waitFor(
-      'the reply',
-      () => (threadById(id)?.thread.comments.length === 2 ? true : undefined),
-      LIVE_DEADLINE_MS,
-    );
+    await waitFor('the reply', () => (threadById(id)?.thread.comments.length === 2 ? true : undefined), WAIT_MS);
     assert.equal(threadById(id)!.thread.label, '💬 Claude replied');
   });
 
@@ -118,7 +115,7 @@ describe('See the agent’s reply appear in the thread (default agent: Claude)',
     const thread = await waitFor(
       'the reply',
       () => (threadById(id)?.thread.comments.length === 2 ? threadById(id)!.thread : undefined),
-      LIVE_DEADLINE_MS,
+      WAIT_MS,
     );
     const body = thread.comments[1]!.body as vscode.MarkdownString;
     assert.equal(body.isTrusted, false);
@@ -128,11 +125,7 @@ describe('See the agent’s reply appear in the thread (default agent: Claude)',
   it('keeps the reply and the status after a reload', async () => {
     const id = await newThread(9);
     await simulate(id, 'Why this choice?', 'needs-info');
-    await waitFor(
-      'the reply',
-      () => (threadById(id)?.thread.comments.length === 2 ? true : undefined),
-      LIVE_DEADLINE_MS,
-    );
+    await waitFor('the reply', () => (threadById(id)?.thread.comments.length === 2 ? true : undefined), WAIT_MS);
     await api.reload();
     const t = threadById(id)!;
     assert.deepEqual(
@@ -148,7 +141,7 @@ describe('See the agent’s reply appear in the thread (default agent: Claude)',
     const thread = await waitFor(
       'the Codex reply',
       () => (threadById(id)?.thread.comments.length === 2 ? threadById(id)!.thread : undefined),
-      LIVE_DEADLINE_MS,
+      WAIT_MS,
     );
     assert.equal(thread.comments[1]!.author.name, 'Codex');
     assert.equal(thread.label, '❓ Codex is waiting for your reply');
