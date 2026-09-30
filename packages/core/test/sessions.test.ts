@@ -153,6 +153,29 @@ describe('Session inboxes', () => {
     ]);
   });
 
+  it('tells a new inbox from the old one even with the same inode (as Linux often reuses it)', async () => {
+    const r = registry();
+    await r.register(record());
+    await r.deliver('session-a', delivery('d_1'));
+    const { cursor } = await r.readInbox('session-a');
+    // Rewritten in place: same inode, other content, at least as long as the offset read so far.
+    const inbox = join(home, 'sessions', 'session-a.inbox.jsonl');
+    await writeFile(inbox, `${JSON.stringify(delivery('d_2'))}\n${JSON.stringify(delivery('d_3'))}\n`);
+    expect((await r.readInbox('session-a', cursor)).deliveries.map((d) => d.id)).toEqual(['d_2', 'd_3']);
+  });
+
+  it('keeps its place while the first line is still being written', async () => {
+    const r = registry();
+    await r.register(record());
+    const inbox = join(home, 'sessions', 'session-a.inbox.jsonl');
+    const line = JSON.stringify(delivery('d_1'));
+    await writeFile(inbox, line.slice(0, 10));
+    const partial = await r.readInbox('session-a');
+    expect(partial.deliveries).toEqual([]);
+    await writeFile(inbox, `${line}\n`);
+    expect((await r.readInbox('session-a', partial.cursor)).deliveries.map((d) => d.id)).toEqual(['d_1']);
+  });
+
   it('is removed with its session, and read again from the start if it was', async () => {
     const r = registry();
     await r.register(record());
