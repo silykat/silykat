@@ -25,7 +25,7 @@ flowchart LR
 | Folder                      | Purpose                                                                                                          | May depend on |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------- | ------------- |
 | `packages/core`             | Data model, append-only journals, stores, re-anchoring, session registry, topics and routing. No VS Code import. | nothing       |
-| `packages/cli`              | `lr`: what agents run to read and answer threads, and to subscribe.                                              | `core`        |
+| `packages/cli`              | `lr`: what agents run to read and answer threads, read a project's history, and subscribe.                       | `core`        |
 | `packages/vscode-extension` | Comment threads in the editor, reviews, diffs, deliveries to agent sessions.                                     | `core`        |
 | `adapters/claude-code`      | The Claude Code plugin (skill, commands, hooks, channel server) and their TypeScript sources.                    | `core`, `cli` |
 
@@ -53,6 +53,12 @@ A review journal holds `review.started`, `review.branch.changed`, then `review.s
 A thread's **anchor** records its file (relative to the root), the version it is about (working tree, index, `HEAD` or a commit, and which side of a diff), its line range, the commented code and a few lines of context. Re-anchoring (`core/src/reanchor.ts`) finds the code again after changes: exact match, moved, then whitespace-insensitive; otherwise the thread is outdated.
 
 A thread's **branch** (`repo`, `branch`) is the branch of its file when it was created: `repo` is the git common directory, shared by all the worktrees of a repository.
+
+### A project's history
+
+`lr history` (`projectHistory` in `core/src/project.ts`) reads every store of a **project**: a folder, its subfolders (hidden folders, dependencies, build outputs and the macOS `Library` and `Applications` folders skipped), and the git worktrees of the repositories found there (`git worktree list`), even outside the folder. When the folder itself has no store, the closest one above it counts too, as for the other `lr` commands. Each store is read once (by its real path). There is no index: finding the stores and folding a few hundred threads takes well under a second.
+
+A thread's history (`threadHistory` in `core/src/history.ts`) is a second fold of its journal, next to `foldThread`: it keeps everything published, in order (comments with their edits and deletions, status changes, the thread's deletion), and leaves out the drafts of reviews in progress or discarded. A thread is active in a period when something was published in it then; moving its code is not activity.
 
 ### The machine folder: `~/.local-review/` (or `$LOCAL_REVIEW_HOME`)
 
