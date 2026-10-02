@@ -1,12 +1,14 @@
 ---
 name: review
-description: Address the user's Local Review comments, i.e. the code review threads they left in VS Code with the Local Review extension. Read the threads with `lr`, change the code, and reply in each thread. Use when the user asks you to handle, address, fix or answer their review comments, says their review is ready, or when a Local Review channel message says they published comments.
+description: Address the user's Local Review comments, i.e. the code review threads they left in VS Code with the Local Review extension. Read the threads with `lr`, change the code, and reply in each thread. Use when the user asks you to handle, address, fix or answer their review comments, says their review is ready, or when a Local Review channel message says they published comments. Also use it when the user asks to see the history of their review comments (resolved, deleted, every repository of the project).
 allowed-tools: Bash(lr:*)
 ---
 
 # Address the Local Review comments
 
 The user reviews your code in VS Code and leaves comments in threads, like on a GitHub pull request. You answer in those threads with the `lr` command (it is on your PATH). Each reply shows up live in their editor.
+
+Asked for the **history** of the comments rather than to handle them? Skip to section 5 and run `lr history` yourself.
 
 ## 1. See what is waiting
 
@@ -65,6 +67,10 @@ Local Review publishes each comment to the sessions **subscribed** to its branch
 
 Whenever a subscription changes, say so in your reply, in one short sentence. Being subscribed does not mean doing everything: a comment may also go to other sessions (e.g. a reviewer); do what fits your role in this session.
 
-## 5. Finish
+## 5. The history of the comments
+
+When the user asks for the **history** of their review comments (e.g. "show me this week's comments", "what did I comment on lately?"), run `lr history` yourself right away (never ask the user to run it), with `--since <date>` for a period (`2026-10-01`, or `7d` for the last 7 days). It reads the whole project, from the current folder (or `--root <dir>`): its subfolders, every repository in it, and their git worktrees, even those kept outside the folder. It shows **every** thread, whatever its state (open, addressed, resolved, deleted), with its whole conversation, after a summary per state and per comment store. Use `--format json` to process it. Then answer from what it printed: the counts, and the threads that matter for the question. It only reads: never reply in these threads unless the user asks.
+
+## 6. Finish
 
 Run `lr status` to check that nothing is left, then give the user a short summary: threads addressed, questions asked, files changed.
