@@ -7,6 +7,7 @@ import {
   findStoresBelow,
   localReviewHome,
   processAncestors,
+  projectHistory,
   storeAt,
   SessionRegistry,
   sessionOfProcess,
@@ -20,6 +21,7 @@ import {
   type ThreadStatus,
 } from '@local-review/core';
 import { locate, renderReviews, renderThread, type Located } from './digest';
+import { historyJson, renderHistory } from './history';
 
 export interface Io {
   cwd: string;
@@ -57,6 +59,15 @@ Usage:
            --rev: the version you read (lr list / lr show): refused, exit 3, if the user changed
            the thread since. Exit 2: the thread no longer exists (e.g. deleted by the user).
 
+History (every thread, whatever its state: open, addressed, resolved, deleted):
+  lr history [--since <date>] [--format md|json]
+                                          The whole conversation of every thread of the project:
+                                          the folder (--root, default: the current one), its
+                                          subfolders, and the git worktrees of its repositories,
+                                          even outside it. --since: threads active since a date
+                                          (2026-10-01, local midnight; an ISO time; or 7d for
+                                          7 days ago). md starts with counts per state and store
+
 Subscriptions (comments are published to the sessions subscribed to their branch or path):
   lr subscribe [<dir-or-file>] [--path]   Subscribe this session to the branch of that folder
                                           (default: the current one), or to the path itself
@@ -93,6 +104,8 @@ export async function runCli(args: string[], io: Io): Promise<number> {
         return await reply(rest, io);
       case 'set-status':
         return await setStatus(rest, io);
+      case 'history':
+        return await history(rest, io);
       case 'sessions':
         return await sessions(rest, io);
       case 'session':
@@ -304,6 +317,27 @@ async function setStatus(rest: string[], io: Io): Promise<number> {
   const state = await store.setStatus(id, status, 'agent', requireAgent(str(values.agent), io));
   io.out(`${state.id} is now ${state.status}.`);
   return EXIT.OK;
+}
+
+async function history(rest: string[], io: Io): Promise<number> {
+  const { values } = parse(rest, { since: { type: 'string' }, format: { type: 'string' } });
+  const format = str(values.format) ?? 'md';
+  if (format !== 'md' && format !== 'json') throw new UsageError(`--format must be "md" or "json", not "${format}"`);
+  const since = parseSince(str(values.since));
+  const h = await projectHistory(resolve(io.cwd, str(values.root) ?? '.'), { since, env: io.env });
+  io.out(format === 'json' ? JSON.stringify(historyJson(h), null, 2) : renderHistory(h));
+  return EXIT.OK;
+}
+
+/** A start date: `2026-10-01` (local midnight), an ISO date and time, or `<n>d` (n days ago). */
+export function parseSince(value: string | undefined, now = Date.now()): Date | null {
+  if (value === undefined) return null;
+  const days = /^(\d+)d$/.exec(value);
+  if (days) return new Date(now - Number(days[1]) * 86_400_000);
+  const date = new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00` : value);
+  if (Number.isNaN(date.getTime()))
+    throw new UsageError(`--since must be a date (2026-10-01), a date and time, or a number of days (7d): "${value}"`);
+  return date;
 }
 
 const registryFor = (io: Io) => new SessionRegistry(localReviewHome(io.env));
