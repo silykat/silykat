@@ -32,7 +32,7 @@ The repository is an npm workspaces monorepo: `packages/core`, `packages/cli`, `
 
 ## Continuous integration
 
-Every pull request to `main` or to an `epic/*` branch runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml), on Linux:
+Every pull request to `main`, to an `epic/*` branch or to a `feat/*` branch (a story stacked on the previous one) runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml), on Linux:
 
 - **Pull request title** ([`.github/workflows/pr-title.yml`](.github/workflows/pr-title.yml), checked again when the title is edited): Conventional Commits (commitlint);
 - **Checks, unit tests and package**: typecheck, lint, format, unit tests (with dependency boundaries and plugin bundles), coverage floors, and the `.vsix`, downloadable from the run's artifacts;
