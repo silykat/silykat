@@ -10,3 +10,5 @@ export * from './anchorVersion';
 export * from './sessions';
 export * from './routing';
 export * from './topics';
+export * from './history';
+export * from './project';

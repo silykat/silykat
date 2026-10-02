@@ -2,6 +2,7 @@ import { appendFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promise
 import { join } from 'node:path';
 import { parseJournal, parseReviewJournal, serializeEvents, type ReviewEvent, type ThreadEvent } from './events';
 import { foldReview, foldThread } from './fold';
+import { threadHistory, type ThreadHistory } from './history';
 import { newCommentId, newReviewId, newThreadId } from './ids';
 import {
   reviewScopeKey,
@@ -88,6 +89,34 @@ export class Store {
       if (state && !state.deleted) threads.push(state);
     }
     return { threads, reviews: [...reviews.values()], warnings };
+  }
+
+  /**
+   * The whole history of every thread, whatever its state (deleted ones included), for reading
+   * back what happened. Threads holding only drafts are left out. Reading never creates the store.
+   */
+  async loadHistory(): Promise<{ threads: ThreadHistory[]; warnings: string[] }> {
+    const { reviews, warnings } = await this.loadReviews();
+    const files = await listJournals(this.threadsDir);
+    const read = await Promise.all(files.map((f) => readFile(join(this.threadsDir, f), 'utf8')));
+    const threads: ThreadHistory[] = [];
+    files.forEach((file, i) => {
+      const text = read[i]!;
+      const label = `threads/${file}`;
+      const parsed = parseJournal(text, label);
+      warnings.push(...parsed.warnings);
+      if (parsed.events[0]?.type !== 'thread.created') {
+        warnings.push(`${label}: no thread.created event, file skipped`);
+        return;
+      }
+      const history = threadHistory(parsed.events, {
+        reviews,
+        futureVersion: parsed.futureVersion,
+        bytes: Buffer.byteLength(text),
+      });
+      if (history) threads.push(history);
+    });
+    return { threads, warnings };
   }
 
   async loadThread(threadId: string): Promise<ThreadLoadResult> {
