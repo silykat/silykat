@@ -5,7 +5,7 @@ name: Pull request title
 
 on:
   pull_request:
-    branches: [main, 'epic/**']
+    branches: [main, 'epic/**', 'feat/**']
     types: [opened, edited, synchronize, reopened]
 
 permissions:
