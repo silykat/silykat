@@ -65,7 +65,8 @@ export async function jevKeyStatus(env: Record<string, string | undefined> = pro
 export function jevKeySetupCommand(path = '$HOME/.config/local-review/jev-key'): string {
   const dir = path.replace(/\/[^/]+$/, '');
   return (
-    `sh -c 'umask 077 && mkdir -p "${dir}" && printf "Jev API key (hidden): " && stty -echo && ` +
+    `sh -c 'umask 077 && mkdir -p "${dir}" && trap "stty echo; echo; exit 130" INT TERM && ` +
+    `printf "Jev API key (hidden): " && stty -echo && ` +
     `IFS= read -r k; stty echo; echo; [ -n "$k" ] && : > "${path}" && chmod 600 "${path}" && ` +
     `printf "%s\\n" "$k" > "${path}" && echo "Saved in ${path}"'`
   );

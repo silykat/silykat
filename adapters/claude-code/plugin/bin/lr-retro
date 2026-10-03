@@ -1327,11 +1327,15 @@ async function markdown(dir, depth = 3) {
   }
   return out;
 }
+var isInside = (path, dir) => {
+  const rel = (0, import_node_path9.relative)(dir, path);
+  return rel !== "" && !rel.startsWith("..") && !(0, import_node_path9.isAbsolute)(rel);
+};
 function projectDirs(root, repos, home) {
   const parents = [];
   let dir = (0, import_node_path9.dirname)((0, import_node_path9.resolve)(root));
   const top = (0, import_node_path9.resolve)(home);
-  while (dir !== (0, import_node_path9.dirname)(dir) && (dir + "/").startsWith(top + "/") && dir !== top) {
+  while (dir !== (0, import_node_path9.dirname)(dir) && isInside(dir, top)) {
     parents.unshift(dir);
     dir = (0, import_node_path9.dirname)(dir);
   }
@@ -1350,7 +1354,7 @@ async function found(root, repos, home, claudeDir) {
   const setupOf = async (claude, agents, scope) => {
     for (const f of await markdown((0, import_node_path9.join)(claude, "rules"))) await add(f, "rules", scope);
     for (const f of await markdown((0, import_node_path9.join)(claude, "skills"), 2))
-      if (f.endsWith("/SKILL.md")) await add(f, "skill", scope);
+      if ((0, import_node_path9.basename)(f) === "SKILL.md") await add(f, "skill", scope);
     for (const f of await markdown((0, import_node_path9.join)(claude, "commands"))) await add(f, "command", scope);
     for (const f of await markdown((0, import_node_path9.join)(claude, "agents"))) await add(f, "agent", scope);
     for (const name of ["settings.json", "settings.local.json"]) await add((0, import_node_path9.join)(claude, name), "hooks", scope);
@@ -1409,8 +1413,8 @@ var TITLES = {
 };
 function renderSetup(root, home, files) {
   const label = (p) => {
-    if (p.startsWith((0, import_node_path9.resolve)(root) + "/")) return (0, import_node_path9.relative)(root, p);
-    if (p.startsWith((0, import_node_path9.resolve)(home) + "/")) return "~/" + (0, import_node_path9.relative)(home, p);
+    if (isInside(p, (0, import_node_path9.resolve)(root))) return (0, import_node_path9.relative)(root, p);
+    if (isInside(p, (0, import_node_path9.resolve)(home))) return "~/" + (0, import_node_path9.relative)(home, p);
     return p;
   };
   const lines = [

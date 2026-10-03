@@ -293,6 +293,25 @@ describe('guard rails', () => {
       checkProposals({ proposals: [proposal({ subject: 'Timestamps' })] }, ctx({ exclusions: [exclusion] })).proposals,
     ).toHaveLength(1);
   });
+
+  it('does not watch an excluded subject either, without new feedback', () => {
+    const exclusion = { retro: 'rt_X', proposal: 'p2', subject: 'Dates are UTC', at: at(30), threads: [a.id] };
+    const later = (t: ThreadHistory) => ({ ...t, lastActivityAt: '2026-10-01T00:00:00.000Z' });
+    const r = checkProposals(
+      {
+        proposals: [proposal({ evidence: ev(b) })],
+        watch: [
+          { subject: 'Dates are UTC please', why: 'once', evidence: ev(c) },
+          { subject: 'No default exports', why: 'once', evidence: ev(c) },
+        ],
+      },
+      ctx({ exclusions: [exclusion], threads: new Map([a, later(b), later(c)].map((t) => [t.id, t])) }),
+    );
+    expect(r.proposals).toEqual([]);
+    expect(r.watch.map((w) => w.subject)).toEqual(['No default exports']);
+    expect(r.dropped.map((d) => d.subject)).toEqual(['Dates are UTC', 'Dates are UTC please']);
+    expect(r.dropped[0]!.reason).toContain('fewer than 2 new threads');
+  });
 });
 
 const created = (id: string, minute: number): ThreadEvent => ({
@@ -574,6 +593,8 @@ describe('the Jev key', () => {
   it('is set up by a command the user runs in their terminal', () => {
     const cmd = jevKeySetupCommand();
     expect(cmd).toContain('stty -echo');
+    // Interrupted (Ctrl+C), it gives the terminal its echo back.
+    expect(cmd).toContain('trap "stty echo; echo; exit 130" INT TERM');
     expect(cmd).toContain('umask 077');
     expect(cmd).toContain('chmod 600 "$HOME/.config/local-review/jev-key"');
   });

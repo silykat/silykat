@@ -220,6 +220,28 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
   const inPeriod = (id: string) => ctx.threads.has(id);
   const watchInput: Raw[] = Array.isArray(input.watch) ? input.watch.filter(isRecord) : [];
 
+  /**
+   * The excluded subject this one is, if any: said so (`reopens`), worded alike, or resting on 2 of
+   * its threads; with the threads that raise it again since (new feedback).
+   */
+  const excludedBy = (subject: string, evidence: readonly Evidence[], reopenRef: string) => {
+    const cites = new Set(evidence.map((e) => e.thread));
+    const shared = (x: Exclusion) => x.threads.filter((id) => cites.has(id)).length;
+    const excluded = ctx.exclusions.find(
+      (x) =>
+        reopenRef === `${x.retro}/${x.proposal}` || similarity(x.subject, subject) >= SAME_SUBJECT || shared(x) >= 2,
+    );
+    if (!excluded) return null;
+    const newThreads = [...cites].filter(
+      (id) => !excluded.threads.includes(id) && ctx.threads.get(id)!.lastActivityAt > excluded.at,
+    );
+    return { excluded, newThreads };
+  };
+  const droppedFor = (subject: string, x: Exclusion): Dropped => ({
+    subject,
+    reason: `you excluded "${x.subject}" on ${x.at.slice(0, 10)}, and fewer than 2 new threads raise it again`,
+  });
+
   input.proposals.forEach((raw, i) => {
     const index = i + 1;
     if (!isRecord(raw)) {
@@ -267,42 +289,34 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
       if (inPeriod(e.thread)) evidence.push(e);
       else result.notes.push(`${subject}: thread ${e.thread} is not in the period, left out of its evidence`);
     }
-    if (evidence.length < 2) {
-      if (evidence.length === 1) {
-        watchInput.push({ subject, why: raw.why, evidence });
-        result.notes.push(`${subject}: a single thread, moved to the watch list`);
-      } else
-        result.rejected.push({
-          index,
-          subject,
-          reasons: ['none of the threads it cites is in the period: copy their ids exactly'],
-        });
+    if (evidence.length === 0) {
+      result.rejected.push({
+        index,
+        subject,
+        reasons: ['none of the threads it cites is in the period: copy their ids exactly'],
+      });
       return;
     }
 
-    // An excluded subject comes back only for new feedback.
-    const reopenRef = text(raw.reopens);
-    // The same subject: said so, worded alike, or resting on 2 threads of it.
-    const cites = new Set(evidence.map((e) => e.thread));
-    const shared = (x: Exclusion) => x.threads.filter((id) => cites.has(id)).length;
-    const excluded = ctx.exclusions.find(
-      (x) =>
-        reopenRef === `${x.retro}/${x.proposal}` || similarity(x.subject, subject) >= SAME_SUBJECT || shared(x) >= 2,
-    );
-    let reopens: Proposal['reopens'];
-    if (excluded) {
-      const newThreads = evidence
-        .map((e) => e.thread)
-        .filter((id) => !excluded.threads.includes(id) && ctx.threads.get(id)!.lastActivityAt > excluded.at);
-      if (newThreads.length < 2) {
-        result.dropped.push({
-          subject,
-          reason: `you excluded "${excluded.subject}" on ${excluded.at.slice(0, 10)}, and fewer than 2 new threads raise it again`,
-        });
-        return;
-      }
-      reopens = { retro: excluded.retro, proposal: excluded.proposal, at: excluded.at, newThreads };
+    // An excluded subject comes back only for new feedback: neither proposed nor watched without it.
+    const exclusion = excludedBy(subject, evidence, text(raw.reopens));
+    if (exclusion && exclusion.newThreads.length < 2) {
+      result.dropped.push(droppedFor(subject, exclusion.excluded));
+      return;
     }
+    if (evidence.length < 2) {
+      watchInput.push({ subject, why: raw.why, evidence });
+      result.notes.push(`${subject}: a single thread, moved to the watch list`);
+      return;
+    }
+    const reopens: Proposal['reopens'] = exclusion
+      ? {
+          retro: exclusion.excluded.retro,
+          proposal: exclusion.excluded.proposal,
+          at: exclusion.excluded.at,
+          newThreads: exclusion.newThreads,
+        }
+      : undefined;
 
     // No "keep" for a rule the user had to enforce in the period.
     let finalColumn = column;
@@ -360,6 +374,11 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
     const subject = text(w.subject);
     const evidence = evidenceOf(w.evidence).filter((e) => inPeriod(e.thread));
     if (!subject || evidence.length === 0) continue;
+    const exclusion = excludedBy(subject, evidence, text(w.reopens));
+    if (exclusion && exclusion.newThreads.length < 2) {
+      result.dropped.push(droppedFor(subject, exclusion.excluded));
+      continue;
+    }
     result.watch.push({ id: `w${result.watch.length + 1}`, subject, why: text(w.why), evidence });
   }
   return result;

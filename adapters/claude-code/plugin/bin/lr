@@ -1663,6 +1663,22 @@ function checkProposals(input2, ctx) {
   }
   const inPeriod = (id) => ctx.threads.has(id);
   const watchInput = Array.isArray(input2.watch) ? input2.watch.filter(isRecord2) : [];
+  const excludedBy = (subject, evidence, reopenRef) => {
+    const cites = new Set(evidence.map((e) => e.thread));
+    const shared = (x) => x.threads.filter((id) => cites.has(id)).length;
+    const excluded = ctx.exclusions.find(
+      (x) => reopenRef === `${x.retro}/${x.proposal}` || similarity(x.subject, subject) >= SAME_SUBJECT || shared(x) >= 2
+    );
+    if (!excluded) return null;
+    const newThreads = [...cites].filter(
+      (id) => !excluded.threads.includes(id) && ctx.threads.get(id).lastActivityAt > excluded.at
+    );
+    return { excluded, newThreads };
+  };
+  const droppedFor = (subject, x) => ({
+    subject,
+    reason: `you excluded "${x.subject}" on ${x.at.slice(0, 10)}, and fewer than 2 new threads raise it again`
+  });
   input2.proposals.forEach((raw, i) => {
     const index = i + 1;
     if (!isRecord2(raw)) {
@@ -1704,36 +1720,30 @@ function checkProposals(input2, ctx) {
       if (inPeriod(e.thread)) evidence.push(e);
       else result.notes.push(`${subject}: thread ${e.thread} is not in the period, left out of its evidence`);
     }
-    if (evidence.length < 2) {
-      if (evidence.length === 1) {
-        watchInput.push({ subject, why: raw.why, evidence });
-        result.notes.push(`${subject}: a single thread, moved to the watch list`);
-      } else
-        result.rejected.push({
-          index,
-          subject,
-          reasons: ["none of the threads it cites is in the period: copy their ids exactly"]
-        });
+    if (evidence.length === 0) {
+      result.rejected.push({
+        index,
+        subject,
+        reasons: ["none of the threads it cites is in the period: copy their ids exactly"]
+      });
       return;
     }
-    const reopenRef = text(raw.reopens);
-    const cites = new Set(evidence.map((e) => e.thread));
-    const shared = (x) => x.threads.filter((id) => cites.has(id)).length;
-    const excluded = ctx.exclusions.find(
-      (x) => reopenRef === `${x.retro}/${x.proposal}` || similarity(x.subject, subject) >= SAME_SUBJECT || shared(x) >= 2
-    );
-    let reopens;
-    if (excluded) {
-      const newThreads = evidence.map((e) => e.thread).filter((id) => !excluded.threads.includes(id) && ctx.threads.get(id).lastActivityAt > excluded.at);
-      if (newThreads.length < 2) {
-        result.dropped.push({
-          subject,
-          reason: `you excluded "${excluded.subject}" on ${excluded.at.slice(0, 10)}, and fewer than 2 new threads raise it again`
-        });
-        return;
-      }
-      reopens = { retro: excluded.retro, proposal: excluded.proposal, at: excluded.at, newThreads };
+    const exclusion = excludedBy(subject, evidence, text(raw.reopens));
+    if (exclusion && exclusion.newThreads.length < 2) {
+      result.dropped.push(droppedFor(subject, exclusion.excluded));
+      return;
     }
+    if (evidence.length < 2) {
+      watchInput.push({ subject, why: raw.why, evidence });
+      result.notes.push(`${subject}: a single thread, moved to the watch list`);
+      return;
+    }
+    const reopens = exclusion ? {
+      retro: exclusion.excluded.retro,
+      proposal: exclusion.excluded.proposal,
+      at: exclusion.excluded.at,
+      newThreads: exclusion.newThreads
+    } : void 0;
     let finalColumn = column;
     let change = text(raw.change);
     let finalKind = kind;
@@ -1782,6 +1792,11 @@ function checkProposals(input2, ctx) {
     const subject = text(w.subject);
     const evidence = evidenceOf(w.evidence).filter((e) => inPeriod(e.thread));
     if (!subject || evidence.length === 0) continue;
+    const exclusion = excludedBy(subject, evidence, text(w.reopens));
+    if (exclusion && exclusion.newThreads.length < 2) {
+      result.dropped.push(droppedFor(subject, exclusion.excluded));
+      continue;
+    }
     result.watch.push({ id: `w${result.watch.length + 1}`, subject, why: text(w.why), evidence });
   }
   return result;
@@ -1822,7 +1837,7 @@ async function jevKeyStatus(env = process.env) {
 }
 function jevKeySetupCommand(path = "$HOME/.config/local-review/jev-key") {
   const dir = path.replace(/\/[^/]+$/, "");
-  return `sh -c 'umask 077 && mkdir -p "${dir}" && printf "Jev API key (hidden): " && stty -echo && IFS= read -r k; stty echo; echo; [ -n "$k" ] && : > "${path}" && chmod 600 "${path}" && printf "%s\\n" "$k" > "${path}" && echo "Saved in ${path}"'`;
+  return `sh -c 'umask 077 && mkdir -p "${dir}" && trap "stty echo; echo; exit 130" INT TERM && printf "Jev API key (hidden): " && stty -echo && IFS= read -r k; stty echo; echo; [ -n "$k" ] && : > "${path}" && chmod 600 "${path}" && printf "%s\\n" "$k" > "${path}" && echo "Saved in ${path}"'`;
 }
 
 // ../core/src/retroScope.ts
