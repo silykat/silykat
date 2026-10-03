@@ -6,15 +6,15 @@ var import_node_fs = require("node:fs");
 var import_node_path3 = require("node:path");
 var import_node_readline = require("node:readline");
 
-// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/sessions.ts
+// ../../packages/core/src/sessions.ts
 var import_promises = require("node:fs/promises");
 var import_node_os = require("node:os");
 var import_node_path = require("node:path");
 
-// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/topics.ts
+// ../../packages/core/src/topics.ts
 var topicKey = (t) => t.kind === "branch" ? `branch:${t.repo}#${t.branch}` : `path:${t.path}`;
 
-// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/sessions.ts
+// ../../packages/core/src/sessions.ts
 var CURSOR_HEAD_BYTES = 256;
 function localReviewHome(env = process.env) {
   return env.LOCAL_REVIEW_HOME?.trim() || (0, import_node_path.join)((0, import_node_os.homedir)(), ".local-review");
@@ -223,7 +223,7 @@ function parseDelivery(line) {
   }
 }
 
-// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/retroGuards.ts
+// ../../packages/core/src/retroGuards.ts
 var STOPWORDS = new Set(
   "the and for with that this from into when then than are was were has have not use uses using les des une pour avec dans sur par pas que qui est sont aux ses son leur".split(" ")
 );

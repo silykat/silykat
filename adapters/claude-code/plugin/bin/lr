@@ -27,14 +27,14 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 var import_promises13 = require("node:fs/promises");
 var import_node_path16 = require("node:path");
 
-// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/types.ts
+// ../core/src/types.ts
 var SCHEMA_VERSION = 1;
 var STORE_DIR = ".local-review";
 var DELETE_REASONS = ["user", "branch-gone"];
 var branchKey = (b) => b ? `${b.repo}#${b.branch}` : "";
 var reviewScopeKey = (s) => s.branch ? branchKey(s.branch) : s.path ? `path:${s.path}` : "";
 
-// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/ids.ts
+// ../core/src/ids.ts
 var import_node_crypto = require("node:crypto");
 var ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 function ulid(now = Date.now()) {
@@ -53,12 +53,12 @@ var newThreadId = () => `t_${ulid()}`;
 var newCommentId = () => `c_${ulid()}`;
 var newReviewId = () => `r_${ulid()}`;
 
-// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/anchorContext.ts
+// ../core/src/anchorContext.ts
 function splitLines(text2) {
   return text2.split(/\r\n|\r|\n/);
 }
 
-// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/events.ts
+// ../core/src/events.ts
 var THREAD_EVENT_TYPES = /* @__PURE__ */ new Set([
   "thread.created",
   "comment.added",
@@ -124,7 +124,7 @@ function isRecord(x) {
   return typeof x === "object" && x !== null && !Array.isArray(x);
 }
 
-// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/fold.ts
+// ../core/src/fold.ts
 function foldThread(events, opts = {}) {
   const first = events[0];
   if (!first || first.type !== "thread.created") return null;
@@ -227,11 +227,11 @@ function foldReview(events) {
   return state;
 }
 
-// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/store.ts
+// ../core/src/store.ts
 var import_promises = require("node:fs/promises");
 var import_node_path = require("node:path");
 
-// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/history.ts
+// ../core/src/history.ts
 var HISTORY_STATES = ["open", "needs-info", "addressed", "resolved", "deleted"];
 function threadHistory(events, opts = {}) {
   const first = events[0];
@@ -365,7 +365,7 @@ function deletionLabel(reason) {
   return reason === "user" ? "removed by the user" : reason === "branch-gone" ? "its branch was deleted" : "reason unknown";
 }
 
-// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/store.ts
+// ../core/src/store.ts
 var Store = class {
   /**
    * A store of the files under `root`, kept in `<root>/.local-review/` by default. `dir` puts it
@@ -756,7 +756,7 @@ function isAlreadyExists(err) {
   return err?.code === "EEXIST";
 }
 
-// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/reanchor.ts
+// ../core/src/reanchor.ts
 function reanchor(anchor, fileText) {
   if (!anchor.range) return null;
   const lines = splitLines(fileText);
@@ -799,17 +799,17 @@ function contextScore(anchor, lines, start2, n) {
   return score;
 }
 
-// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/agentView.ts
+// ../core/src/agentView.ts
 var import_node_crypto2 = require("node:crypto");
 var import_node_fs = require("node:fs");
 var import_node_path4 = require("node:path");
 
-// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/sessions.ts
+// ../core/src/sessions.ts
 var import_promises3 = require("node:fs/promises");
 var import_node_os = require("node:os");
 var import_node_path3 = require("node:path");
 
-// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/topics.ts
+// ../core/src/topics.ts
 var import_node_child_process = require("node:child_process");
 var import_promises2 = require("node:fs/promises");
 var import_node_path2 = require("node:path");
@@ -877,7 +877,7 @@ async function worktreeTopOf(dir) {
   return await git(["rev-parse", "--show-toplevel"], await existingDir(dir)) || null;
 }
 
-// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/sessions.ts
+// ../core/src/sessions.ts
 var CURSOR_HEAD_BYTES = 256;
 var LOOSE_ROOT = "/";
 function looseStore(env = process.env) {
@@ -1116,7 +1116,7 @@ function sessionOfProcess(sessions2, ancestors) {
   return void 0;
 }
 
-// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/agentView.ts
+// ../core/src/agentView.ts
 function userRevision(comments) {
   const asked = comments.filter((c) => c.author === "user" && !c.isDraft).map((c) => [c.id, c.body]);
   return (0, import_node_crypto2.createHash)("sha256").update(JSON.stringify(asked)).digest("hex").slice(0, 8);
@@ -1181,7 +1181,7 @@ function realpath2(path) {
   }
 }
 
-// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/anchorVersion.ts
+// ../core/src/anchorVersion.ts
 function isIndexRef(ref) {
   return ref === "~" || ref === "";
 }
@@ -1193,12 +1193,12 @@ function versionTag(anchor) {
   return short ?? anchor.ref;
 }
 
-// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/project.ts
+// ../core/src/project.ts
 var import_node_child_process2 = require("node:child_process");
 var import_promises5 = require("node:fs/promises");
 var import_node_path6 = require("node:path");
 
-// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/saved.ts
+// ../core/src/saved.ts
 var import_promises4 = require("node:fs/promises");
 var import_node_path5 = require("node:path");
 var SAVED_DIR = "saved";
@@ -1232,7 +1232,7 @@ function parseOrigin(text2) {
   return { worktree: worktree2, root, repo, branch: str2("branch"), firstSavedAt: str2("firstSavedAt") ?? savedAt, savedAt };
 }
 
-// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/project.ts
+// ../core/src/project.ts
 var SKIPPED2 = /* @__PURE__ */ new Set([
   "node_modules",
   "dist",
@@ -1357,7 +1357,7 @@ async function projectHistory(root, opts = {}) {
   };
 }
 
-// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/retro.ts
+// ../core/src/retro.ts
 var import_promises6 = require("node:fs/promises");
 var import_node_path7 = require("node:path");
 var RETRO_SCHEMA_VERSION = 1;
@@ -1399,6 +1399,7 @@ var RETRO_EVENTS = /* @__PURE__ */ new Set([
   "retro.proposed",
   "retro.decided",
   "retro.applied",
+  "retro.undone",
   "retro.finished"
 ]);
 var PREFERENCE_EVENTS = /* @__PURE__ */ new Set([
@@ -1491,6 +1492,10 @@ function foldRetro(events, warnings = [], future = false) {
         break;
       case "retro.applied":
         r.applied[e.proposal] = [.../* @__PURE__ */ new Set([...r.applied[e.proposal] ?? [], ...e.files])];
+        break;
+      case "retro.undone":
+        delete r.decisions[e.proposal];
+        delete r.applied[e.proposal];
         break;
       case "retro.finished":
         r.finishedAt ??= e.at;
@@ -1641,7 +1646,7 @@ var RetroBook = class {
   }
 };
 
-// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/retroGuards.ts
+// ../core/src/retroGuards.ts
 function threadSignals(t) {
   let reopened = false;
   let question = false;
@@ -1747,6 +1752,12 @@ function evidenceOf(x) {
   }
   return out2;
 }
+function auditOf(x) {
+  if (!isRecord2(x)) return null;
+  const location = text(x.location);
+  const finding = text(x.finding);
+  return location && finding ? { location, finding } : null;
+}
 var ids = (x) => Array.isArray(x) ? x.map(text).filter((s) => s !== "") : [];
 function checkProposals(input2, ctx) {
   const result = { proposals: [], watch: [], dropped: [], rejected: [], notes: [] };
@@ -1789,8 +1800,12 @@ function checkProposals(input2, ctx) {
     if (!subject) reasons.push('"subject" is missing');
     if (!text(raw.why)) reasons.push('"why" is missing: the common cause, and what the change must avoid');
     if (!text(raw.file)) reasons.push('"file" is missing: the file of the rule, or where the change goes');
+    const audit = auditOf(raw.audit);
+    if (raw.audit != null && !audit) reasons.push('"audit" needs a "location" and a "finding"');
+    if (audit && column === "keep") reasons.push('an audit finding removes or rewrites a rule: "remove" or "improve"');
     const cited = evidenceOf(raw.evidence ?? raw.threads);
-    if (cited.length === 0) reasons.push('"evidence" is missing: the threads that support it, with an excerpt each');
+    if (cited.length === 0 && !audit)
+      reasons.push('"evidence" is missing: the threads that support it, with an excerpt each');
     if (column !== "keep" && !text(raw.change)) reasons.push('"change" is missing: the exact change');
     if (column === "keep" && !text(raw.rule)) reasons.push('a "keep" names the existing rule it keeps ("rule")');
     const causes = ids(raw.causes);
@@ -1813,7 +1828,7 @@ function checkProposals(input2, ctx) {
       if (inPeriod(e.thread)) evidence.push(e);
       else result.notes.push(`${subject}: thread ${e.thread} is not in the period, left out of its evidence`);
     }
-    if (evidence.length === 0) {
+    if (evidence.length === 0 && !audit) {
       result.rejected.push({
         index,
         subject,
@@ -1826,7 +1841,7 @@ function checkProposals(input2, ctx) {
       result.dropped.push(droppedFor(subject, exclusion.excluded));
       return;
     }
-    if (evidence.length < 2) {
+    if (evidence.length < 2 && !audit) {
       watchInput.push({ subject, why: raw.why, evidence });
       result.notes.push(`${subject}: a single thread, moved to the watch list`);
       return;
@@ -1878,7 +1893,8 @@ function checkProposals(input2, ctx) {
       confidence,
       recommendation,
       ...convertedFromKeep ? { convertedFromKeep } : {},
-      ...reopens ? { reopens } : {}
+      ...reopens ? { reopens } : {},
+      ...audit ? { audit } : {}
     });
   });
   for (const w of watchInput) {
@@ -1895,7 +1911,7 @@ function checkProposals(input2, ctx) {
   return result;
 }
 
-// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/retroKey.ts
+// ../core/src/retroKey.ts
 var import_promises7 = require("node:fs/promises");
 var import_node_os2 = require("node:os");
 var import_node_path8 = require("node:path");
@@ -1933,7 +1949,7 @@ function jevKeySetupCommand(path = "$HOME/.config/local-review/jev-key") {
   return `sh -c 'umask 077 && mkdir -p "${dir}" && trap "stty echo; echo; exit 130" INT TERM && printf "Jev API key (hidden): " && stty -echo && IFS= read -r k; stty echo; echo; [ -n "$k" ] && : > "${path}" && chmod 600 "${path}" && printf "%s\\n" "$k" > "${path}" && echo "Saved in ${path}"'`;
 }
 
-// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/retroScope.ts
+// ../core/src/retroScope.ts
 var import_promises8 = require("node:fs/promises");
 var import_node_path9 = require("node:path");
 var DAY = 864e5;
@@ -2135,7 +2151,7 @@ async function writeRetroFile(book2, id, name, content) {
   return file;
 }
 
-// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/config.ts
+// ../core/src/config.ts
 var import_promises9 = require("node:fs/promises");
 var import_node_path10 = require("node:path");
 var DEFAULT_CONFIG = { autoSaveWorktrees: true };
@@ -2172,13 +2188,13 @@ async function writeConfig(change, env = process.env) {
   return readConfig(env);
 }
 
-// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/worktrees.ts
+// ../core/src/worktrees.ts
 var import_node_child_process4 = require("node:child_process");
 var import_node_crypto3 = require("node:crypto");
 var import_promises11 = require("node:fs/promises");
 var import_node_path12 = require("node:path");
 
-// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/storeHome.ts
+// ../core/src/storeHome.ts
 var import_node_child_process3 = require("node:child_process");
 var import_promises10 = require("node:fs/promises");
 var import_node_path11 = require("node:path");
@@ -2206,7 +2222,7 @@ async function prepareStoreHome(home) {
   await (0, import_promises10.mkdir)(store, { recursive: true });
 }
 
-// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/worktrees.ts
+// ../core/src/worktrees.ts
 function git2(args, cwd) {
   return new Promise(
     (done) => (0, import_node_child_process4.execFile)("git", args, { cwd, timeout: 3e3 }, (err, stdout) => done(err ? null : stdout.trim()))
