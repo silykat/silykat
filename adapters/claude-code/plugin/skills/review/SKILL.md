@@ -1,6 +1,6 @@
 ---
 name: review
-description: Address the user's Local Review comments, i.e. the code review threads they left in VS Code with the Local Review extension. Read the threads with `lr`, change the code, and reply in each thread. Use when the user asks you to handle, address, fix or answer their review comments, says their review is ready, or when a Local Review channel message says they published comments. Also use it when the user asks to see the history of their review comments (resolved, deleted, every repository of the project).
+description: Address the user's Local Review comments, i.e. the code review threads they left in VS Code with the Local Review extension. Read the threads with `lr`, change the code, and reply in each thread. Use when the user asks you to handle, address, fix or answer their review comments, says their review is ready, or when a Local Review channel message says they published comments. Also use it when the user asks to see the history of their review comments (resolved, deleted, every repository of the project), or to archive, export or clean up old comments.
 allowed-tools: Bash(lr:*)
 ---
 
@@ -8,7 +8,7 @@ allowed-tools: Bash(lr:*)
 
 The user reviews your code in VS Code and leaves comments in threads, like on a GitHub pull request. You answer in those threads with the `lr` command (it is on your PATH). Each reply shows up live in their editor.
 
-Asked for the **history** of the comments rather than to handle them? Skip to section 5 and run `lr history` yourself.
+Asked for the **history** of the comments rather than to handle them? Skip to section 5 and run `lr history` yourself. Asked to **archive**, **export** or **clean up** old comments? See section 6.
 
 ## 1. See what is waiting
 
@@ -69,12 +69,21 @@ Whenever a subscription changes, say so in your reply, in one short sentence. Be
 
 ## 5. The history of the comments
 
-When the user asks for the **history** of their review comments (e.g. "show me this week's comments", "what did I comment on lately?"), run `lr history` yourself right away (never ask the user to run it), with `--since <date>` for a period (`2026-10-01`, or `7d` for the last 7 days). It reads the whole project, from the current folder (or `--root <dir>`): its subfolders, every repository in it, and their git worktrees, even those kept outside the folder. It shows **every** thread, whatever its state (open, addressed, resolved, deleted), with its whole conversation, after a summary per state and per comment store. A deleted thread says why: **removed by the user**, or **its branch was deleted** (the work was done, not a comment withdrawn). Threads of a git worktree removed since are there too, once saved (store "saved from a worktree"). Use `--format json` to process it. Then answer from what it printed: the counts, and the threads that matter for the question. It only reads: never reply in these threads unless the user asks.
+When the user asks for the **history** of their review comments (e.g. "show me this week's comments", "what did I comment on lately?"), run `lr history` yourself right away (never ask the user to run it), with `--since <date>` for a period (`2026-10-01`, or `7d` for the last 7 days). It reads the whole project, from the current folder (or `--root <dir>`): its subfolders, every repository in it, and their git worktrees, even those kept outside the folder. It shows **every** thread, whatever its state (open, addressed, resolved, deleted; archived ones too), with its whole conversation, after a summary per state and per comment store. A deleted thread says why: **removed by the user**, or **its branch was deleted** (the work was done, not a comment withdrawn). Threads of a git worktree removed since are there too, once saved (store "saved from a worktree"). Use `--format json` to process it. Then answer from what it printed: the counts, and the threads that matter for the question. It only reads: never reply in these threads unless the user asks.
 
-## 6. Git worktrees
+## 6. Archive and clean up (only when the user asks)
+
+The user may ask you to tidy their comments: run these yourself, on the same project as `lr history` (current folder, or `--root <dir>`). Never do it on your own initiative.
+
+- "archive the resolved comments of last month" → `lr archive --resolved-before <date>` (`2026-10-01`, or `30d` for 30 days ago); one thread → `lr archive <thread-id>`. Archived threads leave VS Code and `lr list`, and stay in `lr history` and retros.
+- "which threads are archived?" → `lr archive --list`; "bring it back" → `lr unarchive <thread-id>`.
+- "export my comments" → `lr history --format json --out <file>` (every thread, archived ones included).
+- "delete the old comments for good" → first `lr purge --before <date>`, which deletes nothing: it says how many finished threads (resolved, archived or deleted) would go, and which; threads still in progress are kept. **Tell the user that number and ask them to confirm**, suggesting an export first. Only after their yes, run the command it printed (`… --yes --count <n>`), and report how many were deleted.
+
+## 7. Git worktrees
 
 Removing a git worktree (`git worktree remove`, `rm -r` of it) deletes the user's comments in it. Before you remove one, the plugin's hook saves its threads to the main repository's store and tells you: pass it on to the user in one short sentence. If it says saving is turned off, tell the user that the comments will be lost, and offer `lr worktree save <worktree>` first. When the user asks to keep or save the comments of a worktree, run `lr worktree save <worktree>` yourself.
 
-## 7. Finish
+## 8. Finish
 
 Run `lr status` to check that nothing is left, then give the user a short summary: threads addressed, questions asked, files changed.

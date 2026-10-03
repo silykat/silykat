@@ -7,7 +7,7 @@ var import_node_path12 = require("node:path");
 var import_node_util = require("node:util");
 
 // ../../packages/core/src/types.ts
-var SCHEMA_VERSION = 1;
+var SCHEMA_VERSION = 2;
 var STORE_DIR = ".local-review";
 var DELETE_REASONS = ["user", "branch-gone"];
 function sessionRefOf(raw) {
@@ -47,8 +47,12 @@ var THREAD_EVENT_TYPES = /* @__PURE__ */ new Set([
   "status.changed",
   "anchor.updated",
   "branch.changed",
-  "thread.deleted"
+  "thread.deleted",
+  "thread.archived",
+  "thread.unarchived"
 ]);
+var FIRST_VERSION = 1;
+var ARCHIVE_VERSION = 2;
 var REVIEW_EVENT_TYPES = /* @__PURE__ */ new Set([
   "review.started",
   "review.branch.changed",
@@ -118,6 +122,8 @@ function foldThread(events, opts = {}) {
     comments: [],
     createdAt: first.at,
     deleted: false,
+    archived: false,
+    archivedAt: null,
     readOnly: opts.futureVersion ?? false,
     lastAuthor: null,
     lastAgentName: null,
@@ -170,6 +176,19 @@ function foldThread(events, opts = {}) {
         break;
       case "thread.deleted":
         state.deleted = true;
+        break;
+      // Only the user archives: an event by anyone else is not valid.
+      case "thread.archived":
+        if (e.by === "user") {
+          state.archived = true;
+          state.archivedAt = e.at;
+        }
+        break;
+      case "thread.unarchived":
+        if (e.by === "user") {
+          state.archived = false;
+          state.archivedAt = null;
+        }
         break;
       case "thread.created":
         break;
@@ -227,6 +246,8 @@ function threadHistory(events, opts = {}) {
   let status = "open";
   let deletedAt = null;
   let deletedReason = null;
+  let archivedAt = null;
+  let resolvedAt = null;
   let lastCommentDeletedAt = null;
   const conversation = [];
   const comments = /* @__PURE__ */ new Map();
@@ -276,6 +297,7 @@ function threadHistory(events, opts = {}) {
       }
       case "status.changed":
         status = e.status;
+        resolvedAt = e.status === "resolved" ? e.at : null;
         conversation.push({ kind: "status", status: e.status, by: e.by, ...agentOf(e), at: e.at });
         break;
       case "anchor.updated":
@@ -296,6 +318,12 @@ function threadHistory(events, opts = {}) {
             ...deletedReason ? { reason: deletedReason } : {}
           });
         }
+        break;
+      case "thread.archived":
+        if (e.by === "user") archivedAt = e.at;
+        break;
+      case "thread.unarchived":
+        if (e.by === "user") archivedAt = null;
         break;
       case "thread.created":
         break;
@@ -323,6 +351,8 @@ function threadHistory(events, opts = {}) {
     createdAt: first.at,
     lastActivityAt: activity.reduce((a, b) => b > a ? b : a, first.at),
     deletedAt,
+    archivedAt,
+    resolvedAt,
     deletedReason: deletedAt ? deletedReason : null,
     readOnly: opts.futureVersion ?? false,
     conversation,
@@ -338,6 +368,7 @@ function countStates(threads) {
   return counts;
 }
 var knownReason = (r) => DELETE_REASONS.includes(r) ? r : null;
+var countArchived = (threads) => threads.filter((t) => t.archivedAt !== null).length;
 function countDeletions(threads) {
   const counts = { user: 0, "branch-gone": 0, unknown: 0 };
   for (const t of threads) if (t.state === "deleted") counts[t.deletedReason ?? "unknown"]++;
@@ -378,14 +409,17 @@ var Store = class {
     const id = fileName.endsWith(".jsonl") ? fileName.slice(0, -".jsonl".length) : "";
     return THREAD_ID.test(id) ? id : null;
   }
-  /** Loads every non-deleted thread and every review. A missing store is simply empty: reading never creates it. */
+  /**
+   * Loads every thread in use (neither deleted nor archived) and every review. A missing store is
+   * simply empty: reading never creates it.
+   */
   async loadAll() {
     const { reviews, warnings } = await this.loadReviews();
     const threads = [];
     for (const file of await listJournals(this.threadsDir)) {
       const { state, warnings: w } = await this.readJournal((0, import_node_path.join)(this.threadsDir, file), `threads/${file}`, reviews);
       warnings.push(...w);
-      if (state && !state.deleted) threads.push(state);
+      if (state && !state.deleted && !state.archived) threads.push(state);
     }
     return { threads, reviews: [...reviews.values()], warnings };
   }
@@ -464,7 +498,7 @@ var Store = class {
     await this.ensureInitialized();
     const reviewId = newReviewId();
     const event = {
-      v: SCHEMA_VERSION,
+      v: FIRST_VERSION,
       type: "review.started",
       at: (/* @__PURE__ */ new Date()).toISOString(),
       by: "user",
@@ -478,7 +512,7 @@ var Store = class {
   async setReviewBranch(reviewId, branch) {
     await this.assertActiveReview(reviewId);
     const event = {
-      v: SCHEMA_VERSION,
+      v: FIRST_VERSION,
       type: "review.branch.changed",
       at: (/* @__PURE__ */ new Date()).toISOString(),
       by: "user",
@@ -491,7 +525,7 @@ var Store = class {
     const { threads: before } = await this.loadAll();
     const text = summary?.trim();
     const event = {
-      v: SCHEMA_VERSION,
+      v: FIRST_VERSION,
       type: "review.submitted",
       at: (/* @__PURE__ */ new Date()).toISOString(),
       by: "user",
@@ -509,7 +543,7 @@ var Store = class {
   async discardReview(reviewId) {
     await this.assertActiveReview(reviewId);
     const event = {
-      v: SCHEMA_VERSION,
+      v: FIRST_VERSION,
       type: "review.discarded",
       at: (/* @__PURE__ */ new Date()).toISOString(),
       by: "user"
@@ -538,7 +572,7 @@ var Store = class {
     const session = c.author === "agent" ? sessionRefOf(c.session) : void 0;
     const events = [
       {
-        v: SCHEMA_VERSION,
+        v: FIRST_VERSION,
         type: "comment.added",
         at,
         ...who2,
@@ -548,7 +582,7 @@ var Store = class {
         ...session ? { session } : {}
       }
     ];
-    if (status) events.push({ v: SCHEMA_VERSION, type: "status.changed", at, ...who2, status });
+    if (status) events.push({ v: FIRST_VERSION, type: "status.changed", at, ...who2, status });
     return this.appendAndReload(threadId, events);
   }
   async setStatus(threadId, status, by, agent) {
@@ -556,7 +590,7 @@ var Store = class {
     const who2 = actor(by, agent);
     await this.writableThread(threadId, by);
     const event = {
-      v: SCHEMA_VERSION,
+      v: FIRST_VERSION,
       type: "status.changed",
       at: (/* @__PURE__ */ new Date()).toISOString(),
       ...who2,
@@ -569,7 +603,7 @@ var Store = class {
     const who2 = actor(by, agent);
     await this.writableThread(threadId, by);
     const event = {
-      v: SCHEMA_VERSION,
+      v: FIRST_VERSION,
       type: "anchor.updated",
       at: (/* @__PURE__ */ new Date()).toISOString(),
       ...who2,
@@ -581,7 +615,7 @@ var Store = class {
   async setBranch(threadId, branch) {
     await this.writableThread(threadId, "user");
     const event = {
-      v: SCHEMA_VERSION,
+      v: FIRST_VERSION,
       type: "branch.changed",
       at: (/* @__PURE__ */ new Date()).toISOString(),
       by: "user",
@@ -599,10 +633,10 @@ var Store = class {
     const comment = current.comments.find((c) => c.id === commentId);
     if (comment.body === text) return current;
     const at = (/* @__PURE__ */ new Date()).toISOString();
-    const events = [{ v: SCHEMA_VERSION, type: "comment.edited", at, ...who2, commentId, body: text }];
+    const events = [{ v: FIRST_VERSION, type: "comment.edited", at, ...who2, commentId, body: text }];
     const handled = current.status === "addressed" || current.status === "needs-info";
     if (by === "user" && !comment.isDraft && handled)
-      events.push({ v: SCHEMA_VERSION, type: "status.changed", at, ...who2, status: "open" });
+      events.push({ v: FIRST_VERSION, type: "status.changed", at, ...who2, status: "open" });
     return this.appendAndReload(threadId, events);
   }
   /**
@@ -614,9 +648,9 @@ var Store = class {
     const current = await this.writableThread(threadId, by);
     assertOwnComment(current, commentId, by);
     const at = (/* @__PURE__ */ new Date()).toISOString();
-    const events = [{ v: SCHEMA_VERSION, type: "comment.deleted", at, ...who2, commentId }];
+    const events = [{ v: FIRST_VERSION, type: "comment.deleted", at, ...who2, commentId }];
     if (current.comments.length === 1)
-      events.push({ v: SCHEMA_VERSION, type: "thread.deleted", at, ...who2, reason: "user" });
+      events.push({ v: FIRST_VERSION, type: "thread.deleted", at, ...who2, reason: "user" });
     return this.appendAndReload(threadId, events);
   }
   /**
@@ -628,7 +662,7 @@ var Store = class {
     if (by !== "user") throw new Error("Only the user can delete a thread");
     await this.writableThread(threadId, by);
     const event = {
-      v: SCHEMA_VERSION,
+      v: FIRST_VERSION,
       type: "thread.deleted",
       at: (/* @__PURE__ */ new Date()).toISOString(),
       by,
@@ -636,12 +670,50 @@ var Store = class {
     };
     return this.appendAndReload(threadId, [event]);
   }
-  /** A thread `by` may write to. Agents never see threads that only hold drafts. */
-  async writableThread(threadId, by) {
+  /**
+   * Archives a thread (the user only, e.g. through the editor or an agent asked to): it leaves the
+   * editor and what agents see, and stays in the history. Archiving an archived thread does nothing.
+   */
+  async archiveThread(threadId) {
+    const current = await this.writableThread(threadId, "user", { archived: true });
+    if (current.archived) return current;
+    return this.appendArchiveEvent(threadId, "thread.archived");
+  }
+  /** Brings an archived thread back. Unarchiving a thread that is not archived does nothing. */
+  async unarchiveThread(threadId) {
+    const current = await this.writableThread(threadId, "user", { archived: true });
+    if (!current.archived) return current;
+    return this.appendArchiveEvent(threadId, "thread.unarchived");
+  }
+  async appendArchiveEvent(threadId, type) {
+    await this.ensureInitialized();
+    return this.appendAndReload(threadId, [{ v: ARCHIVE_VERSION, type, at: (/* @__PURE__ */ new Date()).toISOString(), by: "user" }]);
+  }
+  /**
+   * Deletes a thread's journal for good: unlike `deleteThread`, nothing is left, not even in the
+   * history. Returns whether there was one.
+   */
+  async purgeThread(threadId) {
+    try {
+      await (0, import_promises.rm)(this.threadFile(threadId));
+      return true;
+    } catch (err) {
+      if (isNotFound(err)) return false;
+      throw err;
+    }
+  }
+  /**
+   * A thread `by` may write to. Agents never see threads that only hold drafts, nor archived ones;
+   * the user must unarchive a thread before changing it (`archived`: archiving or unarchiving it).
+   */
+  async writableThread(threadId, by, opts = {}) {
     const { state } = await this.loadThread(threadId);
-    if (!state || state.deleted || by === "agent" && !state.hasPublished) {
+    if (!state || state.deleted || by === "agent" && (!state.hasPublished || state.archived)) {
       throw new Error(`Thread not found: ${threadId}`);
     }
+    if (opts.archived && !state.hasPublished) throw new Error(`Thread not found: ${threadId} (only drafts)`);
+    if (state.archived && !opts.archived && !state.readOnly)
+      throw new Error(`Thread ${threadId} is archived: unarchive it first`);
     if (state.readOnly)
       throw new Error(
         `Thread ${threadId} was written by a newer version of Local Review, so it is read-only: update Local Review to change it`
@@ -682,9 +754,9 @@ var Store = class {
     const threadId = newThreadId();
     const at = (/* @__PURE__ */ new Date()).toISOString();
     const events = [
-      { v: SCHEMA_VERSION, type: "thread.created", at, ...who2, threadId, anchor, ...branch ? { branch } : {} },
+      { v: FIRST_VERSION, type: "thread.created", at, ...who2, threadId, anchor, ...branch ? { branch } : {} },
       {
-        v: SCHEMA_VERSION,
+        v: FIRST_VERSION,
         type: "comment.added",
         at,
         ...who2,
@@ -699,16 +771,34 @@ var Store = class {
     if (!state) throw new Error("unreachable: freshly created thread failed to fold");
     return state;
   }
-  /** Creates the store's folders and schema version, if missing. */
+  /**
+   * Creates the store's folders and schema version, if missing, and migrates an older store: the
+   * journals of version 1 are valid in version 2 as they are (version 2 only adds the archive
+   * events), so migrating only records the new version. A newer version is never lowered.
+   */
   async ensureInitialized() {
     await (0, import_promises.mkdir)(this.threadsDir, { recursive: true });
     await (0, import_promises.mkdir)(this.reviewsDir, { recursive: true });
+    const file = (0, import_node_path.join)(this.dir, "schema-version");
     try {
-      await (0, import_promises.writeFile)((0, import_node_path.join)(this.dir, "schema-version"), `${SCHEMA_VERSION}
+      await (0, import_promises.writeFile)(file, `${SCHEMA_VERSION}
 `, { flag: "wx" });
+      return;
     } catch (err) {
       if (!isAlreadyExists(err)) throw err;
     }
+    const version = await this.schemaVersion();
+    if (version !== null && version >= SCHEMA_VERSION) return;
+    const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
+    await (0, import_promises.writeFile)(tmp, `${SCHEMA_VERSION}
+`);
+    await (0, import_promises.rename)(tmp, file);
+  }
+  /** The format version recorded by the store; `null` when there is none (or it is unreadable). */
+  async schemaVersion() {
+    const text = await (0, import_promises.readFile)((0, import_node_path.join)(this.dir, "schema-version"), "utf8").catch(() => "");
+    const n = Number.parseInt(text.trim(), 10);
+    return Number.isInteger(n) && n > 0 ? n : null;
   }
 };
 var THREAD_ID = /^t_[0-9A-HJKMNP-TV-Z]{26}$/;
@@ -964,6 +1054,7 @@ async function projectHistory(root, opts = {}) {
       bytes: kept.reduce((n, t) => n + t.bytes, 0),
       states: countStates(kept),
       deletions: countDeletions(kept),
+      archived: countArchived(kept),
       warnings
     };
   });
@@ -975,7 +1066,8 @@ async function projectHistory(root, opts = {}) {
     threads: all.length,
     bytes: stores.reduce((n, s) => n + s.bytes, 0),
     states: countStates(all),
-    deletions: countDeletions(all)
+    deletions: countDeletions(all),
+    archived: countArchived(all)
   };
 }
 
