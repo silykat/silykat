@@ -59,7 +59,7 @@ Be selective: a short list of well-supported proposals beats a long one. Every c
 
 ## 3. Write them, check them, record them
 
-Write the proposals as JSON, in the developer's language for the texts:
+Write the proposals as JSON, in the developer's language for the texts, with its proper spelling and accents (French with its accents, never plain ASCII):
 
 ```json
 {

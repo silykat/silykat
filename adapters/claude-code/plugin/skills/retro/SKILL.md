@@ -78,10 +78,18 @@ Run `lr retro show <id> --root <dir>`. Give an overview first: how many proposal
 
 The user decides on what they read: **always the same presentation, and always the exact change**. For each proposal, until `lr retro show` says all are decided:
 
-1. **A new message for each proposal.** Run `lr retro show <id> --next --root <dir>` and copy its output **as it is**, from its `---` separator: the title, the source (threads with their excerpt, or the audit), the numbers, the file, the existing rule, the why, the target and the confidence. Never add the recap of the previous proposal to this message, never skip a part, never summarize it.
-2. **The exact change**, right under it: read the file concerned and show precisely what will change in it, in a `diff` block: the lines removed (`-`) and added (`+`), with two or three unchanged lines around to show where. A new file: its whole content, in a code block, with its path. A skill, a hook or a script: every file, in full. A "keep": "No change." When the target is to choose, show it for the suggested target's file.
-3. **One AskUserQuestion**, the recommendation first: "Accept" / "Modify" / "Exclude" / "Change the target" (when `lr` says the target is **to choose**: "Project, shared (committed, for the team)" / "Project, personal (yours, not committed)" / "You, in every project" as the target options, the suggested one first). The user may also answer freely and discuss: answer, refine the change with them.
-4. **A modified change, or another target, is shown again**: the whole new `diff` (in the new file for another target), then ask again: "Apply this version" / "Change it again" / "Exclude". Never apply a version the user has not read.
+The user sees **neither the output of your commands nor your thinking**: only the text of your messages and your questions. Everything they must read goes there.
+
+1. **A new visible message for each proposal**, never in your thinking. Run `lr retro show <id> --next --root <dir>` and write its output **word for word** as your message, from its `---` separator: the title, the source (threads with their excerpt, or the audit), the numbers, the file, the existing rule, the why, the target and the confidence. No recap of the previous proposal in it, no part skipped, no summary instead, nothing said as done before it is.
+2. **The exact change**: read the file concerned and work out precisely what will change in it: the lines removed (`-`) and added (`+`), with two or three unchanged lines around to show where, as a `diff`. A new file: its whole content, with its path. A skill, a hook or a script: every file, in full. A "keep": "No change." Write it in the message, under the proposal.
+3. **One AskUserQuestion**, the recommendation first, and **every option shows in its `preview` the exact change it leads to**, so that the user reads it next to the choice:
+   - "Accept" and "Modify": the `diff` above (in the suggested target's file);
+   - "Change the target", or, when `lr` says the target is **to choose**, one option per target ("Project, shared (committed, for the team)" / "Project, personal (yours, not committed)" / "You, in every project", the suggested one first): the `diff` in **that** target's file;
+   - "Exclude": "No change."
+
+   The user may also answer freely and discuss: answer, refine the change with them.
+
+4. **A modified change, or another target, is shown again**: the whole new `diff` in the message and in the preview of "Apply this version", then ask again: "Apply this version" / "Change it again" / "Exclude". Never apply a version the user has not read.
 5. **Apply it right away**, exactly as shown, then record the decision and the files (step 9). Then confirm in **one line** (e.g. "p3 applied to `src/CLAUDE.md`."), and go on with the next proposal in a new message.
 
 An excluded subject is never proposed again, unless new feedback raises it. Record it with the user's reason when they give one.
