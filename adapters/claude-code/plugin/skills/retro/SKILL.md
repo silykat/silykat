@@ -18,6 +18,8 @@ Run `lr retro scope --root <dir>`. It prints the period (since the last retro), 
 
 If it lists an **unfinished retro**, ask whether to continue it (run `lr retro show <id> --root <dir>` and resume at the step where it stopped) or to start a new one.
 
+If the period holds **no thread** (nothing was commented since the last retro), there is nothing to look back at: say so in one sentence. When there is a last retro, still offer question 2 of step 2 (changing the retro itself) and save the preferences; skip question 1, which the next retro will ask once there is new feedback. Then stop: no retro is started.
+
 ## 2. Feedback on the last retro (only when there is one)
 
 Before anything else, show in two or three lines what was decided last time (the "Last retro" section), then ask, in one AskUserQuestion call:
@@ -25,12 +27,10 @@ Before anything else, show in two or three lines what was decided last time (the
 1. "Did you notice the improvements decided last time?" — "Yes, they helped" / "Partly" / "Not really" / "Not noticed yet".
 2. "Do you want to change anything in the retro itself (what it looks at, its level of detail, subjects to ignore…)?" — "No, keep it as it is" / "Yes" (then ask what, in their words).
 
-Save each wish as a short instruction, one per preference:
+Save each wish as a short instruction, one per preference, with one plain command (no heredoc, nothing chained: those need the user's approval):
 
 ```bash
-lr retro prefs add --root <dir> --body - <<'EOF'
-Show at most 5 proposals, the most important first.
-EOF
+lr retro prefs add --root <dir> --body "Show at most 5 proposals, the most important first."
 ```
 
 Remove the ones they no longer want with `lr retro prefs remove <id> --root <dir>`. **Apply the preferences from now on**, in this retro too. Keep their answer to question 1 for step 4.
@@ -45,7 +45,7 @@ Announce, in a few lines: the project, the comment stores found, the period, the
 lr retro start --root <dir> [--since <date> | --all]
 ```
 
-It prints the retro id (`rt_…`). If the user answered step 2, record it: `lr retro feedback <id> --root <dir> --body -` (with a heredoc, as above).
+It prints the retro id (`rt_…`). If the user answered question 1 of step 2, record it in a sentence: `lr retro feedback <id> --root <dir> --body "<their answer>"`.
 
 ## 5. Classification (a sub-agent)
 

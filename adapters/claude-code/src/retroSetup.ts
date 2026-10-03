@@ -1,5 +1,5 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
-import { dirname, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
 /**
  * Claude Code's setup that applies to a project, given as is to the retro's agents: the rules files
@@ -44,12 +44,18 @@ async function markdown(dir: string, depth = 3): Promise<string[]> {
   return out;
 }
 
+/** `path` is strictly inside `dir` (whatever the platform's separator). */
+const isInside = (path: string, dir: string) => {
+  const rel = relative(dir, path);
+  return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
+};
+
 /** The folders a project spans: its parents (up to the home folder), itself, its repositories. */
 function projectDirs(root: string, repos: readonly string[], home: string): string[] {
   const parents: string[] = [];
   let dir = dirname(resolve(root));
   const top = resolve(home);
-  while (dir !== dirname(dir) && (dir + '/').startsWith(top + '/') && dir !== top) {
+  while (dir !== dirname(dir) && isInside(dir, top)) {
     parents.unshift(dir);
     dir = dirname(dir);
   }
@@ -76,7 +82,7 @@ async function found(root: string, repos: readonly string[], home: string, claud
   const setupOf = async (claude: string, agents: string, scope: Found['scope']) => {
     for (const f of await markdown(join(claude, 'rules'))) await add(f, 'rules', scope);
     for (const f of await markdown(join(claude, 'skills'), 2))
-      if (f.endsWith('/SKILL.md')) await add(f, 'skill', scope);
+      if (basename(f) === 'SKILL.md') await add(f, 'skill', scope);
     for (const f of await markdown(join(claude, 'commands'))) await add(f, 'command', scope);
     for (const f of await markdown(join(claude, 'agents'))) await add(f, 'agent', scope);
     for (const name of ['settings.json', 'settings.local.json']) await add(join(claude, name), 'hooks', scope);
@@ -147,8 +153,8 @@ const TITLES: Record<SetupKind, string> = {
 /** The setup, for the analysis step. Paths are relative to the project when inside it. */
 export function renderSetup(root: string, home: string, files: readonly SetupFile[]): string {
   const label = (p: string) => {
-    if (p.startsWith(resolve(root) + '/')) return relative(root, p);
-    if (p.startsWith(resolve(home) + '/')) return '~/' + relative(home, p);
+    if (isInside(p, resolve(root))) return relative(root, p);
+    if (isInside(p, resolve(home))) return '~/' + relative(home, p);
     return p;
   };
   const lines = [
