@@ -77,6 +77,13 @@ export function threadHistory(events: readonly ThreadEvent[], opts: HistoryOptio
   let deletedAt: string | null = null;
   const conversation: HistoryEntry[] = [];
   const comments = new Map<string, Extract<HistoryEntry, { kind: 'comment' }>>();
+  /** When each comment became visible: at once, or when its review was submitted. */
+  const publishedAt = new Map<string, string>();
+  const drop = (id: string) => {
+    comments.delete(id);
+    const i = conversation.findIndex((x) => x.kind === 'comment' && x.id === id);
+    if (i >= 0) conversation.splice(i, 1);
+  };
   const agentOf = (e: ThreadEvent) => (e.by === 'agent' && e.agent ? { agent: e.agent } : {});
 
   for (const e of events.slice(1)) {
@@ -94,6 +101,7 @@ export function threadHistory(events: readonly ThreadEvent[], opts: HistoryOptio
           ...(at !== e.at ? { publishedAt: at } : {}),
         };
         comments.set(c.id, c);
+        publishedAt.set(c.id, at);
         conversation.push(c);
         break;
       }
@@ -101,13 +109,17 @@ export function threadHistory(events: readonly ThreadEvent[], opts: HistoryOptio
         const c = comments.get(e.commentId);
         if (c && c.author === e.by && !c.deletedAt) {
           c.body = e.body;
-          c.editedAt = e.at;
+          // Rewording a draft before submitting it is not an edit anyone saw.
+          if (e.at >= publishedAt.get(c.id)!) c.editedAt = e.at;
         }
         break;
       }
       case 'comment.deleted': {
         const c = comments.get(e.commentId);
-        if (c && c.author === e.by) c.deletedAt ??= e.at;
+        if (!c || c.author !== e.by) break;
+        // Deleted while still a draft: it was never published, so it never was in the conversation.
+        if (e.at < publishedAt.get(c.id)!) drop(c.id);
+        else c.deletedAt ??= e.at;
         break;
       }
       case 'status.changed':
@@ -131,6 +143,8 @@ export function threadHistory(events: readonly ThreadEvent[], opts: HistoryOptio
     }
   }
 
+  // Drafts of a review submitted after the thread was deleted were never published.
+  if (deletedAt !== null) for (const [id, at] of publishedAt) if (at > deletedAt && comments.has(id)) drop(id);
   if (comments.size === 0) return null;
   // Every comment deleted by its author: the thread is gone too (older journals may lack the event).
   const all = [...comments.values()];

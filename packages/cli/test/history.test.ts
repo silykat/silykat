@@ -205,8 +205,12 @@ describe('lr history', () => {
       }),
       { author: 'user', body: 'Draft', reviewId: review.id },
     );
-    await store.editComment(t.id, (await store.loadThread(t.id)).state!.comments[0]!.id, 'Final', 'user');
+    const commentId = (await store.loadThread(t.id)).state!.comments[0]!.id;
+    await store.editComment(t.id, commentId, 'Reworded draft', 'user');
     await store.submitReview(review.id);
+    // Rewording the draft was not an edit; changing the published comment is.
+    await new Promise((r) => setTimeout(r, 5));
+    await store.editComment(t.id, commentId, 'Final', 'user');
     await writeFile(join(store.threadsDir, 't_01ARZ3NDEKTSV4RRFFQ69G5FAV.jsonl'), 'not json\n');
     const { out } = await lr(['history']);
     expect(out).toMatch(/\*\*User\*\* \([^,]+, submitted in a review [^,]+, edited [^)]+\):\nFinal/);
@@ -227,6 +231,11 @@ describe('lr history', () => {
     const date = await lr(['history', '--since', 'last week']);
     expect(date.code).toBe(EXIT.ERROR);
     expect(date.err).toContain('--since must be a date');
+    for (const wrong of ['7', '2026-02-30', '2026-13-01', '2026-10-01Tnoon'])
+      expect((await lr(['history', '--since', wrong])).code).toBe(EXIT.ERROR);
+    const positional = await lr(['history', '7d']);
+    expect(positional.code).toBe(EXIT.ERROR);
+    expect(positional.err).toContain('takes no argument');
     const format = await lr(['history', '--format', 'xml']);
     expect(format.code).toBe(EXIT.ERROR);
     expect(format.err).toContain('--format must be "md" or "json"');

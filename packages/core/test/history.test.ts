@@ -117,6 +117,14 @@ describe('threadHistory', () => {
     expect(h.lastActivityAt).toBe(at(30));
   });
 
+  it('leaves out the drafts of a review submitted after the thread was deleted', () => {
+    const reviews = new Map([review('r_1', 'submitted', at(30))]);
+    const deleted: ThreadEvent = { v: 1, type: 'thread.deleted', at: at(10), by: 'user' };
+    const h = threadHistory([created, added('c1', 0), added('c2', 5, 'user', 'r_1'), deleted], { reviews })!;
+    expect(h.conversation.map((e) => (e.kind === 'comment' ? e.id : e.kind))).toEqual(['c1', 'deleted']);
+    expect(threadHistory([created, added('c1', 0, 'user', 'r_1'), deleted], { reviews })).toBeNull();
+  });
+
   it('follows the anchor and the branch, and marks journals of a newer version', () => {
     const moved = anchor({ path: 'src/b.ts' });
     const branch = { repo: '/r/.git', branch: 'feat' };
@@ -186,6 +194,34 @@ describe('Store.loadHistory', () => {
     );
     expect(threads.every((t) => t.bytes > 100)).toBe(true);
     expect(warnings).toEqual(['threads/t_01ARZ3NDEKTSV4RRFFQ69G5FAV.jsonl: no thread.created event, file skipped']);
+  });
+
+  it('never shows what was deleted or edited while it was still a draft of a submitted review', async () => {
+    const store = new Store(base);
+    const kept = await comment(base, 'published');
+    const review = await store.startReview();
+    const draft = (body: string) => ({ author: 'user' as const, body, reviewId: review.id });
+    // A whole thread written and deleted as a draft, by its only comment or with "Delete Thread".
+    const gone = await store.createThread(anchor(), draft('secret draft'));
+    await store.deleteComment(gone.id, gone.comments[0]!.id, 'user');
+    const dropped = await store.createThread(anchor(), draft('dropped draft'));
+    await store.deleteThread(dropped.id, 'user');
+    // A draft reply deleted, another one rewritten, before submitting.
+    const withReply = await store.addComment(kept.id, draft('draft reply'));
+    await store.deleteComment(kept.id, withReply.comments[1]!.id, 'user');
+    const rewritten = await store.addComment(kept.id, draft('first wording'));
+    await new Promise((r) => setTimeout(r, 5));
+    await store.editComment(kept.id, rewritten.comments[1]!.id, 'final wording', 'user');
+    await new Promise((r) => setTimeout(r, 5));
+    await store.submitReview(review.id);
+
+    const { threads } = await store.loadHistory();
+    expect(threads.map((t) => t.id)).toEqual([kept.id]);
+    const comments = threads[0]!.conversation.filter((e) => e.kind === 'comment');
+    expect(comments.map((c) => [c.body, c.editedAt, c.deletedAt])).toEqual([
+      ['published', undefined, undefined],
+      ['final wording', undefined, undefined],
+    ]);
   });
 
   it('is empty, without creating anything, where nothing was commented', async () => {
