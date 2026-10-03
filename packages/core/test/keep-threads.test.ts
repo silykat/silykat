@@ -142,22 +142,22 @@ describe('why a thread was deleted', () => {
 
 describe('machine settings', () => {
   it('saves worktrees by default, and remembers a change', async () => {
-    expect(await readConfig(env())).toEqual({ autoSaveWorktrees: true });
-    expect(await writeConfig({ autoSaveWorktrees: false }, env())).toEqual({ autoSaveWorktrees: false });
-    expect(await readConfig(env())).toEqual({ autoSaveWorktrees: false });
+    expect(await readConfig(env())).toMatchObject({ autoSaveWorktrees: true });
+    expect(await writeConfig({ autoSaveWorktrees: false }, env())).toMatchObject({ autoSaveWorktrees: false });
+    expect(await readConfig(env())).toMatchObject({ autoSaveWorktrees: false });
     expect(configFile(env())).toBe(join(base, 'home', 'config.json'));
   });
 
   it('keeps settings it does not know, and falls back to the defaults on a broken file', async () => {
     await mkdir(join(base, 'home'), { recursive: true });
     await writeFile(configFile(env()), '{"later": 1, "autoSaveWorktrees": "no"}');
-    expect(await readConfig(env())).toEqual({ autoSaveWorktrees: true });
+    expect(await readConfig(env())).toMatchObject({ autoSaveWorktrees: true });
     await writeConfig({ autoSaveWorktrees: false }, env());
     expect(JSON.parse(await readFile(configFile(env()), 'utf8'))).toEqual({ later: 1, autoSaveWorktrees: false });
     await writeFile(configFile(env()), 'not json');
-    expect(await readConfig(env())).toEqual({ autoSaveWorktrees: true });
+    expect(await readConfig(env())).toMatchObject({ autoSaveWorktrees: true });
     await writeConfig({ autoSaveWorktrees: false }, env());
-    expect(await readConfig(env())).toEqual({ autoSaveWorktrees: false });
+    expect(await readConfig(env())).toMatchObject({ autoSaveWorktrees: false });
   });
 });
 

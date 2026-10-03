@@ -13,8 +13,11 @@ import {
   type Proposal,
   type ProposalKind,
   type RetroState,
+  type AdoptedChange,
   type Target,
   type ThreadLabel,
+  type Verdict,
+  type Verification,
   type WatchItem,
 } from './retro';
 
@@ -133,6 +136,53 @@ export function exclusionsOf(retros: readonly RetroState[]): Exclusion[] {
   return out;
 }
 
+/** The decisions that adopt a proposal. */
+const ADOPTED: readonly Decision[] = ['accepted', 'modified', 'retargeted'];
+
+/**
+ * The changes adopted at a retro, to check at the next one: proposals to improve or remove that the
+ * user accepted, modified or retargeted ("keep" changes nothing).
+ */
+export function adoptedChanges(r: RetroState): AdoptedChange[] {
+  return r.proposals.flatMap((p): AdoptedChange[] => {
+    const d = r.decisions[p.id];
+    if (p.column === 'keep' || !d || !ADOPTED.includes(d.decision)) return [];
+    return [
+      {
+        retro: r.id,
+        proposal: p.id,
+        column: p.column,
+        subject: p.subject,
+        title: p.title,
+        kind: p.kind,
+        change: p.change,
+        decision: d.decision,
+        ...(d.note ? { note: d.note } : {}),
+        files: r.applied[p.id] ?? [],
+        before: { threads: p.figures.threads, total: r.threads.length },
+        evidence: p.evidence,
+      },
+    ];
+  });
+}
+
+/**
+ * The verdict on an adopted change, from the threads on its subject before (in the period of the
+ * retro that adopted it) and after (in this one), each as a share of all the threads of its period:
+ * the periods differ in length and in activity.
+ */
+export function verdictOf(
+  before: { threads: number; total: number },
+  after: { threads: number; total: number },
+): Verdict {
+  if (after.threads === 0) return 'stopped';
+  const share = (x: { threads: number; total: number }) => (x.total > 0 ? x.threads / x.total : 0);
+  return share(after) < share(before) ? 'decreased' : 'not-decreased';
+}
+
+/** `rt_…/p1`: how the agents name an adopted change. */
+export const changeRef = (c: { retro: string; proposal: string }) => `${c.retro}/${c.proposal}`;
+
 const STOPWORDS = new Set(
   (
     'the and for with that this from into when then than are was were has have not use uses using ' +
@@ -171,6 +221,8 @@ export interface GuardContext {
   threads: ReadonlyMap<string, ThreadHistory>;
   labels: Record<string, ThreadLabel>;
   exclusions: readonly Exclusion[];
+  /** The changes adopted at the last retro: each must be checked against the threads of this period. */
+  adopted?: readonly AdoptedChange[];
 }
 
 export interface Rejected {
@@ -185,6 +237,8 @@ export interface GuardResult {
   watch: WatchItem[];
   /** Left out on purpose (an excluded subject without new feedback). */
   dropped: Dropped[];
+  /** The check of the changes adopted at the last retro. */
+  verifications: Verification[];
   /** Must be fixed before the proposals can be recorded. */
   rejected: Rejected[];
   /** What the guard rails changed, for the record: moved to the watch list, a keep turned into improve… */
@@ -219,7 +273,7 @@ const ids = (x: unknown): string[] => (Array.isArray(x) ? x.map(text).filter((s)
  * `input` is the agent's output: `{ proposals: [...], watch: [...] }`.
  */
 export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
-  const result: GuardResult = { proposals: [], watch: [], dropped: [], rejected: [], notes: [] };
+  const result: GuardResult = { proposals: [], watch: [], dropped: [], verifications: [], rejected: [], notes: [] };
   if (!isRecord(input) || !Array.isArray(input.proposals)) {
     result.rejected.push({ index: 0, subject: '', reasons: ['expected a JSON object with a "proposals" array'] });
     return result;
@@ -248,6 +302,9 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
     subject,
     reason: `you excluded "${x.subject}" on ${x.at.slice(0, 10)}, and fewer than 2 new threads raise it again`,
   });
+
+  const verifications = verify(input.verify, ctx, result);
+  const revisable = new Map(verifications.map((v) => [changeRef(v), v]));
 
   input.proposals.forEach((raw, i) => {
     const index = i + 1;
@@ -282,6 +339,12 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
     if (!(confidence >= 0 && confidence <= 1)) reasons.push('"confidence" must be a number from 0 to 1');
     const recommendation = (text(raw.recommendation) || 'accepted') as Decision;
     if (!DECISIONS.includes(recommendation)) reasons.push(`"recommendation" must be one of ${DECISIONS.join(', ')}`);
+    const revisitRef = text(raw.revisits);
+    const revisited = revisitRef ? revisable.get(revisitRef) : undefined;
+    if (revisitRef && !revisited)
+      reasons.push(
+        `"revisits" names "${revisitRef}", which is not a change adopted at the last retro (${[...revisable.keys()].join(', ') || 'none'})`,
+      );
     if (reasons.length > 0) {
       result.rejected.push({ index, subject, reasons });
       return;
@@ -352,7 +415,8 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
     // The target is asked when nothing tells it: an existing rule stays where it is; a new one
     // needs a thread that shows where it belongs.
     const targetEvidence = ids(raw.targetEvidence).filter(inPeriod);
-    const askTarget = finalColumn === 'improve' && !text(raw.rule) && targetEvidence.length === 0;
+    // A change that revises one adopted at the last retro stays where that one is.
+    const askTarget = finalColumn === 'improve' && !text(raw.rule) && targetEvidence.length === 0 && !revisited;
 
     result.proposals.push({
       id: `p${result.proposals.length + 1}`,
@@ -374,8 +438,25 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
       recommendation,
       ...(convertedFromKeep ? { convertedFromKeep } : {}),
       ...(reopens ? { reopens } : {}),
+      ...(revisited
+        ? { revisits: { retro: revisited.retro, proposal: revisited.proposal, verdict: revisited.verdict } }
+        : {}),
     });
   });
+
+  // A change that did not reduce the feedback is revised, when there is enough to go on (2 threads).
+  for (const v of verifications) {
+    if (v.verdict !== 'not-decreased' || v.after.threads < 2) continue;
+    if (result.proposals.some((p) => p.revisits && changeRef(p.revisits) === changeRef(v))) continue;
+    result.rejected.push({
+      index: 0,
+      subject: `check of ${changeRef(v)}`,
+      reasons: [
+        `"${v.title}" did not reduce the feedback on its subject (${v.before.threads} of ${v.before.total} threads before, ${v.after.threads} of ${v.after.total} now): add a proposal to revise it, with "revisits": "${changeRef(v)}" (reword it, move it up, make it a hook, or remove it)`,
+      ],
+    });
+  }
+  result.verifications = verifications;
 
   for (const w of watchInput) {
     const subject = text(w.subject);
@@ -389,4 +470,46 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
     result.watch.push({ id: `w${result.watch.length + 1}`, subject, why: text(w.why), evidence });
   }
   return result;
+}
+
+/**
+ * The check of the changes adopted at the last retro: the analysis names, for each one, the threads
+ * of this period on the same subject (`verify: [{ change, threads, note }]`); the numbers and the
+ * verdict are computed here. A change left unchecked is rejected.
+ */
+function verify(input: unknown, ctx: GuardContext, result: GuardResult): Verification[] {
+  const adopted = ctx.adopted ?? [];
+  const given = new Map<string, Raw>();
+  for (const x of Array.isArray(input) ? input.filter(isRecord) : []) given.set(text(x.change), x);
+  const total = ctx.threads.size;
+  const out: Verification[] = [];
+  for (const c of adopted) {
+    const ref = changeRef(c);
+    const x = given.get(ref);
+    given.delete(ref);
+    if (!x || !Array.isArray(x.threads)) {
+      result.rejected.push({
+        index: 0,
+        subject: `check of ${ref}`,
+        reasons: [
+          `"verify" must check "${c.title}", adopted at the last retro: { "change": "${ref}", "threads": [the threads of this period on the same subject, [] when none] }`,
+        ],
+      });
+      continue;
+    }
+    const all = [...new Set(ids(x.threads))];
+    const kept = all.filter((id) => ctx.threads.has(id));
+    for (const id of all.filter((id) => !ctx.threads.has(id)))
+      result.notes.push(`check of ${ref}: thread ${id} is not in the period, left out`);
+    const after = { threads: kept.length, total, ids: kept };
+    out.push({
+      ...c,
+      after,
+      verdict: verdictOf(c.before, after),
+      ...(text(x.note) ? { note: text(x.note) } : {}),
+    });
+  }
+  for (const ref of given.keys())
+    if (ref) result.notes.push(`check of ${ref}: not a change adopted at the last retro, ignored`);
+  return out;
 }

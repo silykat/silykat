@@ -20,3 +20,4 @@ export * from './config';
 export * from './saved';
 export * from './worktrees';
 export * from './storeHome';
+export * from './cadence';

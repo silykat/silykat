@@ -97,6 +97,42 @@ export interface Proposal {
   convertedFromKeep?: { threads: string[] };
   /** A subject the user excluded in an earlier retro, proposed again for new feedback. */
   reopens?: { retro: string; proposal: string; at: string; newThreads: string[] };
+  /** A change adopted at the last retro that did not reduce the feedback on its subject: revised here. */
+  revisits?: { retro: string; proposal: string; verdict: Verdict };
+}
+
+/**
+ * Did a change adopted at the last retro help? The feedback on its subject `stopped` (no thread in
+ * the new period), `decreased` (a smaller share of the threads than in the last period), or
+ * `not-decreased`: then the retro proposes to revise it.
+ */
+export type Verdict = 'stopped' | 'decreased' | 'not-decreased';
+
+/** A change the user adopted at a retro (accepted, modified or retargeted; "keep" changes nothing). */
+export interface AdoptedChange {
+  retro: string;
+  proposal: string;
+  column: Column;
+  subject: string;
+  title: string;
+  kind: ProposalKind;
+  change: string;
+  decision: Decision;
+  note?: string;
+  /** The files changed for it, as recorded. */
+  files: string[];
+  /** In that retro's period: the threads on its subject, out of all the threads read. */
+  before: { threads: number; total: number };
+  evidence: Evidence[];
+}
+
+/** The check of an adopted change at the next retro: its numbers are computed by program. */
+export interface Verification extends AdoptedChange {
+  /** In this retro's period: the threads on the same subject (named by the analysis), out of all. */
+  after: { threads: number; total: number; ids: string[] };
+  verdict: Verdict;
+  /** What the analysis saw, in a sentence. */
+  note?: string;
 }
 
 /** A preference seen in a single thread: watched, not proposed. */
@@ -183,7 +219,14 @@ export type RetroEvent = BaseRetroEvent &
     /** What the user said about the previous retro. */
     | { type: 'retro.feedback'; body: string }
     | { type: 'retro.classified'; by: string; labels: Record<string, ThreadLabel> }
-    | { type: 'retro.proposed'; proposals: Proposal[]; watch: WatchItem[]; dropped: Dropped[] }
+    | {
+        type: 'retro.proposed';
+        proposals: Proposal[];
+        watch: WatchItem[];
+        dropped: Dropped[];
+        /** The check of the changes adopted at the last retro (missing when there were none). */
+        verifications?: Verification[];
+      }
     | { type: 'retro.decided'; proposal: string; decision: Decision; target?: Target; note?: string }
     | { type: 'retro.applied'; proposal: string; files: string[] }
     /**
@@ -241,6 +284,8 @@ export interface RetroState {
   proposals: Proposal[];
   watch: WatchItem[];
   dropped: Dropped[];
+  /** Did the changes adopted at the last retro help? */
+  verifications: Verification[];
   /** The last decision on each proposal. */
   decisions: Record<string, DecisionRecord>;
   /** Files changed for each proposal. */
@@ -313,6 +358,7 @@ export function foldRetro(events: readonly RetroEvent[], warnings: string[] = []
     proposals: [],
     watch: [],
     dropped: [],
+    verifications: [],
     decisions: {},
     applied: {},
     conversations: {},
@@ -336,6 +382,7 @@ export function foldRetro(events: readonly RetroEvent[], warnings: string[] = []
         r.proposals = e.proposals;
         r.watch = e.watch;
         r.dropped = e.dropped;
+        r.verifications = e.verifications ?? [];
         r.decisions = {};
         r.applied = {};
         break;
@@ -386,6 +433,35 @@ export async function retroHome(root: string, env: Record<string, string | undef
   return (await worktreeTopOf(dir)) ?? dir;
 }
 
+/** Every retro of a `retros/` folder, oldest first (none when it does not exist). */
+export async function readRetros(dir: string): Promise<RetroState[]> {
+  let files: string[];
+  try {
+    files = (await readdir(dir)).filter((f) => f.endsWith('.jsonl') && RETRO_ID.test(f.slice(0, -'.jsonl'.length)));
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw err;
+  }
+  const retros = await Promise.all(files.map((f) => readRetro(dir, f.slice(0, -'.jsonl'.length))));
+  return retros
+    .filter((r): r is RetroState => r !== null)
+    .sort((a, b) => a.startedAt.localeCompare(b.startedAt) || a.id.localeCompare(b.id));
+}
+
+/** One retro of a `retros/` folder; `null` when it does not exist. */
+async function readRetro(dir: string, id: string): Promise<RetroState | null> {
+  if (!RETRO_ID.test(id)) throw new Error(`Invalid retro id: ${id}`);
+  let text: string;
+  try {
+    text = await readFile(join(dir, `${id}.jsonl`), 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw err;
+  }
+  const parsed = parseLines<RetroEvent>(text, `retros/${id}.jsonl`, RETRO_EVENTS);
+  return foldRetro(parsed.events, parsed.warnings, parsed.future);
+}
+
 /** The retros of a project, and its retro preferences, kept in `<home>/.local-review/retros/`. */
 export class RetroBook {
   readonly dir: string;
@@ -412,30 +488,12 @@ export class RetroBook {
   }
 
   /** Every retro of this book, oldest first. */
-  async list(): Promise<RetroState[]> {
-    let files: string[];
-    try {
-      files = (await readdir(this.dir)).filter((f) => RETRO_ID.test(f.replace(/\.jsonl$/, '')) && f.endsWith('.jsonl'));
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
-      throw err;
-    }
-    const retros = await Promise.all(files.map((f) => this.read(f.slice(0, -'.jsonl'.length))));
-    return retros
-      .filter((r): r is RetroState => r !== null)
-      .sort((a, b) => a.startedAt.localeCompare(b.startedAt) || a.id.localeCompare(b.id));
+  list(): Promise<RetroState[]> {
+    return readRetros(this.dir);
   }
 
-  async read(id: string): Promise<RetroState | null> {
-    let text: string;
-    try {
-      text = await readFile(this.retroFile(id), 'utf8');
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
-      throw err;
-    }
-    const parsed = parseLines<RetroEvent>(text, `retros/${id}.jsonl`, RETRO_EVENTS);
-    return foldRetro(parsed.events, parsed.warnings, parsed.future);
+  read(id: string): Promise<RetroState | null> {
+    return readRetro(this.dir, id);
   }
 
   /** The retro, which must exist and accept writes. */
