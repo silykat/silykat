@@ -69,7 +69,7 @@ Launch the sub-agent **`local-review:retro-analyst`** with this prompt: `Retro <
 
 ## 7. The proposals
 
-Run `lr retro show <id> --root <dir>`. Give an overview first: how many proposals in **To keep**, **To remove** and **To improve** (and how many come from the audit of the setup), and the subjects **to watch** (preferences seen in a single thread: not proposed, kept for the next retros).
+Run `lr retro show <id> --root <dir>`. Give an overview first: how many proposals in **To keep**, **To remove** and **To improve** (and how many come from the audit of the setup), and the subjects **to watch** (preferences seen in a single thread: not proposed, kept for the next retros). When it lists **the agent's conversations read back**, say in one sentence which ambiguous threads the analysis explained from your conversation where you replied, and which conversations were no longer available (it did without them).
 
 ## 8. The discussion: second validation, one proposal at a time
 

@@ -60,6 +60,30 @@ export interface Delivery {
   recipients?: string[];
 }
 
+/** A command an agent is running: the message of its conversation that runs it. */
+export interface AgentCall {
+  /** The agent's id of that message (for Claude Code: the tool call's id). */
+  message: string;
+  command: string;
+  at: string;
+}
+
+const CALL_NOTE = 'call-';
+
+/** A call older than this is not the one running `lr` now (its end was missed, e.g. interrupted). */
+const CALL_MAX_AGE_MS = 15 * 60_000;
+
+/**
+ * The call that runs a command about `threadId`: the latest recent one whose command names the
+ * thread, else the only recent call. `undefined` when it cannot be told.
+ */
+export function callFor(calls: readonly AgentCall[], threadId: string, now = Date.now()): AgentCall | undefined {
+  const recent = calls.filter((c) => now - Date.parse(c.at) <= CALL_MAX_AGE_MS);
+  const naming = recent.filter((c) => c.command.includes(threadId));
+  const pick = naming.length > 0 ? naming : recent.length === 1 ? recent : [];
+  return pick.reduce<AgentCall | undefined>((a, c) => (a === undefined || c.at > a.at ? c : a), undefined);
+}
+
 /** Why a session is subscribed to a topic: for debugging, and to explain it. */
 export type SubscriptionReason = 'launch' | 'modified' | 'user';
 
@@ -162,6 +186,46 @@ export class SessionRegistry {
     } catch {
       return undefined;
     }
+  }
+
+  /**
+   * Notes a command an agent starts (e.g. `lr reply …`), written by its adapter before it runs: `lr`
+   * then knows which message of the agent's conversation runs it. Removed by `endCall`, or with the
+   * session.
+   */
+  async startCall(id: string, call: AgentCall): Promise<void> {
+    await this.setNote(id, `${CALL_NOTE}${call.message}`, JSON.stringify(call));
+  }
+
+  async endCall(id: string, message: string): Promise<void> {
+    await this.takeNote(id, `${CALL_NOTE}${message}`);
+  }
+
+  /** The commands of a session that are running (as noted by its adapter). */
+  async calls(id: string): Promise<AgentCall[]> {
+    this.file(id, 'json'); // validates the id
+    let names: string[];
+    try {
+      names = await readdir(this.dir);
+    } catch {
+      return [];
+    }
+    const prefix = `${id}.note-${CALL_NOTE}`;
+    const calls = await Promise.all(
+      names
+        .filter((n) => n.startsWith(prefix))
+        .map(async (n) => {
+          try {
+            const raw = JSON.parse(await readFile(join(this.dir, n), 'utf8')) as Partial<AgentCall>;
+            return typeof raw.message === 'string' && typeof raw.command === 'string' && typeof raw.at === 'string'
+              ? { message: raw.message, command: raw.command, at: raw.at }
+              : null;
+          } catch {
+            return null; // being written, or removed meanwhile
+          }
+        }),
+    );
+    return calls.filter((c): c is AgentCall => c !== null);
   }
 
   private note(id: string, key: string): string {

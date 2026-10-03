@@ -197,6 +197,11 @@ export type RetroEvent = BaseRetroEvent &
     | { type: 'retro.applied'; proposal: string; files: string[] }
     /** A decision recorded by mistake (e.g. on the wrong proposal): undone, with its files changed. */
     | { type: 'retro.undone'; proposal: string }
+    /**
+     * The analysis read back the agent's conversation of a thread (`available`), or found it gone
+     * (agents delete their conversations after a while).
+     */
+    | { type: 'retro.conversation'; thread: string; sessions: string[]; available: boolean }
     | { type: 'retro.finished' }
   );
 
@@ -211,6 +216,7 @@ const RETRO_EVENTS: ReadonlySet<string> = new Set<RetroEvent['type']>([
   'retro.decided',
   'retro.applied',
   'retro.undone',
+  'retro.conversation',
   'retro.finished',
 ]);
 const PREFERENCE_EVENTS: ReadonlySet<string> = new Set<PreferenceEvent['type']>([
@@ -222,6 +228,12 @@ export interface DecisionRecord {
   decision: Decision;
   target?: Target;
   note?: string;
+  at: string;
+}
+
+export interface ConversationRecord {
+  sessions: string[];
+  available: boolean;
   at: string;
 }
 
@@ -245,6 +257,8 @@ export interface RetroState {
   decisions: Record<string, DecisionRecord>;
   /** Files changed for each proposal. */
   applied: Record<string, string[]>;
+  /** The threads whose agent conversation the analysis looked for: read back, or no longer available. */
+  conversations: Record<string, ConversationRecord>;
   finishedAt: string | null;
   /** Written by a newer version of Local Review: never write to it. */
   readOnly: boolean;
@@ -313,6 +327,7 @@ export function foldRetro(events: readonly RetroEvent[], warnings: string[] = []
     dropped: [],
     decisions: {},
     applied: {},
+    conversations: {},
     finishedAt: null,
     readOnly: future,
     warnings,
@@ -350,6 +365,11 @@ export function foldRetro(events: readonly RetroEvent[], warnings: string[] = []
       case 'retro.undone':
         delete r.decisions[e.proposal];
         delete r.applied[e.proposal];
+        break;
+      case 'retro.conversation':
+        // Read once is enough: a later failure to find it again does not undo it.
+        if (!r.conversations[e.thread]?.available)
+          r.conversations[e.thread] = { sessions: e.sessions, available: e.available, at: e.at };
         break;
       case 'retro.finished':
         r.finishedAt ??= e.at;

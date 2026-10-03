@@ -605,6 +605,14 @@ async function show(c: Ctx): Promise<number> {
         `- ${w.id} ${w.subject}: ${w.why} (${w.evidence.map((e) => e.thread + (e.excerpt ? `: "${e.excerpt}"` : '')).join('; ')})`,
       );
   }
+  const conversations = Object.entries(r.conversations);
+  if (conversations.length) {
+    lines.push('', "## The agent's conversations read back", '');
+    for (const [thread, c] of conversations)
+      lines.push(
+        `- ${thread}: ${c.available ? 'read back' : 'no longer available on this machine, analysed without it'}`,
+      );
+  }
   if (r.dropped.length) {
     lines.push('', '## Left out by the guard rails', '');
     for (const d of r.dropped) lines.push(`- ${d.subject}: ${d.reason}`);

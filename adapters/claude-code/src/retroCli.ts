@@ -4,6 +4,7 @@ import { parseArgs } from 'node:util';
 import { RetroBook, retroHome, retroThreads, threadText, writeRetroFile } from '@local-review/core';
 import { AUDIT_COMMAND, runAudit, type Runner } from './retroAudit';
 import { classifyWithJev, readJevKey, type JevDeps } from './retroJev';
+import { threadConversations } from './retroConversation';
 import { collectSetup, renderSetup } from './retroSetup';
 
 /** What is Claude Code's in a retro: its setup files, and the classification by Jev. */
@@ -16,7 +17,13 @@ export const RETRO_CLI_USAGE = `lr-retro — the Claude Code part of Local Revie
                                              lr retro key), and record the labels
   lr-retro audit <retro-id> [--root <dir>]   Audit the setup with /doctor prompt-audit (a separate,
                                              read-only Claude Code; several minutes), in a file of
-                                             the retro, for its analysis`;
+                                             the retro, for its analysis
+
+  lr-retro conversation <retro-id> <thread-id> [--root <dir>]
+                                             Read back Claude Code's conversation where the agent
+                                             replied in that thread (the steps that led to each
+                                             reply), while Claude Code keeps it (30 days by
+                                             default); the retro records it was read back`;
 
 export interface RetroCliIo {
   cwd: string;
@@ -38,8 +45,8 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
       options: { root: { type: 'string' } },
       allowPositionals: true,
     });
-    const [action, id] = positionals;
-    if (action !== 'setup' && action !== 'jev' && action !== 'audit') {
+    const [action, id, threadId] = positionals;
+    if (action !== 'setup' && action !== 'jev' && action !== 'audit' && action !== 'conversation') {
       io.out(RETRO_CLI_USAGE);
       return action === undefined || action === 'help' ? 0 : 1;
     }
@@ -51,6 +58,21 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
     // Claude Code keeps the user's setup in $CLAUDE_CONFIG_DIR when it is set, else in ~/.claude.
     const claudeDir = io.env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude');
     const repos = retro.stores.map((s) => s.root);
+    if (action === 'conversation') {
+      if (!threadId) throw new Error('missing <thread-id>');
+      const { threads } = await retroThreads(retro, io.env);
+      const found = threads.get(threadId);
+      if (!found) throw new Error(`thread ${threadId} is not one of the threads of retro ${retro.id}`);
+      const result = await threadConversations(found.thread, claudeDir);
+      if (result.linked > 0)
+        await book
+          .record(retro.id, [
+            { type: 'retro.conversation', thread: threadId, sessions: result.sessions, available: result.available },
+          ])
+          .catch(() => undefined); // e.g. a finished retro: reading back still helps
+      io.out(result.text);
+      return 0;
+    }
     if (action === 'setup') {
       const files = await collectSetup(retro.root, repos, home, claudeDir);
       const file = await writeRetroFile(book, retro.id, 'setup.md', renderSetup(retro.root, home, files));

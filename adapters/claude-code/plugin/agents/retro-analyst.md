@@ -18,6 +18,16 @@ The prompt gives you the retro id, the project folder and, when it was run, the 
 
 Read **these files entirely** (with offset and limit for a long file), every thread included. A deleted thread says why: **removed by the user** (the comment was withdrawn: maybe wrong, or no longer relevant) or **its branch was deleted** (the work was merged or dropped: the feedback in it still counts like any other); older ones say "reason unknown". A store marked "saved before its git worktree was removed" holds threads of a worktree that no longer exists: read them like the others. Finding a problem of setup is **grouping** threads that share a cause: you need all of them at once.
 
+### Ambiguous threads: read the agent's conversation back
+
+A thread marked **"the agent's conversation is linked"** can be read back where the agent replied in it, in Claude Code's conversation:
+
+```bash
+lr-retro conversation <retro-id> <thread-id> --root <project>
+```
+
+It prints the prompt of that turn, the steps up to the reply (files read, commands, edits, results), the skill in use and the tokens. Use it only for threads that stay **ambiguous** once you have read them all: you cannot tell from the thread why the agent did what it did (what it read or missed, which rule or skill it followed), and the answer would change a proposal (its cause, its column or its target). Ten threads at most. When it says the conversation is **no longer available** (Claude Code deletes them after 30 days by default), go on with the thread alone. In the `why` of a proposal, say what a conversation showed ("conversation read back: …"), or that it was no longer available.
+
 ## 2. Find the proposals
 
 Three columns:
@@ -103,4 +113,4 @@ If a command is refused (a permission), do not work around it: answer that you w
 
 ## 4. Answer
 
-Answer the main session in **one or two lines** only: how many proposals per column were recorded (how many from the audit), and how many subjects to watch. Never paste the threads or the proposals: the main session reads them with `lr retro show`.
+Answer the main session in **one or two lines** only: how many proposals per column were recorded (how many from the audit), how many subjects to watch, and how many conversations you read back (and how many were no longer available). Never paste the threads or the proposals: the main session reads them with `lr retro show`.

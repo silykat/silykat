@@ -8,6 +8,12 @@ var import_node_os3 = require("node:os");
 var SCHEMA_VERSION = 1;
 var STORE_DIR = ".local-review";
 var DELETE_REASONS = ["user", "branch-gone"];
+function sessionRefOf(raw) {
+  if (typeof raw !== "object" || raw === null) return void 0;
+  const { id, message } = raw;
+  if (typeof id !== "string" || id.trim() === "") return void 0;
+  return typeof message === "string" && message.trim() !== "" ? { id, message } : { id };
+}
 var branchKey = (b) => b ? `${b.repo}#${b.branch}` : "";
 var reviewScopeKey = (s) => s.branch ? branchKey(s.branch) : s.path ? `path:${s.path}` : "";
 
@@ -233,6 +239,7 @@ function threadHistory(events, opts = {}) {
       case "comment.added": {
         const at = published(e.reviewId, e.at);
         if (at === null) break;
+        const session = e.by === "agent" ? sessionRefOf(e.session) : void 0;
         const c = {
           kind: "comment",
           id: e.commentId,
@@ -240,7 +247,8 @@ function threadHistory(events, opts = {}) {
           ...agentOf(e),
           body: e.body,
           at: e.at,
-          ...at !== e.at ? { publishedAt: at } : {}
+          ...at !== e.at ? { publishedAt: at } : {},
+          ...session ? { session } : {}
         };
         comments.set(c.id, c);
         publishedAt.set(c.id, at);
@@ -508,8 +516,18 @@ var Store = class {
     const reopens = c.author === "user" && c.reviewId === null && current.status !== "open";
     const status = opts.status ?? (reopens ? "open" : void 0);
     const at = (/* @__PURE__ */ new Date()).toISOString();
+    const session = c.author === "agent" ? sessionRefOf(c.session) : void 0;
     const events = [
-      { v: SCHEMA_VERSION, type: "comment.added", at, ...who, commentId: newCommentId(), body, reviewId: c.reviewId }
+      {
+        v: SCHEMA_VERSION,
+        type: "comment.added",
+        at,
+        ...who,
+        commentId: newCommentId(),
+        body,
+        reviewId: c.reviewId,
+        ...session ? { session } : {}
+      }
     ];
     if (status) events.push({ v: SCHEMA_VERSION, type: "status.changed", at, ...who, status });
     return this.appendAndReload(threadId, events);
@@ -799,6 +817,8 @@ async function filesChangedSince(dir, sinceMs) {
 
 // ../../packages/core/src/sessions.ts
 var CURSOR_HEAD_BYTES = 256;
+var CALL_NOTE = "call-";
+var CALL_MAX_AGE_MS = 15 * 6e4;
 function localReviewHome(env = process.env) {
   return env.LOCAL_REVIEW_HOME?.trim() || (0, import_node_path3.join)((0, import_node_os.homedir)(), ".local-review");
 }
@@ -856,6 +876,39 @@ var SessionRegistry = class {
     } catch {
       return void 0;
     }
+  }
+  /**
+   * Notes a command an agent starts (e.g. `lr reply …`), written by its adapter before it runs: `lr`
+   * then knows which message of the agent's conversation runs it. Removed by `endCall`, or with the
+   * session.
+   */
+  async startCall(id, call) {
+    await this.setNote(id, `${CALL_NOTE}${call.message}`, JSON.stringify(call));
+  }
+  async endCall(id, message) {
+    await this.takeNote(id, `${CALL_NOTE}${message}`);
+  }
+  /** The commands of a session that are running (as noted by its adapter). */
+  async calls(id) {
+    this.file(id, "json");
+    let names;
+    try {
+      names = await (0, import_promises3.readdir)(this.dir);
+    } catch {
+      return [];
+    }
+    const prefix = `${id}.note-${CALL_NOTE}`;
+    const calls = await Promise.all(
+      names.filter((n) => n.startsWith(prefix)).map(async (n) => {
+        try {
+          const raw = JSON.parse(await (0, import_promises3.readFile)((0, import_node_path3.join)(this.dir, n), "utf8"));
+          return typeof raw.message === "string" && typeof raw.command === "string" && typeof raw.at === "string" ? { message: raw.message, command: raw.command, at: raw.at } : null;
+        } catch {
+          return null;
+        }
+      })
+    );
+    return calls.filter((c) => c !== null);
   }
   note(id, key) {
     if (!SESSION_ID.test(key)) throw new Error(`Invalid note key: ${key}`);
@@ -1282,11 +1335,18 @@ async function handleHook(input, deps) {
       await deps.registry.unregister(id);
       return void 0;
     case "PreToolUse": {
-      if (input.tool_name === "Bash") await deps.registry.setNote(id, bashNote(input), String(deps.now().getTime()));
+      if (input.tool_name === "Bash") {
+        await deps.registry.setNote(id, bashNote(input), String(deps.now().getTime()));
+        await noteReply(id, input, deps);
+      }
       return beforeWorktreeRemoval(input, deps);
     }
     case "PostToolUse": {
-      if (input.tool_name === "Bash") return afterShellCommand(id, input, deps);
+      if (input.tool_name === "Bash") {
+        const call = replyCall(input);
+        if (call) await deps.registry.endCall(id, call.message);
+        return afterShellCommand(id, input, deps);
+      }
       if (!WRITE_TOOLS.includes(input.tool_name ?? "")) return void 0;
       const target = input.tool_input?.file_path ?? input.tool_input?.notebook_path;
       if (typeof target !== "string" || target === "") return void 0;
@@ -1294,8 +1354,29 @@ async function handleHook(input, deps) {
       const topic = await deps.topicOf(file);
       return await deps.registry.subscribe(id, topic, "modified") ? subscribed(topic, "you modified a file there") : void 0;
     }
+    case "PostToolUseFailure": {
+      if (input.tool_name !== "Bash") return void 0;
+      const call = replyCall(input);
+      if (call) await deps.registry.endCall(id, call.message);
+      await deps.registry.takeNote(id, bashNote(input));
+      return void 0;
+    }
   }
   return void 0;
+}
+function replyCall(input) {
+  const command = input.tool_input?.command;
+  const message = input.tool_use_id ?? "";
+  if (typeof command !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(message)) return null;
+  const replies = shellSegments(command).some((words) => {
+    const i = words.findIndex((w) => (0, import_node_path9.basename)(w) === "lr");
+    return i >= 0 && words[i + 1] === "reply";
+  });
+  return replies ? { message, command } : null;
+}
+async function noteReply(id, input, deps) {
+  const call = replyCall(input);
+  if (call) await deps.registry.startCall(id, { ...call, at: deps.now().toISOString() });
 }
 async function beforeWorktreeRemoval(input, deps) {
   const wt = deps.worktrees;
