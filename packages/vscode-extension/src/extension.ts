@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { AgentRepliesUi, type Notifier } from './agentReplies';
 import { ArchiveUi } from './archive';
+import { HistoryUi, type ErasePrompt } from './history';
 import { ReviewController, type ChooseHandler, type ConfirmHandler } from './controller';
 import { simulateAgentReply, type SimulateArgs } from './dev/simulateAgentReply';
 import { DeliveriesUi, type NoSubscriberPrompt, type Warner } from './deliveries';
@@ -55,6 +56,10 @@ export interface LocalReviewApi {
   setArchivePrompts(
     prompts: Partial<Pick<ArchiveUi, 'askDate' | 'pickThreads' | 'askSaveLocation' | 'inform'>> | undefined,
   ): void;
+  /** Tests only: answer the offer to erase the history kept (`undefined`: the real one). */
+  setErasePrompt(prompt: ErasePrompt | undefined): void;
+  /** Tests only: the last offer to erase the history kept, once answered (how many threads were erased). */
+  lastEraseOffer(): Promise<number | undefined>;
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<LocalReviewApi> {
@@ -66,7 +71,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
   const deliveries = new DeliveriesUi(review, log);
   const retroReminder = new RetroReminderUi(review.onDidChange);
   const archive = new ArchiveUi(review, log);
-  context.subscriptions.push(log, review, reviewUi, agentReplies, sessions, deliveries, retroReminder, archive);
+  const history = new HistoryUi(() => review.rootPaths(), log);
+  context.subscriptions.push(
+    log,
+    review,
+    reviewUi,
+    agentReplies,
+    sessions,
+    deliveries,
+    retroReminder,
+    archive,
+    history,
+  );
 
   context.subscriptions.push(
     vscode.commands.registerCommand('localReview.commentSelection', () =>
@@ -126,6 +142,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
   const defaultWarner = deliveries.warn;
   const defaultNoSubscriberPrompt = deliveries.askNoSubscriber;
   const defaultRetroPrompt = retroReminder.prompt;
+  const defaultErasePrompt = history.prompt;
   const archivePrompts = {
     askDate: archive.askDate,
     pickThreads: archive.pickThreads,
@@ -178,6 +195,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
     setArchivePrompts: (prompts) => {
       Object.assign(archive, archivePrompts, prompts ?? {});
     },
+    setErasePrompt: (prompt) => {
+      history.prompt = prompt ?? defaultErasePrompt;
+    },
+    lastEraseOffer: () => history.offered,
     warnIfWorktree: (path) => review.warnIfWorktree(path),
     forgetWorktreeWarnings: () => Promise.resolve(context.globalState.update('localReview.warnedWorktrees', undefined)),
     shownSessions: () => sessions.sessions.relevant.map((s) => s.id),

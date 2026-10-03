@@ -141,23 +141,44 @@ describe('why a thread was deleted', () => {
 });
 
 describe('machine settings', () => {
-  it('saves worktrees by default, and remembers a change', async () => {
-    expect(await readConfig(env())).toMatchObject({ autoSaveWorktrees: true });
-    expect(await writeConfig({ autoSaveWorktrees: false }, env())).toMatchObject({ autoSaveWorktrees: false });
-    expect(await readConfig(env())).toMatchObject({ autoSaveWorktrees: false });
+  it('keeps the history by default, and remembers a change', async () => {
+    expect(await readConfig(env())).toMatchObject({ keepHistory: true });
+    expect(await writeConfig({ keepHistory: false }, env())).toMatchObject({ keepHistory: false });
+    expect(await readConfig(env())).toMatchObject({ keepHistory: false });
     expect(configFile(env())).toBe(join(base, 'home', 'config.json'));
   });
 
   it('keeps settings it does not know, and falls back to the defaults on a broken file', async () => {
     await mkdir(join(base, 'home'), { recursive: true });
-    await writeFile(configFile(env()), '{"later": 1, "autoSaveWorktrees": "no"}');
-    expect(await readConfig(env())).toMatchObject({ autoSaveWorktrees: true });
-    await writeConfig({ autoSaveWorktrees: false }, env());
-    expect(JSON.parse(await readFile(configFile(env()), 'utf8'))).toEqual({ later: 1, autoSaveWorktrees: false });
+    await writeFile(configFile(env()), '{"later": 1, "keepHistory": "no"}');
+    expect(await readConfig(env())).toMatchObject({ keepHistory: true });
+    await writeConfig({ keepHistory: false }, env());
+    expect(JSON.parse(await readFile(configFile(env()), 'utf8'))).toEqual({ later: 1, keepHistory: false });
     await writeFile(configFile(env()), 'not json');
-    expect(await readConfig(env())).toMatchObject({ autoSaveWorktrees: true });
-    await writeConfig({ autoSaveWorktrees: false }, env());
-    expect(await readConfig(env())).toMatchObject({ autoSaveWorktrees: false });
+    expect(await readConfig(env())).toMatchObject({ keepHistory: true });
+    await writeConfig({ keepHistory: false }, env());
+    expect(await readConfig(env())).toMatchObject({ keepHistory: false });
+  });
+
+  it('loses no change when several are written at once', async () => {
+    await Promise.all([
+      writeConfig({ retroReminderDays: 12 }, env()),
+      writeConfig({ retroReminderMaxDays: 9 }, env()),
+      writeConfig({ retroReminderSizeKB: 5 }, env()),
+      writeConfig({ keepHistory: false }, env()),
+      writeConfig({ retroReminderMaxDays: 25 }, env()),
+    ]);
+    expect(await readConfig(env())).toEqual({
+      keepHistory: false,
+      retroReminder: true,
+      retroReminderDays: 12,
+      retroReminderSizeKB: 5,
+      retroReminderMaxDays: 25,
+    });
+    // A failed write does not stop the next ones.
+    await writeFile(join(base, 'blocker'), '');
+    await expect(writeConfig({ retroReminder: false }, { LOCAL_REVIEW_HOME: join(base, 'blocker') })).rejects.toThrow();
+    expect(await writeConfig({ retroReminder: false }, env())).toMatchObject({ retroReminder: false });
   });
 });
 

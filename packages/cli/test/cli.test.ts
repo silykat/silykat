@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buildAnchorContext, Store, type Anchor } from '@local-review/core';
+import { buildAnchorContext, Store, writeConfig, type Anchor } from '@local-review/core';
 import { EXIT, runCli } from '../src/cli';
 
 const CODE = [
@@ -224,6 +224,19 @@ describe('lr reply / set-status', () => {
     expect(r.code).toBe(EXIT.NOT_FOUND);
     expect(r.err).toContain('was deleted by the user. Stop working on it');
     expect((await lr(['show', t.id])).err).toContain('was deleted by the user');
+  });
+
+  it('says the user may have deleted a thread that is gone, when deleted threads are erased', async () => {
+    const t = await comment(anchorOn(3, 3), 'Never mind');
+    await store.deleteThread(t.id, 'user');
+    await store.purgeThread(t.id);
+    const env = { LOCAL_REVIEW_HOME: join(root, 'home') };
+    expect((await lr(['show', t.id], { env })).err).toBe(`lr: Thread not found: ${t.id}\n`);
+    await writeConfig({ keepHistory: false }, env);
+    const r = await lr(['reply', t.id, '--agent', 'Claude', '--body', 'Done'], { env });
+    expect(r.code).toBe(EXIT.NOT_FOUND);
+    expect(r.err).toContain('The user may have deleted it (deleted threads are erased on this machine)');
+    expect((await lr(['show', t.id], { env })).err).toContain('The user may have deleted it');
   });
 
   it('says to update Local Review when a newer version wrote the thread', async () => {

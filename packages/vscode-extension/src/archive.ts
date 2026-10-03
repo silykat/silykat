@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 import {
   archivedThreads,
   archiveThreads,
+  dateArgLabel,
   historyJson,
   LOOSE_ROOT,
   parseDateArg,
@@ -12,6 +13,7 @@ import {
   purgePlan,
   purgeThreads,
   resolvedBefore,
+  retroReading,
   unarchiveThreads,
   type BatchResult,
   type ProjectThread,
@@ -83,11 +85,12 @@ export class ArchiveUi implements vscode.Disposable {
     const date = text === undefined ? null : parseDateArg(text);
     if (text === undefined || !date) return undefined;
     const selected = resolvedBefore(await this.threads(), date);
+    const day = dateArgLabel(text, date);
     if (selected.length === 0) {
-      this.inform(`Local Review: no resolved thread to archive before ${text}.`);
+      this.inform(`Local Review: no resolved thread to archive before ${day}.`);
       return undefined;
     }
-    const c = archiveConfirmation(selected.length, text);
+    const c = archiveConfirmation(selected.length, day);
     const ok = await this.review.confirm(c.message, c.detail, c.action);
     if (!ok) return undefined;
     return this.run('archive', selected, archiveThreads, (k) => `Local Review: ${plural(k, 'thread')} archived.`);
@@ -148,14 +151,16 @@ export class ArchiveUi implements vscode.Disposable {
     );
     const date = text === undefined ? null : parseDateArg(text);
     if (text === undefined || !date) return undefined;
-    const plan = purgePlan(await this.threads(), date);
+    const folders = this.review.rootPaths().filter((r) => r !== LOOSE_ROOT);
+    const plan = purgePlan(await this.threads(), date, await retroReading(folders));
+    const since = dateArgLabel(text, date);
     if (plan.threads.length === 0) {
       this.inform(
-        `Local Review: no finished thread without activity since ${text}: nothing to delete.${keptText(plan)}`,
+        `Local Review: no finished thread without activity since ${since}: nothing to delete.${keptText(plan)}`,
       );
       return undefined;
     }
-    const c = purgeConfirmation(plan, text);
+    const c = purgeConfirmation(plan, since);
     const ok = await this.review.confirm(c.message, c.detail, c.action);
     if (!ok) return undefined;
     return this.run(

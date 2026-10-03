@@ -31,7 +31,7 @@ const thread = (over: Partial<ThreadHistory> = {}): ThreadHistory => ({
   bytes: 1000,
   ...over,
 });
-const plan = (n: number, kept: number): PurgePlan => ({
+const plan = (n: number, kept: number, unread = 0, retro = true): PurgePlan => ({
   threads: Array.from({ length: n }, () => ({
     thread: thread(),
     store: { root: '/r', origin: 'root' },
@@ -44,6 +44,13 @@ const plan = (n: number, kept: number): PurgePlan => ({
     copies: [],
     live: 1,
   })),
+  unread: Array.from({ length: unread }, () => ({
+    thread: thread(),
+    store: { root: '/r', origin: 'root' },
+    copies: [],
+    live: 1,
+  })),
+  retro,
   bytes: n * 1000,
 });
 
@@ -83,5 +90,17 @@ describe('texts of the archive and clean-up commands', () => {
     expect(many.detail).toContain('This cannot be undone');
     expect(many.detail).toContain('2 older threads still in progress are kept.');
     expect(purgeConfirmation(plan(2, 1), '90d').detail).toContain('1 older thread still in progress is kept.');
+  });
+
+  it('says which threads are kept for retros, or that there is no retro yet', () => {
+    expect(purgeConfirmation(plan(1, 0, 2), '2026-09-01').detail).toContain(
+      '2 finished threads not read by a retro yet are kept for the next one.',
+    );
+    expect(purgeConfirmation(plan(1, 0, 1), '2026-09-01').detail).toContain(
+      '1 finished thread not read by a retro yet is kept for the next one.',
+    );
+    expect(purgeConfirmation(plan(1, 0, 0, false), '2026-09-01').detail).toContain(
+      'No retro in these folders yet: no thread is kept for one.',
+    );
   });
 });

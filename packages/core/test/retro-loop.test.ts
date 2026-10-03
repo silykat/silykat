@@ -391,7 +391,7 @@ describe('the cadence of retros', () => {
 describe('the reminder settings of the machine', () => {
   it('have defaults, and ignore values of the wrong kind', async () => {
     expect(await readConfig(env())).toEqual({
-      autoSaveWorktrees: true,
+      keepHistory: true,
       retroReminder: true,
       retroReminderDays: 7,
       retroReminderSizeKB: 1000,

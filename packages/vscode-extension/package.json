@@ -428,6 +428,12 @@
           "default": true,
           "markdownDescription": "Send what you publish (comments, replies, reviews, edits, deletions) to the agent sessions subscribed to it, so that they handle it on their own. When off, nothing is sent: ask the agent yourself (e.g. `/local-review:review`), and no warning is shown about sessions."
         },
+        "localReview.keepHistory": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "markdownDescription": "Keep the history of what you delete, for `lr history` and retros (looking back at your review comments with your agent): a deleted thread stays on disk, out of sight, and the agent saves the threads of a git worktree before removing it. When off, deleting a thread erases it for good, nothing is saved when a worktree is removed, and you are offered to erase the history already kept. For this machine: machine setting `keep-history` of `lr config`, updated when you change it here."
+        },
         "localReview.retroReminder.days": {
           "type": "integer",
           "default": 7,

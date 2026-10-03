@@ -8,10 +8,12 @@ import { localReviewHome } from './sessions';
  */
 export interface MachineConfig {
   /**
-   * Before an agent removes a git worktree that has comments (`git worktree remove`…), its hook
-   * saves the worktree's threads to the main repository's store. On by default: it only copies.
+   * Keep the history of what is deleted, for `lr history` and retros (on by default): a deleted
+   * thread stays in its journal, and before an agent removes a git worktree that has comments, its
+   * hook saves the worktree's threads to the main repository's store. Off, deleting a thread erases
+   * its journals, and nothing is saved when a worktree is removed.
    */
-  autoSaveWorktrees: boolean;
+  keepHistory: boolean;
   /** When a retro is due, the agent says so once at the start of a session. */
   retroReminder: boolean;
   /** A retro is due this many days after the last one… */
@@ -23,7 +25,7 @@ export interface MachineConfig {
 }
 
 export const DEFAULT_CONFIG: MachineConfig = {
-  autoSaveWorktrees: true,
+  keepHistory: true,
   retroReminder: true,
   retroReminderDays: 7,
   retroReminderSizeKB: 1000,
@@ -38,10 +40,12 @@ export type ConfigSetting =
 
 /** The settings as `lr config` names them, with how to read a value given on the command line. */
 export const CONFIG_KEYS: Record<string, ConfigSetting> = {
-  'auto-save-worktrees': {
-    key: 'autoSaveWorktrees',
+  'keep-history': {
+    key: 'keepHistory',
     kind: 'boolean',
-    help: "on|off — before an agent removes a git worktree, its hook saves the worktree's threads (default: on)",
+    help:
+      'on|off — keep deleted threads (for lr history and retros) and save the threads of a worktree before an ' +
+      'agent removes it; off, deleting a thread erases it (default: on)',
   },
   'retro-reminder': {
     key: 'retroReminder',
@@ -91,10 +95,25 @@ export async function readConfig(env: Record<string, string | undefined> = proce
   return config;
 }
 
-/** Changes settings, keeping the others (and unknown keys written by a newer version). Written atomically. */
-export async function writeConfig(
+/** The writes of this process, one after the other: each reads the file the previous one wrote. */
+let writing: Promise<unknown> = Promise.resolve();
+
+/**
+ * Changes settings, keeping the others (and unknown keys written by a newer version). Written
+ * atomically; the writes of one process run one at a time, so that none undoes another.
+ */
+export function writeConfig(
   change: Partial<MachineConfig>,
   env: Record<string, string | undefined> = process.env,
+): Promise<MachineConfig> {
+  const next = writing.then(() => writeConfigNow(change, env));
+  writing = next.catch(() => undefined);
+  return next;
+}
+
+async function writeConfigNow(
+  change: Partial<MachineConfig>,
+  env: Record<string, string | undefined>,
 ): Promise<MachineConfig> {
   const file = configFile(env);
   let current: Record<string, unknown> = {};

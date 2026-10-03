@@ -99,35 +99,77 @@ export async function retroCadence(
  * threads): a retro of the same folder in another worktree, or above it, covers this one.
  */
 export async function lastRetroCovering(dir: string): Promise<RetroState | null> {
+  return lastFinished(await retrosCovering(dir));
+}
+
+/** Every retro, finished or not, whose project holds `dir` (see `lastRetroCovering`). */
+export async function retrosCovering(dir: string): Promise<RetroState[]> {
   const target = resolve(dir);
   const real = await realpath(target).catch(() => target);
-  let best = await lastRetroAbove([target, real]);
+  const found = await retrosAbove([target, real]);
   const info = await worktreeInfo(real); // never fails: `null` outside git
   if (info) {
     const rel = relative(info.worktree, real);
     if (!rel.startsWith('..') && !isAbsolute(rel)) {
       for (const wt of await worktreesOf(real)) {
         if (wt === info.worktree) continue;
-        const r = await lastRetroAbove([join(wt, rel)]);
-        if (r && (!best || r.until > best.until)) best = r;
+        found.push(...(await retrosAbove([join(wt, rel)])));
       }
     }
   }
-  return best;
+  const seen = new Set<string>();
+  return found.filter((r) => !seen.has(r.id) && seen.add(r.id));
 }
 
-/** The last finished retro kept at or above the first of `dirs` whose project holds one of them. */
-async function lastRetroAbove(dirs: readonly string[]): Promise<RetroState | null> {
+const lastFinished = (retros: readonly RetroState[]): RetroState | null =>
+  retros
+    .filter((r) => r.finishedAt !== null)
+    .reduce<RetroState | null>((a, r) => (!a || r.until > a.until ? r : a), null);
+
+/** The retros kept at or above the first of `dirs` whose project holds one of them. */
+async function retrosAbove(dirs: readonly string[]): Promise<RetroState[]> {
   const covers = (r: string) => dirs.some((d) => d === r || d.startsWith(r.endsWith(sep) ? r : r + sep));
-  let best: RetroState | null = null;
+  const found: RetroState[] = [];
   for (let d = dirs[0]!; ; d = dirname(d)) {
     for (const r of await readRetros(join(d, STORE_DIR, RETROS_DIR)).catch(() => [])) {
-      if (r.finishedAt === null) continue;
       const rootReal = await realpath(r.root).catch(() => r.root);
-      if ((covers(r.root) || covers(rootReal)) && (!best || r.until > best.until)) best = r;
+      if (covers(r.root) || covers(rootReal)) found.push(r);
     }
-    if (dirname(d) === d) return best;
+    if (dirname(d) === d) return found;
   }
+}
+
+/** What retros have not read yet: see `retroReading`. */
+export interface RetroReading {
+  /** For each project with a retro: the end of its last finished one (`null`: none finished yet). */
+  until: (string | null)[];
+  /** The threads read by retros started and not finished. */
+  reading: Set<string>;
+}
+
+/**
+ * What the retros of the projects holding `dirs` have not read yet, for a clean-up that must not
+ * get ahead of them: the threads active after the end of the last finished retro (the next one
+ * reads them), and those of a retro started and not finished. `null` when none of these projects
+ * ever had a retro: nothing to keep for them.
+ */
+export async function retroReading(dirs: readonly string[]): Promise<RetroReading | null> {
+  const until: (string | null)[] = [];
+  const reading = new Set<string>();
+  for (const dir of dirs) {
+    const retros = await retrosCovering(dir);
+    if (retros.length === 0) continue;
+    until.push(lastFinished(retros)?.until ?? null);
+    for (const r of retros) if (r.finishedAt === null) for (const id of r.threads) reading.add(id);
+  }
+  return until.length === 0 ? null : { until, reading };
+}
+
+/** Whether a retro still has to read a thread (see `retroReading`). */
+export function unreadByRetro(reading: RetroReading, id: string, lastActivityAt: string): boolean {
+  if (reading.reading.has(id)) return true;
+  // A project whose retros are all unfinished: they read what they read, the rest waits for one.
+  return reading.until.some((u) => u === null || lastActivityAt > u);
 }
 
 /** A size, as people read it: `640.0 KB`, `1.2 MB` (1 KB = 1,000 bytes). */

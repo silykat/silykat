@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buildAnchorContext, RetroBook, Store, type Anchor } from '@local-review/core';
+import { buildAnchorContext, RetroBook, Store, writeConfig, type Anchor } from '@local-review/core';
 import { runCli } from '../src/cli';
 import { day } from '../src/retro';
 
@@ -108,6 +108,17 @@ describe('lr retro', () => {
     expect(json).toMatchObject({ source: 'all', threads: 3, stores: [{ origin: 'below', threads: 3 }] });
     expect((await lr(['retro', 'scope', '--since', '2020-01-01'])).out).toContain('since 2020-01-01 00:00');
     expect((await lr(['retro', 'scope', '--since', '7d', '--all'])).code).toBe(1);
+    expect(out).not.toContain('**History**');
+    expect(json.keepHistory).toBe(true);
+  });
+
+  it('says in its scope when deleted threads are not kept', async () => {
+    await project();
+    await writeConfig({ keepHistory: false }, env());
+    expect((await lr(['retro', 'scope'])).out).toContain(
+      '- **History**: not kept on this machine (keep-history is off): deleted threads are erased, so this retro does not see them.',
+    );
+    expect(JSON.parse((await lr(['retro', 'scope', '--format', 'json'])).out).keepHistory).toBe(false);
   });
 
   it('runs a whole retro: start, classify, propose, decide, apply, finish', async () => {

@@ -1,4 +1,5 @@
-import { realpath } from 'node:fs/promises';
+import { realpath, rm, stat } from 'node:fs/promises';
+import { unreadByRetro, type RetroReading } from './cadence';
 import type { ThreadHistory } from './history';
 import { projectStores, type ProjectStore } from './project';
 import { storeAt } from './sessions';
@@ -78,6 +79,18 @@ export function parseDateArg(value: string, now = Date.now()): Date | null {
   return exists && !Number.isNaN(date.getTime()) ? date : null;
 }
 
+/**
+ * A date given to `parseDateArg`, as people read it: "2026-08-04 (60 days)" for `60d`, the day for a
+ * day, the day and time for a date and time.
+ */
+export function dateArgLabel(value: string, date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const day = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  const days = /^(\d+)d$/.exec(value.trim());
+  if (days) return `${day} (${days[1]} day${days[1] === '1' ? '' : 's'})`;
+  return /T/.test(value) ? `${day} ${pad(date.getHours())}:${pad(date.getMinutes())}` : day;
+}
+
 const before = (at: string | null, date: Date): boolean => at !== null && Date.parse(at) < date.getTime();
 
 /**
@@ -109,6 +122,10 @@ export interface PurgePlan {
    * draft reply of the user's review in progress): kept.
    */
   inProgress: ProjectThread[];
+  /** Finished and quiet threads that a retro has not read yet: kept for it. */
+  unread: ProjectThread[];
+  /** Whether the project had a retro: without one, no thread is kept for retros. */
+  retro: boolean;
   /** Size of the threads to delete, in bytes (one journal each: copies saved from worktrees are not counted). */
   bytes: number;
 }
@@ -117,17 +134,75 @@ export interface PurgePlan {
  * What a purge before `date` would delete: the finished threads (resolved, archived or deleted)
  * where nothing was published since `date`. Threads still in progress are never purged, however
  * old: the user resolves or deletes them first. Nor are threads holding a draft of the user's
- * review in progress: deleting them would lose that draft.
+ * review in progress: deleting them would lose that draft. Nor, in a project that had a retro
+ * (`reading`, from `retroReading`), the threads a retro has not read yet.
  */
-export function purgePlan(threads: readonly ProjectThread[], date: Date): PurgePlan {
+export function purgePlan(threads: readonly ProjectThread[], date: Date, reading?: RetroReading | null): PurgePlan {
   const quiet = threads.filter((t) => before(t.thread.lastActivityAt, date));
   const purgeable = (t: ProjectThread) => isFinished(t.thread) && !t.thread.hasDrafts;
-  const purged = quiet.filter(purgeable);
+  const unread = (t: ProjectThread) => !!reading && unreadByRetro(reading, t.thread.id, t.thread.lastActivityAt);
+  const purged = quiet.filter((t) => purgeable(t) && !unread(t));
   return {
     threads: purged,
     inProgress: quiet.filter((t) => !purgeable(t)),
+    unread: quiet.filter((t) => purgeable(t) && unread(t)),
+    retro: !!reading,
     bytes: purged.reduce((n, t) => n + t.thread.bytes, 0),
   };
+}
+
+/** The history kept for a project: what `eraseHistory` erases, when the user stops keeping it. */
+export interface HistoryPlan {
+  /** The deleted threads: their journals, copies included. */
+  deleted: ProjectThread[];
+  /** The copies of threads saved from worktrees: their whole folder (journals, reviews, origin). */
+  saved: ProjectStore[];
+}
+
+/** The history kept for the projects `roots`: deleted threads, and threads saved from worktrees. */
+export async function historyPlan(roots: readonly string[], env: Env = process.env): Promise<HistoryPlan> {
+  const deleted = (await projectThreads(roots, env)).filter((t) => t.thread.state === 'deleted');
+  const saved: ProjectStore[] = [];
+  const seen = new Set<string>();
+  for (const root of roots)
+    for (const s of await projectStores(root, env))
+      if (s.saved && !seen.has(s.saved.dir)) {
+        seen.add(s.saved.dir);
+        saved.push(s);
+      }
+  return { deleted, saved };
+}
+
+/** Erases the history of a `historyPlan`: nothing is left of it. Returns how many threads and saved copies went. */
+export async function eraseHistory(plan: HistoryPlan): Promise<{ threads: number; saved: number }> {
+  const result = await purgeThreads(plan.deleted);
+  if (result.failed.length > 0) throw new Error(result.failed[0]!.error);
+  let saved = 0;
+  for (const s of plan.saved) {
+    if (await stat(s.saved!.dir).catch(() => null)) saved++;
+    await rm(s.saved!.dir, { recursive: true, force: true });
+  }
+  return { threads: result.done.length, saved };
+}
+
+/** The history kept, as people read it: "3 deleted threads and 1 copy of worktree threads"; `null` when none. */
+export function historySummary(deleted: number, saved: number): string | null {
+  const parts = [
+    ...(deleted > 0 ? [`${deleted} deleted thread${deleted === 1 ? '' : 's'}`] : []),
+    ...(saved > 0 ? [`${saved} ${saved === 1 ? 'copy' : 'copies'} of worktree threads`] : []),
+  ];
+  return parts.length === 0 ? null : parts.join(' and ');
+}
+
+/**
+ * Erases a thread just deleted in `store`, when the history is not kept: its journal, and its
+ * copies saved from worktrees. Nothing is left of it, not even in `lr history`.
+ */
+export async function eraseThread(store: Store, id: string, env: Env = process.env): Promise<void> {
+  await store.purgeThread(id);
+  const copies = (await projectThreads([store.root], env)).filter((t) => t.thread.id === id);
+  const result = await purgeThreads(copies);
+  if (result.failed.length > 0) throw new Error(result.failed[0]!.error);
 }
 
 export interface BatchResult {

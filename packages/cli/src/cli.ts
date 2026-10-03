@@ -10,6 +10,8 @@ import {
   findStoreRoot,
   findStoresBelow,
   historyJson,
+  historyPlan,
+  historySummary,
   localReviewHome,
   parseDateArg,
   processAncestors,
@@ -309,7 +311,7 @@ async function show(rest: string[], io: Io): Promise<number> {
   const id = requireThreadId(positionals);
   const { located } = await visibleThreads(openStore(str(values.root), io));
   const found = located.find((l) => l.view.thread.id === id);
-  if (!found) throw new Error(await whyNotFound(openStore(str(values.root), io), id));
+  if (!found) throw new Error(await whyNotFound(openStore(str(values.root), io), id, io.env));
   io.out(str(values.format) === 'json' ? JSON.stringify(toJson(found), null, 2) : renderThread(found));
   return EXIT.OK;
 }
@@ -334,7 +336,7 @@ async function reply(rest: string[], io: Io): Promise<number> {
   if (body === undefined || body.trim() === '') throw new UsageError('reply needs --body, --body-file or --body -');
 
   const store = openStore(str(values.root), io);
-  await assertCurrent(store, id, str(values.rev));
+  await assertCurrent(store, id, str(values.rev), io.env);
   const session = await replySession(id, values, io);
   const state = await store.addComment(
     id,
@@ -369,7 +371,7 @@ async function setStatus(rest: string[], io: Io): Promise<number> {
   const id = requireThreadId(positionals);
   const status = agentStatus(positionals[1]);
   const store = openStore(str(values.root), io);
-  await assertCurrent(store, id, str(values.rev));
+  await assertCurrent(store, id, str(values.rev), io.env);
   const state = await store.setStatus(id, status, 'agent', requireAgent(str(values.agent), io));
   io.out(`${state.id} is now ${state.status}.`);
   return EXIT.OK;
@@ -418,6 +420,23 @@ async function worktree(rest: string[], io: Io): Promise<number> {
   return EXIT.OK;
 }
 
+/** After `keep-history off`: the history already kept here, and how to erase it. */
+async function keptHistoryNote(io: Io): Promise<string> {
+  let summary: string | null = null;
+  try {
+    const plan = await historyPlan([io.cwd], io.env);
+    summary = historySummary(plan.deleted.length, plan.saved.length);
+  } catch {
+    // The setting is changed: an unreadable folder only leaves out the count.
+  }
+  return (
+    ' Deleting a thread now erases it, and nothing is saved when an agent removes a worktree.' +
+    (summary
+      ? `\nThe history already kept stays: ${summary} in ${io.cwd}. To erase it: lr purge --history (it shows what, then --yes).`
+      : '')
+  );
+}
+
 async function config(rest: string[], io: Io): Promise<number> {
   const { values, positionals } = parse(rest, { format: { type: 'string' } });
   const [action, name, value] = positionals;
@@ -432,7 +451,7 @@ async function config(rest: string[], io: Io): Promise<number> {
       if (!validSettingNumber(n)) throw new UsageError(`${name} takes a whole number, 1 or more, not "${value ?? ''}"`);
       await writeConfig({ [setting.key]: n }, io.env);
     }
-    io.out(`${name} is now ${value}.`);
+    io.out(`${name} is now ${value}.` + (name === 'keep-history' && value === 'off' ? await keptHistoryNote(io) : ''));
     return EXIT.OK;
   }
   if (action !== undefined) throw new UsageError(`lr config takes "set" or nothing, not "${action}"`);
@@ -595,10 +614,10 @@ async function subscriptions(rest: string[], io: Io): Promise<number> {
  * Refuses to act on a thread that is gone, or that the user changed since the version the agent
  * read (`rev`, when given).
  */
-async function assertCurrent(store: Store, id: string, rev: string | undefined): Promise<void> {
+async function assertCurrent(store: Store, id: string, rev: string | undefined, env: Io['env']): Promise<void> {
   const { state } = await store.loadThread(id);
   const view = state ? agentView(state) : null;
-  if (!view) throw new Error(await whyNotFound(store, id));
+  if (!view) throw new Error(await whyNotFound(store, id, env));
   if (rev === undefined || rev === view.rev) return;
   const located = locate(view, await readWorkingFile(store, view));
   throw new ChangedError(
@@ -608,7 +627,7 @@ async function assertCurrent(store: Store, id: string, rev: string | undefined):
 }
 
 /** Why a thread cannot be found: deleted or archived by the user, or never existed. */
-async function whyNotFound(store: Store, id: string): Promise<string> {
+async function whyNotFound(store: Store, id: string, env: Io['env']): Promise<string> {
   let state: ThreadState | null = null;
   try {
     state = (await store.loadThread(id)).state;
@@ -619,6 +638,9 @@ async function whyNotFound(store: Store, id: string): Promise<string> {
     return `Thread not found: ${id} was deleted by the user. Stop working on it; if you already changed code for it, ask the user whether to undo those changes (never undo them on your own).`;
   if (state?.archived)
     return `Thread not found: ${id} was archived by the user: it is finished. Stop working on it (lr unarchive ${id} brings it back, only if the user asks).`;
+  // Erased: the user deleted it, and this machine does not keep the history.
+  if (!state && !(await readConfig(env)).keepHistory)
+    return `Thread not found: ${id}. The user may have deleted it (deleted threads are erased on this machine): if you were working on it, stop, and ask the user whether to undo the changes you made for it (never undo them on your own).`;
   return `Thread not found: ${id}`;
 }
 

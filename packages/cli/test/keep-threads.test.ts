@@ -119,16 +119,18 @@ describe('lr history, deleted threads', () => {
 
 describe('lr config', () => {
   it('shows the settings of this machine and changes them', async () => {
-    expect((await lr(['config'])).out).toContain('auto-save-worktrees: on');
-    expect((await lr(['config', 'set', 'auto-save-worktrees', 'off'])).out).toBe('auto-save-worktrees is now off.\n');
-    expect(await readConfig(env())).toMatchObject({ autoSaveWorktrees: false });
-    expect(JSON.parse((await lr(['config', '--format', 'json'])).out)).toMatchObject({ autoSaveWorktrees: false });
-    expect((await lr(['config'])).out).toContain('auto-save-worktrees: off');
+    expect((await lr(['config'])).out).toContain('keep-history: on');
+    expect((await lr(['config', 'set', 'keep-history', 'off'])).out).toBe(
+      'keep-history is now off. Deleting a thread now erases it, and nothing is saved when an agent removes a worktree.\n',
+    );
+    expect(await readConfig(env())).toMatchObject({ keepHistory: false });
+    expect(JSON.parse((await lr(['config', '--format', 'json'])).out)).toMatchObject({ keepHistory: false });
+    expect((await lr(['config'])).out).toContain('keep-history: off');
   });
 
   it('refuses unknown settings and values', async () => {
     expect((await lr(['config', 'set', 'nope', 'on'])).err).toContain('unknown setting "nope"');
-    expect((await lr(['config', 'set', 'auto-save-worktrees', 'yes'])).err).toContain('takes "on" or "off"');
+    expect((await lr(['config', 'set', 'keep-history', 'yes'])).err).toContain('takes "on" or "off"');
     expect((await lr(['config', 'get'])).err).toContain('lr config takes "set" or nothing');
   });
 });

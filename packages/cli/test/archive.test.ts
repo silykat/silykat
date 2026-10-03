@@ -1,8 +1,9 @@
-import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buildAnchorContext, Store, type Anchor } from '@local-review/core';
+import { buildAnchorContext, RetroBook, Store, type Anchor } from '@local-review/core';
 import { EXIT, parseDateOption, runCli } from '../src/cli';
 
 const CODE = ['export function find(id: string) {', '  const user = db.get(id);', '  if (!user) return null;', '}'];
@@ -155,6 +156,7 @@ describe('lr purge', () => {
       '1 thread as old is still in progress (open, needs-info, addressed, or with a draft reply in your review): kept.',
     );
     expect(preview.out).toContain('lr purge --before 2026-09-15 --yes --count 2');
+    expect(preview.out).toContain('No retro in this project yet: no thread is kept for one.');
     expect((await lr(['history', '--root', 'api', '--format', 'json'])).out).toContain(oldResolved.id);
 
     const json = JSON.parse((await lr(['purge', '--before', '2026-09-15', '--root', 'api', '--format', 'json'])).out);
@@ -174,6 +176,86 @@ describe('lr purge', () => {
     const nothing = await lr(['purge', '--before', '2026-09-15', '--root', 'api']);
     expect(nothing.out).toContain('nothing to delete');
     expect((await lr(['purge', '--before', '2026-09-15', '--yes', '--root', 'api'])).out).toContain('nothing deleted');
+  });
+
+  it('keeps the threads a retro has not read yet, and says a number of days as a date', async () => {
+    const { oldResolved, oldDeleted } = await project();
+    // The last retro read up to the 2nd: the thread deleted on the 3rd waits for the next one.
+    const book = new RetroBook(join(base, 'api'));
+    const r = await book.start({
+      root: join(base, 'api'),
+      since: null,
+      until: '2026-09-02T12:00:00.000Z',
+      stores: [],
+      threads: [oldResolved.id],
+      bytes: 1,
+    });
+    await book.record(r.id, [{ type: 'retro.finished' }]);
+    const preview = await lr(['purge', '--before', '20d', '--root', 'api']);
+    expect(preview.out).toContain(
+      '1 thread would be deleted for good (finished, nothing published since 2026-09-13 (20 days)',
+    );
+    expect(preview.out).toContain(oldResolved.id);
+    expect(preview.out).toContain('1 finished thread as old is not read by a retro yet: kept for the next one.');
+    const json = JSON.parse((await lr(['purge', '--before', '20d', '--root', 'api', '--format', 'json'])).out);
+    expect(json).toMatchObject({ unreadByRetro: [oldDeleted.id], retro: true });
+  });
+
+  it('erases the history kept, after showing it', async () => {
+    const { oldDeleted, oldResolved } = await project();
+    expect((await lr(['purge', '--history', '--root', 'api'])).out).toBe(
+      `History kept in ${join(base, 'api')}: 1 deleted thread. Nothing is erased yet. To erase it for good ` +
+        '(gone from lr history and from retros): lr purge --history --yes\n',
+    );
+    const json = JSON.parse((await lr(['purge', '--history', '--root', 'api', '--format', 'json'])).out);
+    expect(json).toMatchObject({ deleted: [{ id: oldDeleted.id }], saved: [] });
+    expect((await lr(['purge', '--history', '--yes', '--root', 'api'])).out).toBe(
+      'Erased for good: 1 deleted thread.\n',
+    );
+    const left = JSON.parse((await lr(['history', '--root', 'api', '--format', 'json'])).out);
+    expect(left.threads.map((t: { id: string }) => t.id)).not.toContain(oldDeleted.id);
+    expect(left.threads.map((t: { id: string }) => t.id)).toContain(oldResolved.id);
+    expect((await lr(['purge', '--history', '--root', 'api'])).out).toContain('No history kept');
+    expect((await lr(['purge', '--history', '--yes', '--root', 'api', '--format', 'json'])).out).toContain(
+      '"threads": 0',
+    );
+    expect((await lr(['purge', '--history', '--yes', '--root', 'api'])).out).toBe('No history kept: nothing erased.\n');
+    expect((await lr(['purge', '--history', '--before', '7d', '--root', 'api'])).err).toContain(
+      'lr purge --history takes neither --before nor --count',
+    );
+  });
+
+  it('erases the threads saved from a worktree removed since', async () => {
+    const main = join(base, 'main');
+    const wt = join(base, 'wt');
+    const git = (cwd: string, ...args: string[]) =>
+      execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@e', ...args], { cwd, stdio: 'pipe' });
+    await mkdir(main);
+    git(main, 'init', '-q', '-b', 'main');
+    await writeFile(join(main, 'src.ts'), CODE.join('\n'));
+    git(main, 'add', '.');
+    git(main, 'commit', '-q', '-m', 'init');
+    git(main, 'worktree', 'add', '-q', '-b', 'feat', wt);
+    await new Store(wt).createThread(anchor(1), { author: 'user', body: 'In the worktree', reviewId: null });
+    expect((await lr(['worktree', 'save'], wt)).code).toBe(EXIT.OK);
+    git(main, 'worktree', 'remove', '--force', wt);
+
+    const json = JSON.parse((await lr(['purge', '--history', '--format', 'json'], main)).out);
+    expect(json).toMatchObject({ deleted: [], saved: [expect.stringContaining(join(main, '.local-review', 'saved'))] });
+    expect((await lr(['purge', '--history'], main)).out).toContain(': 1 copy of worktree threads.');
+    expect((await lr(['purge', '--history', '--yes'], main)).out).toBe(
+      'Erased for good: 1 copy of worktree threads.\n',
+    );
+    expect(JSON.parse((await lr(['history', '--format', 'json'], main)).out).threads).toEqual([]);
+  });
+
+  it('tells what history is kept when the user stops keeping it', async () => {
+    await project();
+    const off = await lr(['config', 'set', 'keep-history', 'off'], join(base, 'api'));
+    expect(off.out).toContain('Deleting a thread now erases it');
+    expect(off.out).toContain(
+      `The history already kept stays: 1 deleted thread in ${join(base, 'api')}. To erase it: lr purge --history`,
+    );
   });
 
   it('needs a date', async () => {

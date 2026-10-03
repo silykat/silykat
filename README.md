@@ -40,7 +40,7 @@ Local Review is agent-agnostic by design; **Claude Code** is the first supported
 - **Your agent does the work**: it receives what you publish, changes the code, replies in each thread, and tells you what it did or what it needs.
 - **The right agent gets it**: with several agent sessions in parallel (one per git worktree, a reviewer next to a developer…), each comment goes to the sessions working on its branch.
 - **Safe while the agent works**: edit or delete a comment at any time; the agent never answers an outdated version.
-- **Your whole history**: read back every thread of a project, resolved and deleted ones included, across its repositories and worktrees (`lr history`). It tells a thread you removed from one gone with its branch, and keeps the threads of a git worktree after you remove it, once saved (automatically when your agent removes it). **Archive** finished threads to clear VS Code without losing them, export everything to JSON, or delete old threads for good.
+- **Your whole history**: read back every thread of a project, resolved and deleted ones included, across its repositories and worktrees (`lr history`). It tells a thread you removed from one gone with its branch, and keeps the threads of a git worktree after you remove it, once saved (automatically when your agent removes it). **Archive** finished threads to clear VS Code without losing them, export everything to JSON, or delete old threads for good. Or keep no history at all: deleting then erases.
 - **Retros with your agent**: look back at your feedback with Claude, and decide together what to keep, remove or improve in its setup (`CLAUDE.md`, skills, hooks…); Claude applies what you validate (`/local-review:retro`). The next retro checks whether the changes helped, and the status bar tells you when a retro is due.
 - **100% local**: no network calls, no telemetry, plain files you can read. The one exception is opt-in: the classification of a retro by Jev, only if you give it a key.
 
@@ -148,7 +148,7 @@ A thread belongs to the branch of its file. After `git checkout`, VS Code shows 
 
 `git worktree remove` deletes the worktree's folder, and its comments with it (they are in its `.local-review/`). The first time a worktree you open has comments, VS Code tells you so. Before removing it, run **Local Review: Save Worktree Threads** (or `lr worktree save` in the worktree, or **Save Threads Now** in that message): its threads are copied to the store of the main repository, with the worktree and branch they come from, and stay in the history and in retros after the worktree is gone. Saving again refreshes the copy; nothing is removed from the worktree, and VS Code does not show the copies.
 
-When your agent is about to remove a worktree (`git worktree remove`, `rm -r` of the worktree, or Claude Code's own worktrees left with "remove"), the Claude Code plugin saves its threads first and Claude tells you so. To turn that off: `lr config set auto-save-worktrees off` (Claude then warns you instead).
+When your agent is about to remove a worktree (`git worktree remove`, `rm -r` of the worktree, or Claude Code's own worktrees left with "remove"), the Claude Code plugin saves its threads first and Claude tells you so. When you do not keep the history ([Keep history](#keep-history)), it does not: Claude warns you instead.
 
 ### Archive and clean up
 
@@ -157,9 +157,13 @@ Finished threads can leave VS Code without leaving your history:
 - **Archive Thread** (in a thread's header), or **Local Review: Archive Resolved Threads…** for every thread resolved before a date (`2026-10-01`, or `30d` for 30 days ago; it says how many first). Archived threads disappear from VS Code and from what your agent sees (`lr list`), and stay in `lr history` and in retros.
 - **Local Review: Show Archived Threads** lists them: pick the ones to bring back.
 - **Local Review: Export Threads (JSON)…** writes every thread of the open folders, whatever its state, archived ones included, to a JSON file: keep it before a clean-up.
-- **Local Review: Delete Old Threads Permanently…** deletes for good the **finished** threads (resolved, archived or deleted) where nothing happened since a date, after a confirmation that says how many. Threads still in progress are kept, however old, and so are those holding a draft reply of your review in progress. This cannot be undone: they are gone from the history and from retros too.
+- **Local Review: Delete Old Threads Permanently…** deletes for good the **finished** threads (resolved, archived or deleted) where nothing happened since a date (`2026-10-01`, or `90d`: it says "since 2026-07-05 (90 days)"), after a confirmation that says how many. Threads still in progress are kept, however old, and so are those holding a draft reply of your review in progress. Once a project had a retro, the threads the next retro will read are kept too (those active since the last retro, and those of a retro in progress), and the confirmation says how many; without any retro, nothing is kept for one, and it says so. This cannot be undone: they are gone from the history and from retros too.
 
 These act on each open folder as `lr history` does (its subfolders and the worktrees of its repositories), and on the files outside the open folders. Your agent can do the same for you: ask it to "archive my resolved comments of last month" or to "delete the comments older than 3 months" (it tells you how many and waits for your yes; Claude Code then asks you to allow the deletion itself). An older version of Local Review shows an archived thread read-only, and asks to be updated.
+
+### Keep history
+
+By default, Local Review keeps the history of what you delete, for `lr history` and retros: a deleted thread leaves VS Code and what your agent sees, and stays on disk; the agent saves the threads of a git worktree before removing it. Turn **`localReview.keepHistory`** off (in your user settings, or `lr config set keep-history off`) if you do not want that, e.g. if you do not run retros: deleting a thread then **erases** it for good (with its copies saved from worktrees), and nothing is saved when an agent removes a worktree (you can still save one yourself with **Save Worktree Threads**). When you turn it off in VS Code, it offers to erase the history already kept in your folders (deleted threads, and threads saved from worktrees); with `lr`, run `lr purge --history` to see it, then `lr purge --history --yes`. Your retros then say that they do not see deleted threads. The setting is for the whole machine: VS Code writes it to the settings of the machine, which `lr` and the agent read.
 
 ### Files outside the open folders
 
@@ -238,6 +242,7 @@ A retro is due after **7 days**, or sooner once the threads weigh **1 MB**, and 
 | `localReview.notifyOnAgentReply`         | `true`       | Notify when the agent replies. The status bar counter of threads waiting for your reply is always shown.                                     |
 | `localReview.excludeFromGit`             | `true`       | Add `.local-review/` to `.git/info/exclude` on the first comment. Never touches `.gitignore`.                                                |
 | `localReview.pushToAgents`               | `true`       | Send what you publish to the subscribed agent sessions. Off: nothing is sent, and no session warnings are shown.                             |
+| `localReview.keepHistory`                | `true`       | Keep deleted threads (for `lr history` and retros) and save a worktree's threads before an agent removes it. Off: deleting erases.           |
 | `localReview.retroReminder.days`         | `7`          | A retro is due this many days after the last one.                                                                                            |
 | `localReview.retroReminder.sizeKB`       | `1000`       | Or sooner, once the review threads since the last retro weigh this many KB (1000 = 1 MB).                                                    |
 | `localReview.retroReminder.maxDays`      | `25`         | And never later than this many days, whatever `days` says.                                                                                   |
@@ -261,8 +266,9 @@ Agents read and answer the threads with `lr`, an agent-neutral command line; the
 | `lr history [--since <date>] [--out <file>]`              | Every thread of the project, whatever its state, in full (export)                          |
 | `lr archive <id>…`, `lr archive --resolved-before <date>` | Archive threads (`--list`: the archived ones); `lr unarchive <id>…`                        |
 | `lr purge --before <date> [--yes]`                        | Delete old finished threads for good (without `--yes`: only says which)                    |
+| `lr purge --history [--yes]`                              | Erase the history kept: deleted threads, threads saved from worktrees                      |
 | `lr worktree save [<folder>]`                             | Save a git worktree's threads before removing the worktree                                 |
-| `lr config`, `lr config set <name> <value>`               | The settings of this machine (`auto-save-worktrees`, retro reminder)                       |
+| `lr config`, `lr config set <name> <value>`               | The settings of this machine (`keep-history`, retro reminder)                              |
 | `lr retro scope`, `lr retro show <id>`, `lr retro list`   | What a retro would cover; a retro and its proposals (`--next`: one at a time); past retros |
 | `lr retro cadence`                                        | Is a retro due? Days and size of the threads since the last retro                          |
 
@@ -274,11 +280,11 @@ Add `--root <folder>` to target a project from elsewhere (`--root /` for files o
 
 ## Where your data lives
 
-- **Comments** of a project: `.local-review/` at its root (the git top level, or the open folder), as plain append-only JSON Lines journals. Git ignores it through `.git/info/exclude`. Archiving keeps a thread's journal; only **Delete Old Threads Permanently** (`lr purge`) removes journals.
+- **Comments** of a project: `.local-review/` at its root (the git top level, or the open folder), as plain append-only JSON Lines journals. Git ignores it through `.git/info/exclude`. Archiving and deleting keep a thread's journal; only **Delete Old Threads Permanently** (`lr purge`), and deleting with [Keep history](#keep-history) off, remove journals.
 - **Comments of files outside the open folders**: `~/.local-review/files/`.
 - **Retros** of a project: `.local-review/retros/` at its top (one journal per retro, plus your retro preferences).
 - **Threads saved from git worktrees**: `.local-review/saved/` of the main repository (one folder per worktree store: its journals as they were, and where they come from).
-- **Settings of this machine** (read by the agent hooks, which run outside VS Code): `~/.local-review/config.json`, changed with `lr config` (and by the extension for the retro reminder).
+- **Settings of this machine** (read by the agent hooks, which run outside VS Code): `~/.local-review/config.json`, changed with `lr config` (and by the extension for Keep history and the retro reminder).
 - **Agent sessions**, their subscriptions and message queues: `~/.local-review/sessions/`.
 
 `$LOCAL_REVIEW_HOME` moves `~/.local-review/` elsewhere. Local Review collects no telemetry, and makes no network call, except the optional classification of a retro by Jev when you set up its key.
