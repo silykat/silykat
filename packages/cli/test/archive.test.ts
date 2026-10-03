@@ -81,7 +81,7 @@ describe('lr archive and lr unarchive', () => {
 
     const history = await lr(['history', '--root', 'api']);
     expect(history.out).toContain('— 1 archived');
-    expect(history.out).toMatch(new RegExp(`${oldResolved.id}[^\\n]*\\n\\nStore: \\. · Archived 2026-`));
+    expect(history.out).toMatch(new RegExp(`${oldResolved.id}[^\\n]*\\n\\nStore: \\. · Archived \\d{4}-`));
     const json = JSON.parse((await lr(['history', '--root', 'api', '--format', 'json'])).out);
     expect(json.summary.archived).toBe(1);
 
