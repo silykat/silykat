@@ -1384,6 +1384,7 @@ var RETRO_EVENTS = /* @__PURE__ */ new Set([
   "retro.proposed",
   "retro.decided",
   "retro.applied",
+  "retro.undone",
   "retro.conversation",
   "retro.finished"
 ]);
@@ -1475,6 +1476,10 @@ function foldRetro(events, warnings = [], future = false) {
         break;
       case "retro.applied":
         r.applied[e.proposal] = [.../* @__PURE__ */ new Set([...r.applied[e.proposal] ?? [], ...e.files])];
+        break;
+      case "retro.undone":
+        delete r.decisions[e.proposal];
+        delete r.applied[e.proposal];
         break;
       case "retro.conversation":
         if (!r.conversations[e.thread]?.available)

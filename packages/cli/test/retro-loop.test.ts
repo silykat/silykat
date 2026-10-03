@@ -67,7 +67,7 @@ async function startRetro(): Promise<string> {
 }
 
 describe('the next retro checks the changes adopted at the last one', () => {
-  it('shows with numbers whether the feedback went down, next to the user feeling', async () => {
+  it('shows with numbers whether the feedback went down, and what the user said about it', async () => {
     const before = [await comment('Dates are UTC'), await comment('UTC again'), await comment('Nice')];
     const first = await startRetro();
     expect((await lr(['retro', 'propose', first, '--body', json({ proposals: [utc(before.slice(0, 2))] })])).code).toBe(
@@ -113,13 +113,19 @@ describe('the next retro checks the changes adopted at the last one', () => {
 
     const shown = (await lr(['retro', 'show', second])).out;
     expect(shown).toContain("## The last retro's changes: did they help?");
-    expect(shown).toContain('- **Your feeling**: Not really, it still uses local time');
+    expect(shown).toContain('- **What you said about them**: Not really, it still uses local time');
     expect(shown).toContain(
       `- ${ref} Say that dates are UTC: 2 of 3 threads (67%) before, 2 of 3 threads (67%) since → not decreased: to revise`,
     );
     expect(shown).toContain('  Two dates in local time again');
     expect(shown).toContain(
       `- **Revises** ${ref}, adopted at the last retro: the feedback on its subject did not decrease`,
+    );
+    // A proposal that revises a change of the last retro is discussed first, and says so.
+    const next = (await lr(['retro', 'show', second, '--next'])).out;
+    expect(next).toContain('## Proposal 1/');
+    expect(next).toContain(
+      `**Revises** ${ref}, adopted at the last retro: the feedback on its subject did not decrease.`,
     );
     expect(JSON.parse((await lr(['retro', 'show', second, '--format', 'json'])).out).verifications).toMatchObject([
       { proposal: 'p1', verdict: 'not-decreased', files: [join(work, 'api', 'CLAUDE.md')] },

@@ -258,6 +258,39 @@ describe('guard rails', () => {
     expect(checkProposals('x', ctx()).rejected[0]!.reasons[0]).toContain('"proposals"');
   });
 
+  it('takes a finding of the setup audit without threads, to remove or rewrite a rule', () => {
+    const audit = { location: 'CLAUDE.md:2-3', finding: 'Two rules contradict each other on tabs' };
+    const stale = proposal({
+      column: 'remove',
+      subject: 'Tabs or spaces',
+      rule: '- Always use tabs.',
+      evidence: [],
+      targetEvidence: [],
+      audit,
+    });
+    const r = checkProposals(
+      {
+        proposals: [
+          stale,
+          proposal({ subject: 'With one thread', evidence: ev(a), audit }),
+          proposal({ column: 'keep', subject: 'Kept', rule: '- x', audit }),
+          proposal({ subject: 'Half an audit', audit: { location: 'CLAUDE.md' } }),
+        ],
+      },
+      ctx(),
+    );
+    expect(r.proposals.map((p) => [p.id, p.subject, p.figures.threads, p.audit])).toEqual([
+      ['p1', 'Tabs or spaces', 0, audit],
+      ['p2', 'With one thread', 1, audit],
+    ]);
+    expect(r.proposals[0]!.figures).toMatchObject({ first: '', last: '' });
+    expect(r.watch).toEqual([]);
+    expect(r.rejected).toEqual([
+      { index: 3, subject: 'Kept', reasons: [expect.stringContaining('"remove" or "improve"')] },
+      { index: 4, subject: 'Half an audit', reasons: ['"audit" needs a "location" and a "finding"'] },
+    ]);
+  });
+
   it('turns a "keep" into "improve" when the rule had to be enforced', () => {
     const keep = proposal({ column: 'keep', rule: 'Amounts in cents.', change: '' });
     expect(checkProposals({ proposals: [keep] }, ctx()).proposals[0]!.column).toBe('keep');

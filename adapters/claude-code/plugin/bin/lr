@@ -1749,6 +1749,7 @@ var RETRO_EVENTS = /* @__PURE__ */ new Set([
   "retro.proposed",
   "retro.decided",
   "retro.applied",
+  "retro.undone",
   "retro.conversation",
   "retro.finished"
 ]);
@@ -1845,6 +1846,10 @@ function foldRetro(events, warnings = [], future = false) {
         break;
       case "retro.applied":
         r.applied[e.proposal] = [.../* @__PURE__ */ new Set([...r.applied[e.proposal] ?? [], ...e.files])];
+        break;
+      case "retro.undone":
+        delete r.decisions[e.proposal];
+        delete r.applied[e.proposal];
         break;
       case "retro.conversation":
         if (!r.conversations[e.thread]?.available)
@@ -2142,6 +2147,12 @@ function evidenceOf(x) {
   }
   return out2;
 }
+function auditOf(x) {
+  if (!isRecord2(x)) return null;
+  const location = text(x.location);
+  const finding = text(x.finding);
+  return location && finding ? { location, finding } : null;
+}
 var ids = (x) => Array.isArray(x) ? x.map(text).filter((s) => s !== "") : [];
 function checkProposals(input2, ctx) {
   const result = { proposals: [], watch: [], dropped: [], verifications: [], rejected: [], notes: [] };
@@ -2189,8 +2200,12 @@ function checkProposals(input2, ctx) {
     if (!subject) reasons.push('"subject" is missing');
     if (!text(raw.why)) reasons.push('"why" is missing: the common cause, and what the change must avoid');
     if (!text(raw.file)) reasons.push('"file" is missing: the file of the rule, or where the change goes');
+    const audit = auditOf(raw.audit);
+    if (raw.audit != null && !audit) reasons.push('"audit" needs a "location" and a "finding"');
+    if (audit && column === "keep") reasons.push('an audit finding removes or rewrites a rule: "remove" or "improve"');
     const cited = evidenceOf(raw.evidence ?? raw.threads);
-    if (cited.length === 0) reasons.push('"evidence" is missing: the threads that support it, with an excerpt each');
+    if (cited.length === 0 && !audit)
+      reasons.push('"evidence" is missing: the threads that support it, with an excerpt each');
     if (column !== "keep" && !text(raw.change)) reasons.push('"change" is missing: the exact change');
     if (column === "keep" && !text(raw.rule)) reasons.push('a "keep" names the existing rule it keeps ("rule")');
     const causes = ids(raw.causes);
@@ -2218,7 +2233,7 @@ function checkProposals(input2, ctx) {
       if (inPeriod(e.thread)) evidence.push(e);
       else result.notes.push(`${subject}: thread ${e.thread} is not in the period, left out of its evidence`);
     }
-    if (evidence.length === 0) {
+    if (evidence.length === 0 && !audit) {
       result.rejected.push({
         index,
         subject,
@@ -2231,7 +2246,7 @@ function checkProposals(input2, ctx) {
       result.dropped.push(droppedFor(subject, exclusion.excluded));
       return;
     }
-    if (evidence.length < 2) {
+    if (evidence.length < 2 && !audit) {
       watchInput.push({ subject, why: raw.why, evidence });
       result.notes.push(`${subject}: a single thread, moved to the watch list`);
       return;
@@ -2284,6 +2299,7 @@ function checkProposals(input2, ctx) {
       recommendation,
       ...convertedFromKeep ? { convertedFromKeep } : {},
       ...reopens ? { reopens } : {},
+      ...audit ? { audit } : {},
       ...revisited ? { revisits: { retro: revisited.retro, proposal: revisited.proposal, verdict: revisited.verdict } } : {}
     });
   });
@@ -3290,9 +3306,14 @@ var RETRO_USAGE = `Retros (look back at the feedback of a period with your agent
   lr retro check <retro> --body -          Apply the guard rails to proposals, record nothing
   lr retro propose <retro> --body -        Record the proposals (refused while some are rejected)
   lr retro show <retro>                    The retro: proposals with their threads and numbers
+  lr retro show <retro> <proposal> | --next
+                                          One proposal, to present it to the user (--next: the next
+                                          one to decide, in the order of the discussion)
   lr retro decide <retro> <proposal> accepted|modified|excluded|retargeted
            [--target project-shared|project-personal|user] [--note <text>]
   lr retro applied <retro> <proposal> --file <path>\u2026   Files changed for a proposal
+  lr retro undo <retro> <proposal>         Undo a decision recorded by mistake, with its files
+                                          (the journal is never edited by hand)
   lr retro finish <retro>                  Close the retro: prints the files changed
   lr retro list                            The retros of the project
   lr retro prefs [add --body <text> | remove <id>]     The user's retro preferences
@@ -3310,7 +3331,8 @@ var RETRO_OPTIONS = {
   by: { type: "string" },
   target: { type: "string" },
   note: { type: "string" },
-  file: { type: "string", multiple: true }
+  file: { type: "string", multiple: true },
+  next: { type: "boolean" }
 };
 async function retro(rest, io, parseSince2) {
   const [action, ...args] = rest;
@@ -3339,6 +3361,8 @@ async function retro(rest, io, parseSince2) {
       return decide(ctx);
     case "applied":
       return applied(ctx);
+    case "undo":
+      return undo(ctx);
     case "finish":
       return finish(ctx);
     case "list":
@@ -3630,10 +3654,11 @@ function renderProposal(p, r, threads) {
   const lines = [
     `### ${p.id} \xB7 ${COLUMN_TITLE[p.column]} \xB7 ${p.title}`,
     "",
-    `- **Source**: ${f.threads} threads`,
+    `- **Source**: ${f.threads} threads` + (p.audit ? `, and the audit of the setup` : ""),
     ...p.evidence.map(
       (e) => `  - ${e.thread}${where3(threads.get(e.thread)?.thread)}${e.excerpt ? `: "${e.excerpt}"` : ""}`
     ),
+    ...p.audit ? [`  - ${AUDIT_NAME}, ${p.audit.location}: ${p.audit.finding}`] : [],
     `- **Numbers**: ${f.threads} threads, ${f.reopened} reopened, ${f.questions} with a question from the agent, ${f.rounds} round(s) of back-and-forth, from ${day(f.first)} to ${day(f.last)}`,
     `- **File**: ${p.file}` + (p.rule ? `
 - **Rule**: ${p.rule}` : ""),
@@ -3661,8 +3686,83 @@ function renderProposal(p, r, threads) {
   if (files?.length) lines.push(`- **Changed**: ${files.join(", ")}`);
   return lines.join("\n");
 }
+var AUDIT_NAME = "/doctor prompt-audit";
+var DISCUSSION = ["improve", "remove", "keep"];
+var blockquote = (text2) => text2.split("\n").map((l) => l.trim() ? `> ${l}` : ">").join("\n");
+function presentProposal(p, position, total, r, threads) {
+  const f = p.figures;
+  const d = r.decisions[p.id];
+  const source = `${f.threads} thread${f.threads === 1 ? "" : "s"}` + (p.audit ? `, and the audit of your setup (${AUDIT_NAME})` : "");
+  const lines = [
+    "---",
+    "",
+    `## Proposal ${position}/${total} (${p.id}) \xB7 ${COLUMN_TITLE[p.column]} \xB7 ${p.title}`,
+    "",
+    `**Source**: ${source}`,
+    ...p.evidence.map(
+      (e) => `- ${e.thread}${where3(threads.get(e.thread)?.thread)}${e.excerpt ? `: "${e.excerpt}"` : ""}`
+    ),
+    ...p.audit ? [`- ${AUDIT_NAME}, \`${p.audit.location}\`: ${p.audit.finding}`] : [],
+    ""
+  ];
+  if (f.threads > 0)
+    lines.push(
+      `**Numbers**: ${f.threads} threads, ${f.reopened} reopened, ${f.questions} with a question from the agent, ${f.rounds} round(s) of back-and-forth, from ${day(f.first)} to ${day(f.last)}.`,
+      ""
+    );
+  lines.push(`**File**: \`${p.file}\` (${p.kind})`, "");
+  if (p.rule) lines.push("**Existing rule**:", blockquote(p.rule), "");
+  lines.push(`**Why**: ${p.why}`, "");
+  if (p.change) lines.push("**Proposed change**:", blockquote(p.change), "");
+  lines.push(
+    p.askTarget ? `**Target**: to choose (nothing in the threads tells it). Suggested: ${TARGET_TITLE[p.target]}${p.targetWhy ? `, ${p.targetWhy}` : ""}.` : `**Target**: ${TARGET_TITLE[p.target]}${p.targetWhy ? `, because ${p.targetWhy}` : ""}.`,
+    "",
+    `**Confidence**: ${Math.round(p.confidence * 100)}% \xB7 recommended: ${p.recommendation}`
+  );
+  if (p.convertedFromKeep)
+    lines.push(
+      "",
+      `**Guard rail**: proposed as "keep", but you had to enforce the rule in ${p.convertedFromKeep.threads.join(", ")}.`
+    );
+  if (p.reopens)
+    lines.push(
+      "",
+      `**Excluded before** (${day(p.reopens.at)}), back for new threads: ${p.reopens.newThreads.join(", ")}.`
+    );
+  if (p.revisits)
+    lines.push(
+      "",
+      `**Revises** ${changeRef(p.revisits)}, adopted at the last retro: the feedback on its subject did not decrease.`
+    );
+  if (d) lines.push("", `**Decision**: ${d.decision}${d.target ? ` (${d.target})` : ""}${d.note ? `: ${d.note}` : ""}`);
+  return lines.join("\n");
+}
+async function showOne(c, r) {
+  const order = [
+    ...r.proposals.filter((p2) => p2.revisits),
+    ...DISCUSSION.flatMap((col) => r.proposals.filter((p2) => p2.column === col && !p2.revisits))
+  ];
+  const wanted = c.positionals[1];
+  const p = wanted ? order.find((x) => x.id === wanted) : order.find((x) => !r.decisions[x.id]);
+  if (!p) {
+    if (wanted) throw new Error(`Proposal not found: ${wanted} (lr retro show ${r.id})`);
+    c.io.out(order.length ? `All ${order.length} proposals are decided.` : "No proposal recorded yet.");
+    return 0;
+  }
+  const position = order.indexOf(p) + 1;
+  if (c.json) {
+    c.io.out(
+      JSON.stringify({ position, total: order.length, proposal: p, decision: r.decisions[p.id] ?? null }, null, 2)
+    );
+    return 0;
+  }
+  const { threads } = await retroThreads(r, c.io.env);
+  c.io.out(presentProposal(p, position, order.length, r, threads));
+  return 0;
+}
 async function show(c) {
   const { retro: r } = await retroOf(c);
+  if (c.positionals[1] || c.values.next) return showOne(c, r);
   const { threads } = await retroThreads(r, c.io.env);
   if (c.json) {
     c.io.out(
@@ -3686,7 +3786,7 @@ async function show(c) {
   if (r.preferences.length) lines.push("", "Preferences: " + r.preferences.map((p) => `${p.id} ${p.body}`).join(" \xB7 "));
   if (r.verifications.length || r.feedback.length) {
     lines.push("", "## The last retro's changes: did they help?", "");
-    for (const f of r.feedback) lines.push(`- **Your feeling**: ${f}`);
+    for (const f of r.feedback) lines.push(`- **What you said about them**: ${f}`);
     for (const v of r.verifications) {
       lines.push(`- ${verificationLine(v)}`);
       if (v.note) lines.push(`  ${v.note}`);
@@ -3743,6 +3843,21 @@ async function decide(c) {
     { type: "retro.decided", proposal: p.id, decision, ...target ? { target } : {}, ...note ? { note } : {} }
   ]);
   c.io.out(`${p.id} ${decision}${target ? ` (${target})` : ""}.`);
+  return 0;
+}
+async function undo(c) {
+  const { book: b, retro: r } = await retroOf(c);
+  const proposal = c.positionals[1];
+  const p = r.proposals.find((x) => x.id === proposal);
+  if (!p) throw new Error(`Proposal not found: ${proposal ?? "(none)"} (lr retro show ${r.id})`);
+  if (r.finishedAt) throw new Error(`Retro ${r.id} is finished`);
+  const d = r.decisions[p.id];
+  if (!d) throw new Error(`${p.id} has no decision to undo`);
+  const files = r.applied[p.id] ?? [];
+  await b.record(r.id, [{ type: "retro.undone", proposal: p.id }]);
+  c.io.out(
+    `${p.id}: decision "${d.decision}" undone` + (files.length ? `, and its files changed forgotten (${files.join(", ")}): undo those changes if they were not for it.` : ".")
+  );
   return 0;
 }
 async function applied(c) {
