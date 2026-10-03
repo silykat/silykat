@@ -32,6 +32,10 @@ export type ThreadEvent = BaseEvent &
     | { type: 'branch.changed'; branch: BranchRef | null }
     /** `reason` is optional: older journals have none (and older versions ignore it). */
     | { type: 'thread.deleted'; reason?: DeleteReason }
+    /** Archived by the user (format version 2): hidden from the editor and agents, kept in the history. */
+    | { type: 'thread.archived' }
+    /** Brought back from the archive by the user (format version 2). */
+    | { type: 'thread.unarchived' }
   );
 
 export type ThreadEventType = ThreadEvent['type'];
@@ -45,7 +49,23 @@ const THREAD_EVENT_TYPES: ReadonlySet<string> = new Set<ThreadEventType>([
   'anchor.updated',
   'branch.changed',
   'thread.deleted',
+  'thread.archived',
+  'thread.unarchived',
 ]);
+
+/**
+ * The format version an event needs, written in its `v`. The events of the first format keep
+ * `v: 1`, so that an older version of Local Review still reads every thread that was never archived;
+ * archiving needs version 2: an older version shows such a thread read-only, and says to update.
+ */
+export function eventVersion(type: ThreadEventType | ReviewEvent['type']): number {
+  return type === 'thread.archived' || type === 'thread.unarchived' ? ARCHIVE_VERSION : FIRST_VERSION;
+}
+
+/** The first format: every event but archiving. */
+export const FIRST_VERSION = 1;
+/** The format that added archiving. */
+export const ARCHIVE_VERSION = 2;
 
 /** Events of a review journal (`reviews/<id>.jsonl`). */
 export type ReviewEvent = BaseEvent &

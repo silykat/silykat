@@ -11,6 +11,8 @@ export * from './sessions';
 export * from './routing';
 export * from './topics';
 export * from './history';
+export * from './historyJson';
+export * from './archive';
 export * from './project';
 export * from './retro';
 export * from './retroGuards';

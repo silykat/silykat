@@ -100,6 +100,26 @@
         "category": "Local Review"
       },
       {
+        "command": "localReview.archiveResolvedThreads",
+        "title": "Archive Resolved Threads…",
+        "category": "Local Review"
+      },
+      {
+        "command": "localReview.showArchivedThreads",
+        "title": "Show Archived Threads",
+        "category": "Local Review"
+      },
+      {
+        "command": "localReview.exportThreads",
+        "title": "Export Threads (JSON)…",
+        "category": "Local Review"
+      },
+      {
+        "command": "localReview.deleteOldThreads",
+        "title": "Delete Old Threads Permanently…",
+        "category": "Local Review"
+      },
+      {
         "command": "localReview.reply",
         "title": "Reply"
       },
@@ -125,6 +145,11 @@
         "command": "localReview.openOriginalDiff",
         "title": "Open Original Diff",
         "icon": "$(diff)"
+      },
+      {
+        "command": "localReview.archiveThread",
+        "title": "Archive Thread",
+        "icon": "$(archive)"
       },
       {
         "command": "localReview.deleteThread",
@@ -183,6 +208,10 @@
         },
         {
           "command": "localReview.deleteThread",
+          "when": "false"
+        },
+        {
+          "command": "localReview.archiveThread",
           "when": "false"
         },
         {
@@ -317,9 +346,14 @@
           "group": "inline@1"
         },
         {
+          "command": "localReview.archiveThread",
+          "when": "commentController == local-review && commentThread =~ /^lr (open|needs-info|addressed|resolved)( diff)?$/",
+          "group": "inline@2"
+        },
+        {
           "command": "localReview.deleteThread",
           "when": "commentController == local-review && commentThread =~ /^lr (draft )?(open|needs-info|addressed|resolved)( diff)?$/",
-          "group": "inline@2"
+          "group": "inline@3"
         }
       ],
       "comments/comment/title": [

@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import {
   agentView,
@@ -9,7 +9,9 @@ import {
   configFile,
   findStoreRoot,
   findStoresBelow,
+  historyJson,
   localReviewHome,
+  parseDateArg,
   processAncestors,
   projectHistory,
   readConfig,
@@ -26,11 +28,13 @@ import {
   Store,
   type AgentSessionRef,
   type AgentThreadView,
+  type ThreadState,
   type ThreadStatus,
 } from '@local-review/core';
 import { locate, renderReviews, renderThread, type Located } from './digest';
 import { parse, str, UsageError, type Values } from './args';
-import { historyJson, renderHistory } from './history';
+import { renderHistory } from './history';
+import { archive, ARCHIVE_USAGE, purge, unarchive } from './archive';
 import { retro, RETRO_USAGE } from './retro';
 
 export interface Io {
@@ -70,14 +74,17 @@ Usage:
            --rev: the version you read (lr list / lr show): refused, exit 3, if the user changed
            the thread since. Exit 2: the thread no longer exists (e.g. deleted by the user).
 
-History (every thread, whatever its state: open, addressed, resolved, deleted):
-  lr history [--since <date>] [--format md|json]
+History (every thread, whatever its state: open, addressed, resolved, deleted, archived or not):
+  lr history [--since <date>] [--format md|json] [--out <file>]
                                           The whole conversation of every thread of the project:
                                           the folder (--root, default: the current one), its
                                           subfolders, and the git worktrees of its repositories,
                                           even outside it. --since: threads active since a date
                                           (2026-10-01, local midnight; an ISO time; or 7d for
-                                          7 days ago). md starts with counts per state and store
+                                          7 days ago). md starts with counts per state and store.
+                                          --out: write it to a file (an export, with --format json)
+
+${ARCHIVE_USAGE}
 
 ${RETRO_USAGE}
 
@@ -133,6 +140,12 @@ export async function runCli(args: string[], io: Io): Promise<number> {
         return await setStatus(rest, io);
       case 'history':
         return await history(rest, io);
+      case 'archive':
+        return await archive(rest, io, parseDateOption);
+      case 'unarchive':
+        return await unarchive(rest, io);
+      case 'purge':
+        return await purge(rest, io, parseDateOption);
       case 'retro':
         return await retro(rest, io, parseSince);
       case 'worktree':
@@ -363,13 +376,24 @@ async function setStatus(rest: string[], io: Io): Promise<number> {
 }
 
 async function history(rest: string[], io: Io): Promise<number> {
-  const { values, positionals } = parse(rest, { since: { type: 'string' }, format: { type: 'string' } });
+  const { values, positionals } = parse(rest, {
+    since: { type: 'string' },
+    format: { type: 'string' },
+    out: { type: 'string' },
+  });
   if (positionals.length > 0) throw new UsageError(`lr history takes no argument: "${positionals[0]}"`);
   const format = str(values.format) ?? 'md';
   if (format !== 'md' && format !== 'json') throw new UsageError(`--format must be "md" or "json", not "${format}"`);
   const since = parseSince(str(values.since));
   const h = await projectHistory(resolve(io.cwd, str(values.root) ?? '.'), { since, env: io.env });
-  io.out(format === 'json' ? JSON.stringify(historyJson(h), null, 2) : renderHistory(h));
+  const text = format === 'json' ? JSON.stringify(historyJson(h), null, 2) : renderHistory(h);
+  const out = str(values.out);
+  if (out === undefined) io.out(text);
+  else {
+    const file = resolve(io.cwd, out);
+    await writeFile(file, text + '\n');
+    io.out(`Wrote the history of ${h.threads} thread${h.threads === 1 ? '' : 's'} (${format}) to ${file}.`);
+  }
   return EXIT.OK;
 }
 
@@ -429,15 +453,14 @@ async function config(rest: string[], io: Io): Promise<number> {
 
 /** A start date: `2026-10-01` (local midnight), an ISO date and time, or `<n>d` (n days ago). */
 export function parseSince(value: string | undefined, now = Date.now()): Date | null {
-  if (value === undefined) return null;
-  const days = /^(\d+)d$/.exec(value);
-  if (days) return new Date(now - Number(days[1]) * 86_400_000);
-  // Only ISO dates: `new Date()` also takes "7" (the year 2001) or "2026-02-30" (March 2).
-  const day = /^(\d{4})-(\d{2})-(\d{2})(T.+)?$/.exec(value);
-  const date = day ? new Date(day[4] ? value : `${value}T00:00:00`) : new Date(NaN);
-  const exists = day !== null && new Date(`${day[1]}-${day[2]}-${day[3]}T00:00:00Z`).getUTCDate() === +day[3]!;
-  if (!exists || Number.isNaN(date.getTime()))
-    throw new UsageError(`--since must be a date (2026-10-01), a date and time, or a number of days (7d): "${value}"`);
+  return value === undefined ? null : parseDateOption(value, '--since', now);
+}
+
+/** A date option (see `parseDateArg`), or a usage error naming the option. */
+export function parseDateOption(value: string, flag: string, now = Date.now()): Date {
+  const date = parseDateArg(value, now);
+  if (!date)
+    throw new UsageError(`${flag} must be a date (2026-10-01), a date and time, or a number of days (7d): "${value}"`);
   return date;
 }
 
@@ -584,17 +607,19 @@ async function assertCurrent(store: Store, id: string, rev: string | undefined):
   );
 }
 
-/** Why a thread cannot be found: deleted by the user, or never existed. */
+/** Why a thread cannot be found: deleted or archived by the user, or never existed. */
 async function whyNotFound(store: Store, id: string): Promise<string> {
-  let deleted = false;
+  let state: ThreadState | null = null;
   try {
-    deleted = (await store.loadThread(id)).state?.deleted === true;
+    state = (await store.loadThread(id)).state;
   } catch {
     // an invalid id: never existed
   }
-  return deleted
-    ? `Thread not found: ${id} was deleted by the user. Stop working on it; if you already changed code for it, ask the user whether to undo those changes (never undo them on your own).`
-    : `Thread not found: ${id}`;
+  if (state?.deleted)
+    return `Thread not found: ${id} was deleted by the user. Stop working on it; if you already changed code for it, ask the user whether to undo those changes (never undo them on your own).`;
+  if (state?.archived)
+    return `Thread not found: ${id} was archived by the user: it is finished. Stop working on it (lr unarchive ${id} brings it back, only if the user asks).`;
+  return `Thread not found: ${id}`;
 }
 
 function requireThreadId(positionals: string[]): string {
