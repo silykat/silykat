@@ -24,7 +24,7 @@ export default defineConfig({
       thresholds: {
         'packages/core/src/**': { statements: 96, branches: 91, functions: 94, lines: 98 },
         'packages/cli/src/**': { statements: 98, branches: 88, functions: 99, lines: 99 },
-        'adapters/claude-code/src/**': { statements: 98, branches: 90, functions: 99, lines: 99 },
+        'adapters/claude-code/src/**': { statements: 98, branches: 91, functions: 99, lines: 99 },
         'packages/vscode-extension/src/**': { statements: 9, branches: 10, functions: 10, lines: 9 },
       },
     },
