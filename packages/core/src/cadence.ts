@@ -1,10 +1,11 @@
 import { realpath } from 'node:fs/promises';
-import { dirname, join, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { DEFAULT_CONFIG, readConfig, type MachineConfig } from './config';
 import { projectHistory } from './project';
 import { readRetros, RETROS_DIR, type RetroState } from './retro';
 import { LOOSE_ROOT } from './sessions';
 import { STORE_DIR } from './types';
+import { worktreeInfo, worktreesOf } from './worktrees';
 
 /**
  * The cadence of retros: when is a retro worth it? Measured in days since the last retro and in
@@ -68,7 +69,8 @@ export async function retroCadence(
   // Just after the last retro, as the next retro will read.
   const history = await projectHistory(dir, { since: since === null ? null : new Date(since + 1), env });
   const threads = history.stores.flatMap((s) => s.threads);
-  if (since === null && threads.length > 0) since = Math.min(...threads.map((t) => Date.parse(t.createdAt)));
+  if (since === null && threads.length > 0)
+    since = threads.reduce((first, t) => Math.min(first, Date.parse(t.createdAt)), Infinity);
   const days = since === null ? 0 : Math.max(0, Math.floor((now - since) / DAY));
   const reasons: DueReason[] = [];
   if (threads.length > 0) {
@@ -92,14 +94,33 @@ export async function retroCadence(
 /**
  * The last finished retro whose project holds `dir`: a retro of the folder itself, or of a folder
  * above it (a project includes its subfolders). Retros are kept in the store of their project, or
- * at the top of its git worktree: both are at or above the project, so looking up is enough.
+ * at the top of its git worktree: both are at or above the project, so looking up is enough. In a
+ * git repository, a project includes the other worktrees of the repository too (they share their
+ * threads): a retro of the same folder in another worktree, or above it, covers this one.
  */
 export async function lastRetroCovering(dir: string): Promise<RetroState | null> {
   const target = resolve(dir);
   const real = await realpath(target).catch(() => target);
-  const covers = (r: string) => [target, real].some((d) => d === r || d.startsWith(r.endsWith(sep) ? r : r + sep));
+  let best = await lastRetroAbove([target, real]);
+  const info = await worktreeInfo(real); // never fails: `null` outside git
+  if (info) {
+    const rel = relative(info.worktree, real);
+    if (!rel.startsWith('..') && !isAbsolute(rel)) {
+      for (const wt of await worktreesOf(real)) {
+        if (wt === info.worktree) continue;
+        const r = await lastRetroAbove([join(wt, rel)]);
+        if (r && (!best || r.until > best.until)) best = r;
+      }
+    }
+  }
+  return best;
+}
+
+/** The last finished retro kept at or above the first of `dirs` whose project holds one of them. */
+async function lastRetroAbove(dirs: readonly string[]): Promise<RetroState | null> {
+  const covers = (r: string) => dirs.some((d) => d === r || d.startsWith(r.endsWith(sep) ? r : r + sep));
   let best: RetroState | null = null;
-  for (let d = target; ; d = dirname(d)) {
+  for (let d = dirs[0]!; ; d = dirname(d)) {
     for (const r of await readRetros(join(d, STORE_DIR, RETROS_DIR)).catch(() => [])) {
       if (r.finishedAt === null) continue;
       const rootReal = await realpath(r.root).catch(() => r.root);
@@ -116,14 +137,18 @@ export function formatBytes(n: number): string {
   return `${(n / 1_000_000).toFixed(1)} MB`;
 }
 
-/** One line on the cadence, e.g. "8 days and 1.2 MB of review threads (45) since the last retro (2026-09-25)". */
+/**
+ * One line on the cadence, e.g. "8 days and 1.2 MB of review threads (45) since the last retro (2026-09-25)",
+ * or "3 days and 2.1 KB of review threads (4) since the first thread (2026-09-30), no retro yet".
+ */
 export function cadenceSummary(c: RetroCadence): string {
   const day = (iso: string) => iso.slice(0, 10);
   const days = `${c.days} day${c.days === 1 ? '' : 's'}`;
   const data = `${formatBytes(c.bytes)} of review threads (${c.threads})`;
-  return c.lastRetro
-    ? `${days} and ${data} since the last retro (${day(c.lastRetro.until)})`
-    : `no retro yet: ${data}${c.since ? ` since the first one, ${days} ago (${day(c.since)})` : ''}`;
+  if (c.lastRetro) return `${days} and ${data} since the last retro (${day(c.lastRetro.until)})`;
+  return c.since
+    ? `${days} and ${data} since the first thread (${day(c.since)}), no retro yet`
+    : `${data}, no retro yet`;
 }
 
 /** Why it is due, in words. */

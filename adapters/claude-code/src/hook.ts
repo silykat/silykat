@@ -159,8 +159,8 @@ async function retroReminder(cwd: string, deps: HookDeps): Promise<string | unde
   clearTimeout(timer);
   if (!cadence?.due) return undefined;
   return (
-    `Local Review: a retro is due for this project (${cadence.root}): ${cadenceSummary(cadence)}` +
-    ` (${dueReasons(cadence).join('; ')}).` +
+    `Local Review: a retro is due for this project (${cadence.root}): ${cadenceSummary(cadence)};` +
+    ` ${dueReasons(cadence).join('; ')}.` +
     ' In your first reply of this session, tell the user so in one short sentence and suggest `/local-review:retro`' +
     ' (a retro looks back at their review feedback, to improve your setup with them).' +
     ' Say it once only, and do not start the retro unless they ask.'

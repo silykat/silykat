@@ -1809,6 +1809,7 @@ function adoptedChanges(r) {
         change: p.change,
         decision: d.decision,
         ...d.note ? { note: d.note } : {},
+        target: d.target ?? p.target,
         files: r.applied[p.id] ?? [],
         before: { threads: p.figures.threads, total: r.threads.length },
         evidence: p.evidence
@@ -1877,6 +1878,7 @@ function checkProposals(input2, ctx) {
   });
   const verifications = verify(input2.verify, ctx, result);
   const revisable = new Map(verifications.map((v) => [changeRef(v), v]));
+  const revisionsRejected = /* @__PURE__ */ new Set();
   input2.proposals.forEach((raw, i) => {
     const index = i + 1;
     if (!isRecord2(raw)) {
@@ -1887,7 +1889,9 @@ function checkProposals(input2, ctx) {
     const reasons = [];
     const column = text(raw.column).toLowerCase().replace(/^to\s+/, "");
     if (!COLUMNS.includes(column)) reasons.push(`"column" must be one of ${COLUMNS.join(", ")}`);
-    const target = text(raw.target);
+    const revisitRef = text(raw.revisits);
+    const revisited = revisitRef ? revisable.get(revisitRef) : void 0;
+    const target = text(raw.target) || revisited?.target || "";
     if (!TARGETS.includes(target)) reasons.push(`"target" must be one of ${TARGETS.join(", ")}`);
     const kind = text(raw.kind) || "rule";
     if (!PROPOSAL_KINDS.includes(kind)) reasons.push(`"kind" must be one of ${PROPOSAL_KINDS.join(", ")}`);
@@ -1906,14 +1910,13 @@ function checkProposals(input2, ctx) {
     if (!(confidence >= 0 && confidence <= 1)) reasons.push('"confidence" must be a number from 0 to 1');
     const recommendation = text(raw.recommendation) || "accepted";
     if (!DECISIONS.includes(recommendation)) reasons.push(`"recommendation" must be one of ${DECISIONS.join(", ")}`);
-    const revisitRef = text(raw.revisits);
-    const revisited = revisitRef ? revisable.get(revisitRef) : void 0;
     if (revisitRef && !revisited)
       reasons.push(
         `"revisits" names "${revisitRef}", which is not a change adopted at the last retro (${[...revisable.keys()].join(", ") || "none"})`
       );
     if (reasons.length > 0) {
       result.rejected.push({ index, subject, reasons });
+      if (revisited) revisionsRejected.add(revisitRef);
       return;
     }
     const seen = /* @__PURE__ */ new Set();
@@ -1996,6 +1999,7 @@ function checkProposals(input2, ctx) {
   for (const v of verifications) {
     if (v.verdict !== "not-decreased" || v.after.threads < 2) continue;
     if (result.proposals.some((p) => p.revisits && changeRef(p.revisits) === changeRef(v))) continue;
+    if (revisionsRejected.has(changeRef(v))) continue;
     result.rejected.push({
       index: 0,
       subject: `check of ${changeRef(v)}`,
@@ -2301,12 +2305,12 @@ function renderToVerify(changes) {
   const out2 = [
     "## Changes adopted at the last retro: did they help?",
     "",
-    'For EACH change below, list in "verify" the threads of this period whose feedback has the same cause (the change did not prevent it), [] when none: { "change": "<ref>", "threads": [...], "note": "what you saw, in a sentence" }. The numbers and the verdict are computed by program: stopped (no thread), decreased (a smaller share of the threads than before) or not decreased. A change that did not reduce the feedback, with 2 threads or more, needs a proposal to revise it, with "revisits": "<ref>" (reword it, move it up, make it a hook, or remove it).',
+    'For EACH change below, list in "verify" the threads of this period whose feedback has the same cause (the change did not prevent it), [] when none: { "change": "<ref>", "threads": [...], "note": "what you saw, in a sentence" }. The numbers and the verdict are computed by program: stopped (no thread), decreased (a smaller share of the threads than before) or not decreased. A change that did not reduce the feedback, with 2 threads or more, needs a proposal to revise it, with "revisits": "<ref>" (reword it, move it up, make it a hook, or remove it); its "target" defaults to the one of the change it revises.',
     ""
   ];
   for (const c of changes) {
     out2.push(
-      `- ${changeRef(c)} [${c.column}] ${c.title} (${c.kind}, ${c.decision}${c.files.length ? `, changed: ${c.files.join(", ")}` : ", no file recorded as changed"}): ${c.subject}`,
+      `- ${changeRef(c)} [${c.column}] ${c.title} (${c.kind}, ${c.decision}${c.target ? `, target ${c.target}` : ""}${c.files.length ? `, changed: ${c.files.join(", ")}` : ", no file recorded as changed"}): ${c.subject}`,
       `  before: ${c.before.threads} of the ${c.before.total} threads of that retro` + (c.change ? `; change: ${c.change.replace(/\s+/g, " ").slice(0, 300)}` : "") + (c.note ? `; note of the user: ${c.note}` : ""),
       ...c.evidence.map((e) => `  - ${e.thread}${e.excerpt ? `: "${e.excerpt}"` : ""}`)
     );
@@ -2452,6 +2456,11 @@ async function worktreeInfo(dir) {
   const branch = await git2(["symbolic-ref", "--quiet", "--short", "HEAD"], dir) || null;
   return { worktree: worktree2, repo, linked: realGit !== repo, main, branch };
 }
+async function worktreesOf2(dir) {
+  const out2 = await git2(["worktree", "list", "--porcelain"], dir) ?? "";
+  const paths = out2.split("\n").filter((l) => l.startsWith("worktree ")).map((l) => l.slice("worktree ".length));
+  return Promise.all(paths.map(real));
+}
 function slotOf(storeRoot) {
   const name = (0, import_node_path12.basename)(storeRoot).replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 60) || "worktree";
   return `${name}-${(0, import_node_crypto3.createHash)("sha256").update(storeRoot).digest("hex").slice(0, 8)}`;
@@ -2530,7 +2539,8 @@ async function retroCadence(root, opts = {}) {
   let since = last ? Date.parse(last.until) : null;
   const history2 = await projectHistory(dir, { since: since === null ? null : new Date(since + 1), env });
   const threads = history2.stores.flatMap((s) => s.threads);
-  if (since === null && threads.length > 0) since = Math.min(...threads.map((t) => Date.parse(t.createdAt)));
+  if (since === null && threads.length > 0)
+    since = threads.reduce((first, t) => Math.min(first, Date.parse(t.createdAt)), Infinity);
   const days = since === null ? 0 : Math.max(0, Math.floor((now - since) / DAY2));
   const reasons = [];
   if (threads.length > 0) {
@@ -2553,9 +2563,24 @@ async function retroCadence(root, opts = {}) {
 async function lastRetroCovering(dir) {
   const target = (0, import_node_path13.resolve)(dir);
   const real2 = await (0, import_promises12.realpath)(target).catch(() => target);
-  const covers = (r) => [target, real2].some((d) => d === r || d.startsWith(r.endsWith(import_node_path13.sep) ? r : r + import_node_path13.sep));
+  let best = await lastRetroAbove([target, real2]);
+  const info = await worktreeInfo(real2);
+  if (info) {
+    const rel = (0, import_node_path13.relative)(info.worktree, real2);
+    if (!rel.startsWith("..") && !(0, import_node_path13.isAbsolute)(rel)) {
+      for (const wt of await worktreesOf2(real2)) {
+        if (wt === info.worktree) continue;
+        const r = await lastRetroAbove([(0, import_node_path13.join)(wt, rel)]);
+        if (r && (!best || r.until > best.until)) best = r;
+      }
+    }
+  }
+  return best;
+}
+async function lastRetroAbove(dirs) {
+  const covers = (r) => dirs.some((d) => d === r || d.startsWith(r.endsWith(import_node_path13.sep) ? r : r + import_node_path13.sep));
   let best = null;
-  for (let d = target; ; d = (0, import_node_path13.dirname)(d)) {
+  for (let d = dirs[0]; ; d = (0, import_node_path13.dirname)(d)) {
     for (const r of await readRetros((0, import_node_path13.join)(d, STORE_DIR, RETROS_DIR)).catch(() => [])) {
       if (r.finishedAt === null) continue;
       const rootReal = await (0, import_promises12.realpath)(r.root).catch(() => r.root);
@@ -2573,7 +2598,8 @@ function cadenceSummary(c) {
   const day2 = (iso) => iso.slice(0, 10);
   const days = `${c.days} day${c.days === 1 ? "" : "s"}`;
   const data = `${formatBytes(c.bytes)} of review threads (${c.threads})`;
-  return c.lastRetro ? `${days} and ${data} since the last retro (${day2(c.lastRetro.until)})` : `no retro yet: ${data}${c.since ? ` since the first one, ${days} ago (${day2(c.since)})` : ""}`;
+  if (c.lastRetro) return `${days} and ${data} since the last retro (${day2(c.lastRetro.until)})`;
+  return c.since ? `${days} and ${data} since the first thread (${day2(c.since)}), no retro yet` : `${data}, no retro yet`;
 }
 function dueReasons(c) {
   const t = c.thresholds;

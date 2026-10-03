@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -136,7 +137,12 @@ describe('did the changes of the last retro help?', () => {
       ['p1', 'modified'],
       ['p4', 'retargeted'],
     ]);
-    expect(adopted[0]).toMatchObject({ before: { threads: 2, total: 10 }, files: ['/x/CLAUDE.md'], retro: r.id });
+    expect(adopted[0]).toMatchObject({
+      before: { threads: 2, total: 10 },
+      files: ['/x/CLAUDE.md'],
+      retro: r.id,
+      target: 'project-shared',
+    });
   });
 
   describe('in the guard rails', () => {
@@ -231,6 +237,17 @@ describe('did the changes of the last retro help?', () => {
         ctx,
       );
       expect(noTarget.proposals[0]!.askTarget).toBe(false);
+      // Nor to give it: it stays where the change was made.
+      const { target: _, ...untargeted } = revise;
+      const kept = checkProposals(
+        { proposals: [{ ...untargeted, revisits: 'rt_X/p1' }], verify },
+        { ...ctx, adopted: [{ ...change, target: 'project-personal' }] },
+      );
+      expect(kept.rejected).toEqual([]);
+      expect(kept.proposals[0]!.target).toBe('project-personal');
+      // A revision rejected for another reason: its own rejection is enough.
+      const broken = checkProposals({ proposals: [{ ...revise, why: '', revisits: 'rt_X/p1' }], verify }, ctx);
+      expect(broken.rejected).toEqual([{ index: 1, subject: 'UTC rule ignored', reasons: [expect.any(String)] }]);
     });
   });
 
@@ -258,7 +275,7 @@ describe('did the changes of the last retro help?', () => {
     const input = analysisInput({ retro: r, threads, previous, preferences: [] });
     expect(input).toContain('## Changes adopted at the last retro: did they help?');
     expect(input).toContain(
-      `- ${last.id}/p1 [improve] Say dates are UTC (rule, accepted, changed: /x/CLAUDE.md): Dates are UTC`,
+      `- ${last.id}/p1 [improve] Say dates are UTC (rule, accepted, target project-shared, changed: /x/CLAUDE.md): Dates are UTC`,
     );
     expect(input).toContain('  before: 2 of the 10 threads of that retro; change: - Dates are UTC.');
     expect(input).toContain('  - t_a: "UTC please"');
@@ -297,7 +314,7 @@ describe('the cadence of retros', () => {
     expect(now!.since).toBe(t.createdAt);
     expect(now!.thresholds).toEqual(DEFAULT_CADENCE);
     expect(cadenceSummary(now!)).toMatch(
-      /^no retro yet: \d+(\.\d)? (B|KB) of review threads \(1\) since the first one, 0 days ago/,
+      /^0 days and \d+(\.\d)? (B|KB) of review threads \(1\) since the first thread \(\d{4}-\d\d-\d\d\), no retro yet$/,
     );
     const week = await retroCadence(work, at(7.5));
     expect(week).toMatchObject({ days: 7, due: true, reasons: ['days'] });
@@ -321,6 +338,31 @@ describe('the cadence of retros', () => {
     // Nothing new since the last retro: nothing to look back at, however long ago.
     await pastRetro(api, 0);
     expect(await retroCadence(api, at(40))).toMatchObject({ threads: 0, due: false, days: 40 });
+  });
+
+  it('counts a retro made in another worktree of the same git repository', async () => {
+    const repo = join(base, 'repo');
+    const wt = join(base, 'repo-wt');
+    await mkdir(join(repo, 'sub'), { recursive: true });
+    await writeFile(join(repo, 'sub', 'a.ts'), 'a\n');
+    const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, stdio: 'ignore' });
+    git(repo, 'init', '-q');
+    git(repo, 'add', '.');
+    git(repo, '-c', 'user.name=a', '-c', 'user.email=a@b', 'commit', '-qm', 'init');
+    git(repo, 'worktree', 'add', '-q', wt, '-b', 'feat');
+    await comment(repo, 'Use UTC');
+    // A retro of the main worktree covers the linked one (kept outside it), at the same place or below.
+    const r = await pastRetro(repo, 3);
+    expect((await lastRetroCovering(wt))?.id).toBe(r.id);
+    expect((await lastRetroCovering(join(wt, 'sub')))?.id).toBe(r.id);
+    expect(await retroCadence(wt, { env: env() })).toMatchObject({ lastRetro: { id: r.id }, days: 3 });
+    // A retro of a subfolder covers neither the top of another worktree, nor its other folders.
+    const sub = await pastRetro(join(repo, 'sub'), 1);
+    expect((await lastRetroCovering(wt))?.id).toBe(r.id);
+    expect((await lastRetroCovering(join(wt, 'sub')))?.id).toBe(sub.id);
+    // And the other way round: a retro made in the linked worktree covers the main one.
+    const linked = await pastRetro(wt, 0);
+    expect((await lastRetroCovering(repo))?.id).toBe(linked.id);
   });
 
   it('is due sooner for a big batch of threads, and never later than the maximum', async () => {

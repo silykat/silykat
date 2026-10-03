@@ -49,7 +49,7 @@ export async function worktreeInfo(dir: string): Promise<WorktreeInfo | null> {
 }
 
 /** The worktrees of the repository of `dir` (their real paths). */
-async function worktreesOf(dir: string): Promise<string[]> {
+export async function worktreesOf(dir: string): Promise<string[]> {
   const out = (await git(['worktree', 'list', '--porcelain'], dir)) ?? '';
   const paths = out
     .split('\n')

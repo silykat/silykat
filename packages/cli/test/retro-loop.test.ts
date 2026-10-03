@@ -138,7 +138,7 @@ describe('the next retro checks the changes adopted at the last one', () => {
 describe('the retro cadence', () => {
   it('tells whether a retro is due, and why', async () => {
     const empty = await lr(['retro', 'cadence']);
-    expect(empty.out).toContain('No retro due yet: no retro yet: 0 B of review threads (0).');
+    expect(empty.out).toContain('No retro due yet: 0 B of review threads (0), no retro yet.');
     expect(empty.out).toContain(
       'Reminder settings (lr config): 7 days, or 1.0 MB of threads, and never more than 25 days.',
     );
@@ -146,7 +146,7 @@ describe('the retro cadence', () => {
     await lr(['config', 'set', 'retro-reminder-size', '1']);
     const due = await lr(['retro', 'cadence']);
     expect(due.out).toMatch(
-      /^A retro is due: no retro yet: .* of review threads \(1\) since the first one, 0 days ago/,
+      /^A retro is due: 0 days and .* of review threads \(1\) since the first thread \(.*\), no retro yet\./,
     );
     expect(due.out).toContain('of threads to look back at (reminder at 1.0 KB)');
     expect(JSON.parse((await lr(['retro', 'cadence', '--format', 'json'])).out)).toMatchObject({

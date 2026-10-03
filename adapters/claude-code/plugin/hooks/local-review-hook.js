@@ -1623,7 +1623,8 @@ async function retroCadence(root, opts = {}) {
   let since = last ? Date.parse(last.until) : null;
   const history = await projectHistory(dir, { since: since === null ? null : new Date(since + 1), env });
   const threads = history.stores.flatMap((s) => s.threads);
-  if (since === null && threads.length > 0) since = Math.min(...threads.map((t) => Date.parse(t.createdAt)));
+  if (since === null && threads.length > 0)
+    since = threads.reduce((first, t) => Math.min(first, Date.parse(t.createdAt)), Infinity);
   const days = since === null ? 0 : Math.max(0, Math.floor((now - since) / DAY));
   const reasons = [];
   if (threads.length > 0) {
@@ -1646,9 +1647,24 @@ async function retroCadence(root, opts = {}) {
 async function lastRetroCovering(dir) {
   const target = (0, import_node_path11.resolve)(dir);
   const real2 = await (0, import_promises10.realpath)(target).catch(() => target);
-  const covers = (r) => [target, real2].some((d) => d === r || d.startsWith(r.endsWith(import_node_path11.sep) ? r : r + import_node_path11.sep));
+  let best = await lastRetroAbove([target, real2]);
+  const info = await worktreeInfo(real2);
+  if (info) {
+    const rel = (0, import_node_path11.relative)(info.worktree, real2);
+    if (!rel.startsWith("..") && !(0, import_node_path11.isAbsolute)(rel)) {
+      for (const wt of await worktreesOf2(real2)) {
+        if (wt === info.worktree) continue;
+        const r = await lastRetroAbove([(0, import_node_path11.join)(wt, rel)]);
+        if (r && (!best || r.until > best.until)) best = r;
+      }
+    }
+  }
+  return best;
+}
+async function lastRetroAbove(dirs) {
+  const covers = (r) => dirs.some((d) => d === r || d.startsWith(r.endsWith(import_node_path11.sep) ? r : r + import_node_path11.sep));
   let best = null;
-  for (let d = target; ; d = (0, import_node_path11.dirname)(d)) {
+  for (let d = dirs[0]; ; d = (0, import_node_path11.dirname)(d)) {
     for (const r of await readRetros((0, import_node_path11.join)(d, STORE_DIR, RETROS_DIR)).catch(() => [])) {
       if (r.finishedAt === null) continue;
       const rootReal = await (0, import_promises10.realpath)(r.root).catch(() => r.root);
@@ -1666,7 +1682,8 @@ function cadenceSummary(c) {
   const day = (iso) => iso.slice(0, 10);
   const days = `${c.days} day${c.days === 1 ? "" : "s"}`;
   const data = `${formatBytes(c.bytes)} of review threads (${c.threads})`;
-  return c.lastRetro ? `${days} and ${data} since the last retro (${day(c.lastRetro.until)})` : `no retro yet: ${data}${c.since ? ` since the first one, ${days} ago (${day(c.since)})` : ""}`;
+  if (c.lastRetro) return `${days} and ${data} since the last retro (${day(c.lastRetro.until)})`;
+  return c.since ? `${days} and ${data} since the first thread (${day(c.since)}), no retro yet` : `${data}, no retro yet`;
 }
 function dueReasons(c) {
   const t = c.thresholds;
@@ -1774,7 +1791,7 @@ async function retroReminder(cwd, deps) {
   const cadence = await Promise.race([deps.retroCadence(cwd).catch(() => null), late]);
   clearTimeout(timer);
   if (!cadence?.due) return void 0;
-  return `Local Review: a retro is due for this project (${cadence.root}): ${cadenceSummary(cadence)} (${dueReasons(cadence).join("; ")}). In your first reply of this session, tell the user so in one short sentence and suggest \`/local-review:retro\` (a retro looks back at their review feedback, to improve your setup with them). Say it once only, and do not start the retro unless they ask.`;
+  return `Local Review: a retro is due for this project (${cadence.root}): ${cadenceSummary(cadence)}; ${dueReasons(cadence).join("; ")}. In your first reply of this session, tell the user so in one short sentence and suggest \`/local-review:retro\` (a retro looks back at their review feedback, to improve your setup with them). Say it once only, and do not start the retro unless they ask.`;
 }
 function replyCall(input) {
   const command = input.tool_input?.command;
