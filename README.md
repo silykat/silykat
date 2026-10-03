@@ -159,7 +159,7 @@ Finished threads can leave VS Code without leaving your history:
 - **Local Review: Export Threads (JSON)…** writes every thread of the open folders, whatever its state, archived ones included, to a JSON file: keep it before a clean-up.
 - **Local Review: Delete Old Threads Permanently…** deletes for good the **finished** threads (resolved, archived or deleted) where nothing happened since a date, after a confirmation that says how many. Threads still in progress are kept, however old. This cannot be undone: they are gone from the history and from retros too.
 
-These act on each open folder as `lr history` does (its subfolders and the worktrees of its repositories), and on the files outside the open folders. Your agent can do the same for you: ask it to "archive my resolved comments of last month" or to "delete the comments older than 3 months" (it tells you how many and waits for your yes). An older version of Local Review shows an archived thread read-only, and asks to be updated.
+These act on each open folder as `lr history` does (its subfolders and the worktrees of its repositories), and on the files outside the open folders. Your agent can do the same for you: ask it to "archive my resolved comments of last month" or to "delete the comments older than 3 months" (it tells you how many and waits for your yes; Claude Code then asks you to allow the deletion itself). An older version of Local Review shows an archived thread read-only, and asks to be updated.
 
 ### Files outside the open folders
 
