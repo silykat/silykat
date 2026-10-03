@@ -158,6 +158,37 @@ describe('noting the tool call that runs lr reply', () => {
     await handleHook({ ...input, hook_event_name: 'PreToolUse', tool_input: { command: 'npm test' } }, deps);
     expect(await registry.calls('s1')).toEqual([]);
   });
+
+  it('forgets the call of a command that failed (PostToolUseFailure), so that no later reply takes it', async () => {
+    const registry = new SessionRegistry(join(base, 'machine'), () => true);
+    const deps: HookDeps = {
+      registry,
+      claudePid: async () => null,
+      commandLine: async () => null,
+      gitBranch: async () => null,
+      topicOf: async (path) => ({ kind: 'path', path }),
+      gitWorktreeOf: async () => null,
+      filesChangedSince: async () => [],
+      now: () => new Date('2026-10-03T10:00:00.000Z'),
+    };
+    const input = {
+      session_id: 's1',
+      cwd: base,
+      tool_name: 'Bash',
+      tool_use_id: 'toolu_refused',
+      tool_input: { command: 'lr reply t_1 --body Done' },
+    };
+    await handleHook({ ...input, hook_event_name: 'PreToolUse' }, deps);
+    expect(await registry.calls('s1')).toHaveLength(1);
+    expect(await handleHook({ ...input, hook_event_name: 'PostToolUseFailure' }, deps)).toBeUndefined();
+    expect(await registry.calls('s1')).toEqual([]);
+    expect(await registry.takeNote('s1', 'bash-toolu_refused')).toBeUndefined();
+
+    // Another tool's failure is not ours to handle.
+    expect(await handleHook({ ...input, tool_name: 'Edit', hook_event_name: 'PostToolUseFailure' }, deps)).toBe(
+      undefined,
+    );
+  });
 });
 
 describe("reading back Claude Code's conversation", () => {
@@ -399,6 +430,33 @@ describe('lr-retro conversation', () => {
     expect(r.code).toBe(0);
     expect(r.out).toContain('**This call wrote the reply**');
     expect((await book.get(id)).conversations).toEqual({});
+  });
+
+  it('shares the budget of the excerpts among the replies of a thread', async () => {
+    const { linked } = await retro();
+    const store = new Store(join(base, 'work', 'api'));
+    const long = (n: number) => `${'x'.repeat(5000)} ${n}`;
+    const entries: TranscriptEntry[] = [];
+    for (let round = 1; round <= 3; round++) {
+      const t = (s: number) => `2026-10-03T1${round}:00:0${s}.000Z`;
+      entries.push(prompt(long(round), t(0)));
+      for (let i = 0; i < 6; i++) entries.push(said(long(i), t(1), `msg_${round}_${i}`));
+      entries.push(call(`toolu_r${round}`, 'Bash', { command: `lr reply ${linked} --body x` }, t(2), `msg_${round}_c`));
+      await store.addComment(linked, {
+        author: 'agent',
+        agent: 'Claude',
+        body: `Round ${round}`,
+        reviewId: null,
+        session: { id: SESSION, message: `toolu_r${round}` },
+      });
+    }
+    await put(join(claudeDir, 'projects', '-work-api', `${SESSION}.jsonl`), jsonl(entries));
+    const thread = (await store.loadHistory()).threads.find((t) => t.id === linked)!;
+    const res = await threadConversations(thread, claudeDir);
+    expect(res.linked).toBe(4);
+    expect((res.text.match(/This call wrote the reply/g) ?? []).length).toBe(3);
+    // Four replies share about 12,000 characters (plus their titles and paths).
+    expect(res.text.length).toBeLessThan(14_000);
   });
 
   it('reads a transcript only once for several replies of the same session', async () => {

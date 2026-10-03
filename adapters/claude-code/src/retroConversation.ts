@@ -185,9 +185,9 @@ function toolLine(b: ContentBlock): string {
 }
 
 /** The lines of one entry, `[]` for what a retro does not need (thinking, bookkeeping). */
-function renderEntry(e: TranscriptEntry, mark: string | null): string[] {
+function renderEntry(e: TranscriptEntry, mark: string | null, promptMax = 2000): string[] {
   const at = e.timestamp ? e.timestamp.slice(11, 19) : '';
-  if (isPrompt(e)) return [`- **Prompt** (${at}): ${clip(promptText(e), 2000)}`];
+  if (isPrompt(e)) return [`- **Prompt** (${at}): ${clip(promptText(e), promptMax)}`];
   if (e.type === 'assistant') {
     return blocks(e).flatMap((b) => {
       if (b.type === 'text' && b.text?.trim()) return [`- **Claude** (${at}): ${clip(b.text, 1500)}`];
@@ -220,7 +220,10 @@ function turnUsage(entries: readonly TranscriptEntry[]): string | null {
   return `${calls.size} model call(s), ${input} tokens in (${cached} read from the cache), ${output} out`;
 }
 
-/** Characters of one conversation's excerpt: the steps closest to the reply are kept. */
+/**
+ * Characters of the excerpts of a thread, shared by its replies (an ambiguous thread often has
+ * several rounds): the steps closest to each reply are kept.
+ */
 export const EXCERPT_BUDGET = 12_000;
 
 /**
@@ -238,7 +241,7 @@ export function excerpt(entries: readonly TranscriptEntry[], at: number, budget 
     end++;
   }
   const mark = toolUses(entries[at]!).find(() => true)?.id ?? null;
-  const prompt = isPrompt(entries[start]!) ? renderEntry(entries[start]!, null) : [];
+  const prompt = isPrompt(entries[start]!) ? renderEntry(entries[start]!, null, Math.min(2000, budget >> 1)) : [];
   const steps = entries
     .slice(isPrompt(entries[start]!) ? start + 1 : start, end)
     .map((e) => renderEntry(e, mark))
@@ -284,6 +287,7 @@ export async function threadConversations(
       available: false,
       linked: 0,
     };
+  const budget = Math.floor(EXCERPT_BUDGET / replies.length);
   const parsed = new Map<string, TranscriptEntry[]>();
   const parts: string[] = [];
   let found = 0;
@@ -304,7 +308,7 @@ export async function threadConversations(
       const entries = parsed.get(file)!;
       const at = findReply(entries, reply, thread.id);
       if (at < 0) continue;
-      parts.push(`${title}\n\nTranscript: ${file}\n\n${excerpt(entries, at)}`);
+      parts.push(`${title}\n\nTranscript: ${file}\n\n${excerpt(entries, at, budget)}`);
       shown = true;
       break;
     }

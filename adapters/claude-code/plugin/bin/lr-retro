@@ -1516,9 +1516,9 @@ function toolLine(b) {
   const what = pick("command") ?? pick("file_path") ?? pick("notebook_path") ?? (pick("pattern") ? `${pick("pattern")}${pick("path") ? ` in ${pick("path")}` : ""}` : void 0) ?? pick("description") ?? pick("url") ?? JSON.stringify(input);
   return `${b.name ?? "tool"}: ${oneLine(what, 400)}`;
 }
-function renderEntry(e, mark) {
+function renderEntry(e, mark, promptMax = 2e3) {
   const at = e.timestamp ? e.timestamp.slice(11, 19) : "";
-  if (isPrompt(e)) return [`- **Prompt** (${at}): ${clip(promptText(e), 2e3)}`];
+  if (isPrompt(e)) return [`- **Prompt** (${at}): ${clip(promptText(e), promptMax)}`];
   if (e.type === "assistant") {
     return blocks(e).flatMap((b) => {
       if (b.type === "text" && b.text?.trim()) return [`- **Claude** (${at}): ${clip(b.text, 1500)}`];
@@ -1557,7 +1557,7 @@ function excerpt(entries, at, budget = EXCERPT_BUDGET) {
     end++;
   }
   const mark = toolUses(entries[at]).find(() => true)?.id ?? null;
-  const prompt = isPrompt(entries[start]) ? renderEntry(entries[start], null) : [];
+  const prompt = isPrompt(entries[start]) ? renderEntry(entries[start], null, Math.min(2e3, budget >> 1)) : [];
   const steps = entries.slice(isPrompt(entries[start]) ? start + 1 : start, end).map((e) => renderEntry(e, mark)).filter((s) => s.length > 0);
   let size = prompt.join("\n").length;
   let first = steps.length;
@@ -1584,6 +1584,7 @@ No conversation is linked to this thread: its replies were written before Local 
       available: false,
       linked: 0
     };
+  const budget = Math.floor(EXCERPT_BUDGET / replies.length);
   const parsed = /* @__PURE__ */ new Map();
   const parts = [];
   let found2 = 0;
@@ -1609,7 +1610,7 @@ No longer available: Claude Code deletes its conversations after 30 days by defa
 
 Transcript: ${file}
 
-${excerpt(entries, at)}`);
+${excerpt(entries, at, budget)}`);
       shown = true;
       break;
     }

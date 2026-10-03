@@ -1354,6 +1354,13 @@ async function handleHook(input, deps) {
       const topic = await deps.topicOf(file);
       return await deps.registry.subscribe(id, topic, "modified") ? subscribed(topic, "you modified a file there") : void 0;
     }
+    case "PostToolUseFailure": {
+      if (input.tool_name !== "Bash") return void 0;
+      const call = replyCall(input);
+      if (call) await deps.registry.endCall(id, call.message);
+      await deps.registry.takeNote(id, bashNote(input));
+      return void 0;
+    }
   }
   return void 0;
 }

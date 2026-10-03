@@ -117,6 +117,15 @@ export async function handleHook(input: HookInput, deps: HookDeps): Promise<stri
         ? subscribed(topic, 'you modified a file there')
         : undefined;
     }
+    case 'PostToolUseFailure': {
+      // A command that failed (e.g. `lr reply` refused) gets this event instead of PostToolUse:
+      // forget its notes all the same, or a stale call could be taken for a later reply's.
+      if (input.tool_name !== 'Bash') return undefined;
+      const call = replyCall(input);
+      if (call) await deps.registry.endCall(id, call.message);
+      await deps.registry.takeNote(id, bashNote(input));
+      return undefined;
+    }
   }
   return undefined;
 }
