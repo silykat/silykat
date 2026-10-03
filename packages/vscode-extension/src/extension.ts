@@ -39,6 +39,10 @@ export interface LocalReviewApi {
   reviewContext(): { active: boolean; here: boolean };
   /** Tests only: threads kept for branches that are not checked out. */
   hiddenThreads(): string[];
+  /** Tests only: warn about a git worktree with comments, as when its folder is opened. */
+  warnIfWorktree(path: string): Promise<void>;
+  /** Tests only: forget which worktrees were warned about. */
+  forgetWorktreeWarnings(): Promise<void>;
   /** Tests only: answer "publish without subscribers?" without showing it. */
   setNoSubscriberPrompt(prompt: NoSubscriberPrompt | undefined): void;
 }
@@ -88,6 +92,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
     vscode.commands.registerCommand('localReview.cancelNewThread', (reply: vscode.CommentReply) =>
       review.cancelNewThread(reply),
     ),
+    vscode.commands.registerCommand('localReview.saveWorktreeThreads', (target?: vscode.Uri) =>
+      review.saveWorktreeThreads(target instanceof vscode.Uri ? target : undefined),
+    ),
     vscode.commands.registerCommand('localReview.dev.simulateAgentReply', (args?: SimulateArgs) =>
       simulateAgentReply(review, context.extensionUri, args),
     ),
@@ -99,6 +106,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
     }),
   );
 
+  review.worktreeWarnings = rememberedSet(context.globalState, 'localReview.warnedWorktrees');
   const defaultConfirm = review.confirm;
   const defaultChoose = review.choose;
   const defaultSummaryPrompt = reviewUi.promptSummary;
@@ -138,6 +146,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
     setNoSubscriberPrompt: (prompt) => {
       deliveries.askNoSubscriber = prompt ?? defaultNoSubscriberPrompt;
     },
+    warnIfWorktree: (path) => review.warnIfWorktree(path),
+    forgetWorktreeWarnings: () => Promise.resolve(context.globalState.update('localReview.warnedWorktrees', undefined)),
     shownSessions: () => sessions.sessions.relevant.map((s) => s.id),
     refreshSessions: async () => {
       await sessions.refresh();
@@ -147,6 +157,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
         relevant: sessions.sessions.relevant.map((s) => s.id),
       };
     },
+  };
+}
+
+/** A set of strings kept in the extension's state, across restarts. */
+function rememberedSet(state: vscode.Memento, key: string): { has(v: string): boolean; add(v: string): void } {
+  const all = () => state.get<string[]>(key) ?? [];
+  return {
+    has: (v) => all().includes(v),
+    add: (v) => void state.update(key, [...all().filter((x) => x !== v), v]),
   };
 }
 

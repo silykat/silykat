@@ -131,6 +131,9 @@ describe('Threads belong to their git branch', () => {
     git('branch', '-D', 'to-delete');
     await api.refreshBranches();
     assert.equal((await stateOf(gone))?.deleted, true);
+    // Recorded as gone with its branch, not as removed by the user.
+    const history = (await new Store(ws).loadHistory()).threads.find((t) => t.id === gone);
+    assert.equal(history?.deletedReason, 'branch-gone');
     assert.equal(hidden(gone), false);
     assert.deepEqual(
       api.reviewsInProgress().filter((r) => r.review.branch?.branch === 'to-delete'),
