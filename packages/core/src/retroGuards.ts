@@ -5,6 +5,7 @@ import {
   PROPOSAL_KINDS,
   RULE_NOT_FOLLOWED,
   TARGETS,
+  type AuditFinding,
   type Column,
   type Decision,
   type Dropped,
@@ -199,6 +200,13 @@ function evidenceOf(x: unknown): Evidence[] {
   return out;
 }
 
+function auditOf(x: unknown): AuditFinding | null {
+  if (!isRecord(x)) return null;
+  const location = text(x.location);
+  const finding = text(x.finding);
+  return location && finding ? { location, finding } : null;
+}
+
 const ids = (x: unknown): string[] => (Array.isArray(x) ? x.map(text).filter((s) => s !== '') : []);
 
 /**
@@ -208,6 +216,9 @@ const ids = (x: unknown): string[] => (Array.isArray(x) ? x.map(text).filter((s)
  * - one subject (one cause) per proposal;
  * - the target is asked when nothing in the threads tells it;
  * - a subject excluded in an earlier retro comes back only with at least 2 new threads.
+ *
+ * A proposal that comes from an audit of the setup (`audit`: a stale or contradictory rule…) rests on
+ * that finding: it needs no thread, and only removes or rewrites what exists ("remove" or "improve").
  *
  * `input` is the agent's output: `{ proposals: [...], watch: [...] }`.
  */
@@ -262,9 +273,13 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
     if (!subject) reasons.push('"subject" is missing');
     if (!text(raw.why)) reasons.push('"why" is missing: the common cause, and what the change must avoid');
     if (!text(raw.file)) reasons.push('"file" is missing: the file of the rule, or where the change goes');
+    const audit = auditOf(raw.audit);
+    if (raw.audit != null && !audit) reasons.push('"audit" needs a "location" and a "finding"');
+    if (audit && column === 'keep') reasons.push('an audit finding removes or rewrites a rule: "remove" or "improve"');
     // `threads` (a list of ids) is taken for `evidence`, without excerpts.
     const cited = evidenceOf(raw.evidence ?? raw.threads);
-    if (cited.length === 0) reasons.push('"evidence" is missing: the threads that support it, with an excerpt each');
+    if (cited.length === 0 && !audit)
+      reasons.push('"evidence" is missing: the threads that support it, with an excerpt each');
     if (column !== 'keep' && !text(raw.change)) reasons.push('"change" is missing: the exact change');
     if (column === 'keep' && !text(raw.rule)) reasons.push('a "keep" names the existing rule it keeps ("rule")');
     const causes = ids(raw.causes);
@@ -289,7 +304,7 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
       if (inPeriod(e.thread)) evidence.push(e);
       else result.notes.push(`${subject}: thread ${e.thread} is not in the period, left out of its evidence`);
     }
-    if (evidence.length === 0) {
+    if (evidence.length === 0 && !audit) {
       result.rejected.push({
         index,
         subject,
@@ -304,7 +319,7 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
       result.dropped.push(droppedFor(subject, exclusion.excluded));
       return;
     }
-    if (evidence.length < 2) {
+    if (evidence.length < 2 && !audit) {
       watchInput.push({ subject, why: raw.why, evidence });
       result.notes.push(`${subject}: a single thread, moved to the watch list`);
       return;
@@ -367,6 +382,7 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
       recommendation,
       ...(convertedFromKeep ? { convertedFromKeep } : {}),
       ...(reopens ? { reopens } : {}),
+      ...(audit ? { audit } : {}),
     });
   });
 

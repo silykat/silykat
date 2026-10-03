@@ -97,6 +97,15 @@ export interface Proposal {
   convertedFromKeep?: { threads: string[] };
   /** A subject the user excluded in an earlier retro, proposed again for new feedback. */
   reopens?: { retro: string; proposal: string; at: string; newThreads: string[] };
+  /** A finding of the agent's own audit of its setup (stale, contradictory rules…), when it comes from one. */
+  audit?: AuditFinding;
+}
+
+/** A finding of an audit of the agent's setup: where, and what is wrong there. */
+export interface AuditFinding {
+  /** The file, with its lines when known: `CLAUDE.md:2-3`. */
+  location: string;
+  finding: string;
 }
 
 /** A preference seen in a single thread: watched, not proposed. */
