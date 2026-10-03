@@ -1,5 +1,5 @@
 import type { ThreadEvent } from './events';
-import type { Anchor, Author, BranchRef, ReviewState, ThreadStatus } from './types';
+import type { Anchor, Author, BranchRef, DeleteReason, ReviewState, ThreadStatus } from './types';
 
 /** Where a thread stands in its history: its status, or `deleted` whatever its status was. */
 export type HistoryState = ThreadStatus | 'deleted';
@@ -24,7 +24,8 @@ export type HistoryEntry =
       deletedAt?: string;
     }
   | { kind: 'status'; status: ThreadStatus; by: Author; agent?: string; at: string }
-  | { kind: 'deleted'; by: Author; agent?: string; at: string };
+  /** `reason`: missing when the journal predates reasons and none can be told. */
+  | { kind: 'deleted'; by: Author; agent?: string; at: string; reason?: DeleteReason };
 
 /**
  * A thread's whole history, whatever its state: everything that was published in it, in order,
@@ -43,6 +44,11 @@ export interface ThreadHistory {
   /** The last published change: a comment published, edited or deleted, a status, the deletion. */
   lastActivityAt: string;
   deletedAt: string | null;
+  /**
+   * Why it was deleted: removed by the user, or its branch was deleted. `null` when it is not deleted,
+   * or when its journal predates reasons and none can be told.
+   */
+  deletedReason: DeleteReason | null;
   /** Written by a newer schema version: the events of that version are left out. */
   readOnly: boolean;
   conversation: HistoryEntry[];
@@ -75,6 +81,9 @@ export function threadHistory(events: readonly ThreadEvent[], opts: HistoryOptio
   let branch = first.branch ?? null;
   let status: ThreadStatus = 'open';
   let deletedAt: string | null = null;
+  let deletedReason: DeleteReason | null = null;
+  /** When the user last deleted a comment of the thread: a deletion in the same write removed its last one. */
+  let lastCommentDeletedAt: string | null = null;
   const conversation: HistoryEntry[] = [];
   const comments = new Map<string, Extract<HistoryEntry, { kind: 'comment' }>>();
   /** When each comment became visible: at once, or when its review was submitted. */
@@ -120,6 +129,7 @@ export function threadHistory(events: readonly ThreadEvent[], opts: HistoryOptio
         // Deleted while still a draft: it was never published, so it never was in the conversation.
         if (e.at < publishedAt.get(c.id)!) drop(c.id);
         else c.deletedAt ??= e.at;
+        lastCommentDeletedAt = e.at;
         break;
       }
       case 'status.changed':
@@ -135,7 +145,15 @@ export function threadHistory(events: readonly ThreadEvent[], opts: HistoryOptio
       case 'thread.deleted':
         if (deletedAt === null) {
           deletedAt = e.at;
-          conversation.push({ kind: 'deleted', by: e.by, ...agentOf(e), at: e.at });
+          // Older journals have no reason; deleting the last comment (same write) was the user's choice.
+          deletedReason = e.reason ?? (lastCommentDeletedAt === e.at ? 'user' : null);
+          conversation.push({
+            kind: 'deleted',
+            by: e.by,
+            ...agentOf(e),
+            at: e.at,
+            ...(deletedReason ? { reason: deletedReason } : {}),
+          });
         }
         break;
       case 'thread.created':
@@ -148,11 +166,13 @@ export function threadHistory(events: readonly ThreadEvent[], opts: HistoryOptio
   if (comments.size === 0) return null;
   // Every comment deleted by its author: the thread is gone too (older journals may lack the event).
   const all = [...comments.values()];
-  if (deletedAt === null && all.every((c) => c.deletedAt))
+  if (deletedAt === null && all.every((c) => c.deletedAt)) {
     deletedAt = all
       .map((c) => c.deletedAt!)
       .sort()
       .at(-1)!;
+    deletedReason = 'user';
+  }
 
   const activity = conversation.flatMap((x) =>
     x.kind === 'comment' ? [x.publishedAt ?? x.at, x.editedAt ?? '', x.deletedAt ?? ''] : [x.at],
@@ -167,6 +187,7 @@ export function threadHistory(events: readonly ThreadEvent[], opts: HistoryOptio
     createdAt: first.at,
     lastActivityAt: activity.reduce((a, b) => (b > a ? b : a), first.at),
     deletedAt,
+    deletedReason: deletedAt ? deletedReason : null,
     readOnly: opts.futureVersion ?? false,
     conversation,
     bytes: opts.bytes ?? 0,
@@ -185,4 +206,22 @@ export function countStates(threads: readonly ThreadHistory[]): StateCounts {
   const counts = Object.fromEntries(HISTORY_STATES.map((s) => [s, 0])) as StateCounts;
   for (const t of threads) counts[t.state]++;
   return counts;
+}
+
+/** Deleted threads by reason (`unknown`: older journals, which do not tell). */
+export type DeletionCounts = Record<DeleteReason | 'unknown', number>;
+
+export function countDeletions(threads: readonly ThreadHistory[]): DeletionCounts {
+  const counts: DeletionCounts = { user: 0, 'branch-gone': 0, unknown: 0 };
+  for (const t of threads) if (t.state === 'deleted') counts[t.deletedReason ?? 'unknown']++;
+  return counts;
+}
+
+/** How a deletion reads for people. */
+export function deletionLabel(reason: DeleteReason | null | undefined): string {
+  return reason === 'user'
+    ? 'removed by the user'
+    : reason === 'branch-gone'
+      ? 'its branch was deleted'
+      : 'reason unknown';
 }

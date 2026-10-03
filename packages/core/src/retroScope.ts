@@ -1,11 +1,9 @@
-import { execFile } from 'node:child_process';
-import { appendFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
-import { isAbsolute, join, resolve } from 'node:path';
-import type { HistoryEntry, ThreadHistory } from './history';
+import { writeFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+import { deletionLabel, type HistoryEntry, type ThreadHistory } from './history';
 import { projectHistory, type ProjectHistory } from './project';
 import { FEEDBACK_CATEGORIES, RetroBook, retroHome, type Preference, type RetroState, type ThreadLabel } from './retro';
 import { exclusionsOf, retroStats, threadSignals, type Exclusion, type RetroStats } from './retroGuards';
-import { STORE_DIR } from './types';
 
 /** How the period of a retro was chosen. */
 export type PeriodSource = 'last-retro' | 'given' | 'proposed' | 'all';
@@ -143,7 +141,7 @@ function entryText(e: HistoryEntry): string {
     case 'status':
       return `(status -> ${e.status} by ${who(e.by, e.agent)}, ${e.at})`;
     case 'deleted':
-      return `(thread deleted by ${who(e.by, e.agent)}, ${e.at})`;
+      return `(thread deleted, ${deletionLabel(e.reason)}, ${e.at})`;
   }
 }
 
@@ -170,7 +168,12 @@ export async function retroThreads(
   const wanted = new Set(retro.threads);
   const threads = new Map<string, { thread: ThreadHistory; store: string }>();
   for (const s of history.stores)
-    for (const t of s.threads) if (wanted.has(t.id)) threads.set(t.id, { thread: t, store: s.root });
+    for (const t of s.threads)
+      if (wanted.has(t.id))
+        threads.set(t.id, {
+          thread: t,
+          store: s.saved ? `${s.root} (saved before its git worktree was removed)` : s.root,
+        });
   return { history, threads };
 }
 
@@ -222,7 +225,7 @@ export function statsOf(ctx: Pick<AnalysisContext, 'retro' | 'threads'>): RetroS
 
 function renderStats(s: RetroStats): string[] {
   const lines = [
-    `- ${s.threads} threads; reopened after the agent said it was done: ${s.reopened}; the agent asked a question: ${s.questions}; back-and-forth (the user replied again after the agent): ${s.backAndForth}; deleted: ${s.deleted}.`,
+    `- ${s.threads} threads; reopened after the agent said it was done: ${s.reopened}; the agent asked a question: ${s.questions}; back-and-forth (the user replied again after the agent): ${s.backAndForth}; deleted: ${s.deleted} (removed by the user: ${s.deletedByUser}; with their branch, once the work was done: ${s.deletedWithBranch}; older, reason unknown: ${s.deleted - s.deletedByUser - s.deletedWithBranch}).`,
   ];
   const cats = Object.entries(s.categories).sort((a, b) => b[1] - a[1]);
   if (cats.length > 0)
@@ -299,27 +302,4 @@ export async function writeRetroFile(book: RetroBook, id: string, name: string, 
   const file = join(await book.workDir(id), name);
   await writeFile(file, content);
   return file;
-}
-
-/**
- * Before the first retro creates `.local-review/` at the top of a git worktree, git is told to
- * ignore it, as the editor does for comments (retros are the user's, never committed).
- */
-export async function prepareRetroHome(home: string): Promise<void> {
-  const store = join(home, STORE_DIR);
-  if (await stat(store).catch(() => null)) return;
-  const exclude = await new Promise<string | null>((done) =>
-    execFile('git', ['rev-parse', '--git-path', 'info/exclude'], { cwd: home, timeout: 3000 }, (err, out) =>
-      done(err ? null : out.trim()),
-    ),
-  );
-  if (exclude) {
-    const file = isAbsolute(exclude) ? exclude : join(home, exclude);
-    const current = await readFile(file, 'utf8').catch(() => '');
-    if (!current.split('\n').some((l) => l.trim() === `${STORE_DIR}/` || l.trim() === STORE_DIR)) {
-      await mkdir(join(file, '..'), { recursive: true });
-      await appendFile(file, `${current === '' || current.endsWith('\n') ? '' : '\n'}${STORE_DIR}/\n`);
-    }
-  }
-  await mkdir(store, { recursive: true });
 }

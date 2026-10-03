@@ -13,7 +13,7 @@ import {
   figuresOf,
   jevKeySetupCommand,
   jevKeyStatus,
-  prepareRetroHome,
+  prepareStoreHome,
   projectHistory,
   RetroBook,
   retroHome,
@@ -112,10 +112,21 @@ describe('signals and statistics', () => {
     const e = estimate({
       root: '/',
       since: null,
-      stores: [{ root: '/r', origin: 'root', threads: [t], bytes: 1, states: {} as never, warnings: [] }],
+      stores: [
+        {
+          root: '/r',
+          origin: 'root',
+          threads: [t],
+          bytes: 1,
+          states: {} as never,
+          deletions: {} as never,
+          warnings: [],
+        },
+      ],
       threads: 1,
       bytes: 1,
       states: {} as never,
+      deletions: {} as never,
     });
     expect(e.tokens).toBeGreaterThan(10);
     expect(e.classifyJev).toBeLessThan(e.classifyModel);
@@ -419,12 +430,12 @@ describe('the retro journal', () => {
     await mkdir(repo);
     git(repo, 'init', '-q', '-b', 'main');
     await writeFile(join(repo, '.git', 'info', 'exclude'), '# mine');
-    await prepareRetroHome(repo);
-    await prepareRetroHome(repo);
+    await prepareStoreHome(repo);
+    await prepareStoreHome(repo);
     expect(await readFile(join(repo, '.git', 'info', 'exclude'), 'utf8')).toBe('# mine\n.local-review/\n');
     expect(execFileSync('git', ['status', '--porcelain'], { cwd: repo }).toString()).toBe('');
     await mkdir(join(base, 'plain'));
-    await prepareRetroHome(join(base, 'plain'));
+    await prepareStoreHome(join(base, 'plain'));
     expect(await realpath(join(base, 'plain', '.local-review'))).toBeTruthy();
   });
 });

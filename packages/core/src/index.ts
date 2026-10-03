@@ -16,3 +16,7 @@ export * from './retro';
 export * from './retroGuards';
 export * from './retroKey';
 export * from './retroScope';
+export * from './config';
+export * from './saved';
+export * from './worktrees';
+export * from './storeHome';

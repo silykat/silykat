@@ -26,6 +26,9 @@ export interface RetroStats {
   /** Threads where the user replied again after the agent's reply. */
   backAndForth: number;
   deleted: number;
+  /** Deleted threads by reason: removed by the user (what they asked no longer mattered), or with their branch (work done). */
+  deletedByUser: number;
+  deletedWithBranch: number;
   /** Per category of the classification, when there is one. */
   categories: Record<number, number>;
   /** Threads flagged by the classification (score of 0.5 or more). */
@@ -60,6 +63,8 @@ export function retroStats(threads: readonly ThreadHistory[], labels: Record<str
     questions: 0,
     backAndForth: 0,
     deleted: 0,
+    deletedByUser: 0,
+    deletedWithBranch: 0,
     categories: {},
     missingRule: 0,
     ignoredRule: 0,
@@ -70,6 +75,8 @@ export function retroStats(threads: readonly ThreadHistory[], labels: Record<str
     if (sig.question) s.questions++;
     if (sig.rounds > 0) s.backAndForth++;
     if (t.state === 'deleted') s.deleted++;
+    if (t.deletedReason === 'user') s.deletedByUser++;
+    if (t.deletedReason === 'branch-gone') s.deletedWithBranch++;
     const l = labels[t.id];
     if (!l) continue;
     s.categories[l.category] = (s.categories[l.category] ?? 0) + 1;

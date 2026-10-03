@@ -11,6 +11,7 @@ import {
   type Anchor,
   type Author,
   type BranchRef,
+  type DeleteReason,
   type ReviewScope,
   type ReviewState,
   type ThreadState,
@@ -330,18 +331,26 @@ export class Store {
     assertOwnComment(current, commentId, by);
     const at = new Date().toISOString();
     const events: ThreadEvent[] = [{ v: SCHEMA_VERSION, type: 'comment.deleted', at, ...who, commentId }];
-    if (current.comments.length === 1) events.push({ v: SCHEMA_VERSION, type: 'thread.deleted', at, ...who });
+    if (current.comments.length === 1)
+      events.push({ v: SCHEMA_VERSION, type: 'thread.deleted', at, ...who, reason: 'user' });
     return this.appendAndReload(threadId, events);
   }
 
   /**
-   * Deletes a whole thread, agent replies included. Only the user can. The journal keeps its
-   * history (append-only): the thread is simply never shown again.
+   * Deletes a whole thread, agent replies included. Only the user can (the editor also does it for
+   * them when the thread's branch was deleted: `reason` tells which). The journal keeps its history
+   * (append-only): the thread is simply never shown again.
    */
-  async deleteThread(threadId: string, by: Author): Promise<ThreadState> {
+  async deleteThread(threadId: string, by: Author, reason: DeleteReason = 'user'): Promise<ThreadState> {
     if (by !== 'user') throw new Error('Only the user can delete a thread');
     await this.writableThread(threadId, by);
-    const event: ThreadEvent = { v: SCHEMA_VERSION, type: 'thread.deleted', at: new Date().toISOString(), by };
+    const event: ThreadEvent = {
+      v: SCHEMA_VERSION,
+      type: 'thread.deleted',
+      at: new Date().toISOString(),
+      by,
+      reason,
+    };
     return this.appendAndReload(threadId, [event]);
   }
 
@@ -416,7 +425,8 @@ export class Store {
     return state;
   }
 
-  private async ensureInitialized(): Promise<void> {
+  /** Creates the store's folders and schema version, if missing. */
+  async ensureInitialized(): Promise<void> {
     await mkdir(this.threadsDir, { recursive: true });
     await mkdir(this.reviewsDir, { recursive: true });
     try {

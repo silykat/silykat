@@ -11,7 +11,7 @@ import {
   HISTORY_STATES,
   jevKeySetupCommand,
   jevKeyStatus,
-  prepareRetroHome,
+  prepareStoreHome,
   RetroBook,
   retroHome,
   retroScope,
@@ -257,7 +257,7 @@ async function scope(c: Ctx): Promise<number> {
 async function start(c: Ctx): Promise<number> {
   const s = await scopeOf(c);
   if (s.history.threads === 0) throw new Error('no thread in this period: nothing to look back at');
-  await prepareRetroHome(s.home);
+  await prepareStoreHome(s.home);
   const r = await new RetroBook(s.home).start({
     root: s.root,
     since: s.since,
@@ -598,7 +598,7 @@ async function prefs(c: Ctx): Promise<number> {
   const b = await book(c);
   const [verb, id] = c.positionals;
   if (verb === 'add') {
-    await prepareRetroHome(b.home);
+    await prepareStoreHome(b.home);
     const p = await b.addPreference(await body(c));
     c.io.out(`Preference ${p.id} saved: ${p.body}`);
     return 0;
