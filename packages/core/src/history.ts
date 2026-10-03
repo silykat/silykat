@@ -1,6 +1,8 @@
 import type { ThreadEvent } from './events';
 import {
   DELETE_REASONS,
+  sessionRefOf,
+  type AgentSessionRef,
   type Anchor,
   type Author,
   type BranchRef,
@@ -30,6 +32,8 @@ export type HistoryEntry =
       editedAt?: string;
       /** Deleted by its author: kept in the history, it still tells what was asked. */
       deletedAt?: string;
+      /** Agent comments: the agent's conversation it was written in, when recorded. */
+      session?: AgentSessionRef;
     }
   | { kind: 'status'; status: ThreadStatus; by: Author; agent?: string; at: string }
   /** `reason`: missing when the journal predates reasons and none can be told. */
@@ -108,6 +112,7 @@ export function threadHistory(events: readonly ThreadEvent[], opts: HistoryOptio
       case 'comment.added': {
         const at = published(e.reviewId, e.at);
         if (at === null) break;
+        const session = e.by === 'agent' ? sessionRefOf(e.session) : undefined;
         const c: Extract<HistoryEntry, { kind: 'comment' }> = {
           kind: 'comment',
           id: e.commentId,
@@ -116,6 +121,7 @@ export function threadHistory(events: readonly ThreadEvent[], opts: HistoryOptio
           body: e.body,
           at: e.at,
           ...(at !== e.at ? { publishedAt: at } : {}),
+          ...(session ? { session } : {}),
         };
         comments.set(c.id, c);
         publishedAt.set(c.id, at);

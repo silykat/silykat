@@ -291,10 +291,17 @@ export function analysisInput(ctx: AnalysisContext): string {
         sig.reopened ? 'reopened' : '',
         sig.question ? 'agent asked' : '',
         sig.rounds ? `${sig.rounds} round(s) of back-and-forth` : '',
+        linkedSessions(thread).length ? "the agent's conversation is linked" : '',
       ].filter(Boolean);
       return threadText(thread, store) + (extra.length ? `\n(${extra.join(' · ')})` : '') + '\n';
     }),
   ].join('\n');
+}
+
+/** The agent sessions the replies of a thread were written in, as recorded (oldest first, once each). */
+export function linkedSessions(t: ThreadHistory): string[] {
+  const ids = t.conversation.flatMap((e) => (e.kind === 'comment' && e.session ? [e.session.id] : []));
+  return [...new Set(ids)];
 }
 
 /** Writes a retro's input for its agents, and says where. */

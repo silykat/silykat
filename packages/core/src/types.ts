@@ -12,6 +12,24 @@ export type ThreadStatus = 'open' | 'needs-info' | 'addressed' | 'resolved';
 export type DeleteReason = 'user' | 'branch-gone';
 export const DELETE_REASONS: readonly DeleteReason[] = ['user', 'branch-gone'];
 
+/**
+ * The agent's conversation a comment was written in: its session (the agent's own id), and when the
+ * agent's integration knows it, the message that wrote the comment (for Claude Code: the id of the
+ * tool call that ran `lr reply`). Lets a retro read the conversation back while the agent keeps it.
+ */
+export interface AgentSessionRef {
+  id: string;
+  message?: string;
+}
+
+/** A valid session reference read from a journal (written by any version or tool), else `undefined`. */
+export function sessionRefOf(raw: unknown): AgentSessionRef | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const { id, message } = raw as { id?: unknown; message?: unknown };
+  if (typeof id !== 'string' || id.trim() === '') return undefined;
+  return typeof message === 'string' && message.trim() !== '' ? { id, message } : { id };
+}
+
 /** 1-based, inclusive on both ends. */
 export interface LineRange {
   startLine: number;

@@ -8,6 +8,8 @@ import {
   reviewScopeKey,
   SCHEMA_VERSION,
   STORE_DIR,
+  sessionRefOf,
+  type AgentSessionRef,
   type Anchor,
   type Author,
   type BranchRef,
@@ -24,6 +26,8 @@ export interface NewComment {
   agent?: string;
   body: string;
   reviewId: string | null;
+  /** Agent comments: the agent's conversation it is written in, when known. */
+  session?: AgentSessionRef;
 }
 
 export interface ThreadLoadResult {
@@ -249,8 +253,18 @@ export class Store {
     const reopens = c.author === 'user' && c.reviewId === null && current.status !== 'open';
     const status = opts.status ?? (reopens ? 'open' : undefined);
     const at = new Date().toISOString();
+    const session = c.author === 'agent' ? sessionRefOf(c.session) : undefined;
     const events: ThreadEvent[] = [
-      { v: SCHEMA_VERSION, type: 'comment.added', at, ...who, commentId: newCommentId(), body, reviewId: c.reviewId },
+      {
+        v: SCHEMA_VERSION,
+        type: 'comment.added',
+        at,
+        ...who,
+        commentId: newCommentId(),
+        body,
+        reviewId: c.reviewId,
+        ...(session ? { session } : {}),
+      },
     ];
     if (status) events.push({ v: SCHEMA_VERSION, type: 'status.changed', at, ...who, status });
     return this.appendAndReload(threadId, events);

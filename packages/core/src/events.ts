@@ -1,5 +1,6 @@
 import {
   SCHEMA_VERSION,
+  type AgentSessionRef,
   type Anchor,
   type Author,
   type BranchRef,
@@ -18,7 +19,11 @@ interface BaseEvent {
 export type ThreadEvent = BaseEvent &
   (
     | { type: 'thread.created'; threadId: string; anchor: Anchor; branch?: BranchRef | null }
-    | { type: 'comment.added'; commentId: string; body: string; reviewId: string | null }
+    /**
+     * `session` is optional: the agent's conversation the comment was written in (agent comments
+     * only, when known). Older journals have none, and older versions ignore it.
+     */
+    | { type: 'comment.added'; commentId: string; body: string; reviewId: string | null; session?: AgentSessionRef }
     | { type: 'comment.edited'; commentId: string; body: string }
     | { type: 'comment.deleted'; commentId: string }
     | { type: 'status.changed'; status: ThreadStatus }
