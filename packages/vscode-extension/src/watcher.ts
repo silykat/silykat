@@ -113,10 +113,10 @@ export function watchStore(storeDir: string, listener: StoreListener): { dispose
    */
   function sync(catchUp: boolean, renew = false): void {
     if (disposed) return;
-    follow(dirname(storeDir), (name) => {
+    const parentStarted = follow(dirname(storeDir), (name) => {
       if (name === store) sync(true, true);
     });
-    follow(
+    const storeStarted = follow(
       storeDir,
       (name) => {
         if (name === 'threads' || name === 'reviews') sync(true, true);
@@ -125,6 +125,15 @@ export function watchStore(storeDir: string, listener: StoreListener): { dispose
     );
     journals(threadsDir, onThreadFile, catchUp, renew);
     journals(reviewsDir, onReviewFile, catchUp, renew);
+    // The store or its folders may appear before a new watch of the levels above is active: look
+    // again once it is (the levels already watched are left as they are).
+    if (parentStarted || storeStarted) {
+      const settle = setTimeout(() => {
+        settles.delete(settle);
+        sync(true);
+      }, SETTLE_MS);
+      settles.add(settle);
+    }
   }
   sync(false);
 

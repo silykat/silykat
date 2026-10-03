@@ -13,13 +13,15 @@ try {
     cwd: repo,
     stdio: 'ignore',
   });
-  const stale = ['bin/lr', 'hooks/local-review-hook.js', 'channel/local-review-channel.js'].filter((file) => {
-    try {
-      return !readFileSync(join(fresh, file)).equals(readFileSync(join(plugin, file)));
-    } catch {
-      return true;
-    }
-  });
+  const stale = ['bin/lr', 'bin/lr-retro', 'hooks/local-review-hook.js', 'channel/local-review-channel.js'].filter(
+    (file) => {
+      try {
+        return !readFileSync(join(fresh, file)).equals(readFileSync(join(plugin, file)));
+      } catch {
+        return true;
+      }
+    },
+  );
   if (stale.length > 0) {
     console.error(
       `check-plugin-bundle: out of date in adapters/claude-code/plugin/: ${stale.join(', ')}. Run \`npm run build:claude-plugin\` and commit.`,

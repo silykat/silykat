@@ -1,6 +1,6 @@
 // Builds the Claude Code plugin. Claude Code installs plugins from git, so these bundles are
-// committed: `lr` in plugin/bin/ (on the PATH of Claude's shell), the hooks' script and the
-// channel server.
+// committed: `lr` and `lr-retro` in plugin/bin/ (on the PATH of Claude's shell), the hooks' script
+// and the channel server.
 // `--out <dir>` builds elsewhere, to check that the committed bundles are up to date.
 import { execFileSync } from 'node:child_process';
 import { chmodSync, copyFileSync, mkdirSync } from 'node:fs';
@@ -40,4 +40,5 @@ async function bundle(entry, outfile) {
 
 await bundle('hookMain.ts', join(plugin, 'hooks', 'local-review-hook.js'));
 await bundle('channelMain.ts', join(plugin, 'channel', 'local-review-channel.js'));
+await bundle('retroMain.ts', join(plugin, 'bin', 'lr-retro'));
 console.log(`Claude Code plugin built: ${plugin}`);

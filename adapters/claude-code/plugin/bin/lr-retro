@@ -1,0 +1,1630 @@
+#!/usr/bin/env node
+"use strict";
+
+// src/retroCli.ts
+var import_node_os3 = require("node:os");
+var import_node_path10 = require("node:path");
+var import_node_util = require("node:util");
+
+// ../../packages/core/src/types.ts
+var SCHEMA_VERSION = 1;
+var STORE_DIR = ".local-review";
+var branchKey = (b) => b ? `${b.repo}#${b.branch}` : "";
+var reviewScopeKey = (s) => s.branch ? branchKey(s.branch) : s.path ? `path:${s.path}` : "";
+
+// ../../packages/core/src/ids.ts
+var import_node_crypto = require("node:crypto");
+var ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+function ulid(now = Date.now()) {
+  let time = "";
+  let t = now;
+  for (let i = 0; i < 10; i++) {
+    time = ALPHABET[t % 32] + time;
+    t = Math.floor(t / 32);
+  }
+  const bytes = (0, import_node_crypto.randomBytes)(16);
+  let rand = "";
+  for (const b of bytes) rand += ALPHABET[b % 32];
+  return time + rand;
+}
+var newThreadId = () => `t_${ulid()}`;
+var newCommentId = () => `c_${ulid()}`;
+var newReviewId = () => `r_${ulid()}`;
+
+// ../../packages/core/src/events.ts
+var THREAD_EVENT_TYPES = /* @__PURE__ */ new Set([
+  "thread.created",
+  "comment.added",
+  "comment.edited",
+  "comment.deleted",
+  "status.changed",
+  "anchor.updated",
+  "branch.changed",
+  "thread.deleted"
+]);
+var REVIEW_EVENT_TYPES = /* @__PURE__ */ new Set([
+  "review.started",
+  "review.branch.changed",
+  "review.submitted",
+  "review.discarded"
+]);
+function serializeEvents(events) {
+  return events.map((e) => JSON.stringify(e) + "\n").join("");
+}
+function parseJournal(text, source = "journal") {
+  return parseEvents(text, source, THREAD_EVENT_TYPES);
+}
+function parseReviewJournal(text, source = "review") {
+  return parseEvents(text, source, REVIEW_EVENT_TYPES);
+}
+function parseEvents(text, source, types) {
+  const events = [];
+  const warnings = [];
+  let futureVersion = false;
+  const lastNewline = text.lastIndexOf("\n");
+  const complete = lastNewline === -1 ? "" : text.slice(0, lastNewline);
+  const lines = complete === "" ? [] : complete.split("\n");
+  lines.forEach((line, i) => {
+    if (line.trim() === "") return;
+    let raw;
+    try {
+      raw = JSON.parse(line);
+    } catch {
+      warnings.push(`${source}:${i + 1}: invalid JSON, line skipped`);
+      return;
+    }
+    if (!isRecord(raw) || typeof raw.v !== "number" || typeof raw.type !== "string") {
+      warnings.push(`${source}:${i + 1}: not an event, line skipped`);
+      return;
+    }
+    if (raw.v > SCHEMA_VERSION) {
+      futureVersion = true;
+      return;
+    }
+    if (raw.by === "claude") {
+      raw.by = "agent";
+      raw.agent ??= "Claude";
+    }
+    if (!types.has(raw.type)) {
+      warnings.push(`${source}:${i + 1}: unknown event type "${raw.type}", line skipped`);
+      return;
+    }
+    events.push(raw);
+  });
+  return { events, warnings, futureVersion };
+}
+function isRecord(x) {
+  return typeof x === "object" && x !== null && !Array.isArray(x);
+}
+
+// ../../packages/core/src/fold.ts
+function foldThread(events, opts = {}) {
+  const first = events[0];
+  if (!first || first.type !== "thread.created") return null;
+  const reviews = opts.reviews ?? /* @__PURE__ */ new Map();
+  const isDraft = (reviewId) => reviewId !== null && reviews.get(reviewId)?.state !== "submitted";
+  const state = {
+    id: first.threadId,
+    anchor: first.anchor,
+    branch: first.branch ?? null,
+    status: "open",
+    comments: [],
+    createdAt: first.at,
+    deleted: false,
+    readOnly: opts.futureVersion ?? false,
+    lastAuthor: null,
+    lastAgentName: null,
+    hasPublished: false,
+    onlyDrafts: false
+  };
+  const byId = /* @__PURE__ */ new Map();
+  const discarded = (reviewId) => reviewId !== null && reviews.get(reviewId)?.state === "discarded";
+  for (const e of events.slice(1)) {
+    switch (e.type) {
+      case "comment.added": {
+        if (discarded(e.reviewId)) break;
+        const c = {
+          id: e.commentId,
+          author: e.by,
+          ...e.by === "agent" && e.agent ? { agentName: e.agent } : {},
+          body: e.body,
+          createdAt: e.at,
+          reviewId: e.reviewId,
+          isDraft: isDraft(e.reviewId)
+        };
+        byId.set(c.id, c);
+        state.comments.push(c);
+        break;
+      }
+      case "comment.edited": {
+        const c = byId.get(e.commentId);
+        if (c && c.author === e.by) {
+          c.body = e.body;
+          c.editedAt = e.at;
+        }
+        break;
+      }
+      case "comment.deleted": {
+        const c = byId.get(e.commentId);
+        if (c && c.author === e.by) {
+          byId.delete(e.commentId);
+          state.comments = state.comments.filter((x) => x.id !== e.commentId);
+        }
+        break;
+      }
+      case "status.changed":
+        state.status = e.status;
+        break;
+      case "anchor.updated":
+        state.anchor = e.anchor;
+        break;
+      case "branch.changed":
+        state.branch = e.branch;
+        break;
+      case "thread.deleted":
+        state.deleted = true;
+        break;
+      case "thread.created":
+        break;
+    }
+  }
+  if (state.comments.length === 0) state.deleted = true;
+  const last = state.comments[state.comments.length - 1];
+  state.lastAuthor = last ? last.author : null;
+  state.lastAgentName = [...state.comments].reverse().find((c) => c.agentName)?.agentName ?? null;
+  state.hasPublished = state.comments.some((c) => !c.isDraft);
+  state.onlyDrafts = state.comments.length > 0 && !state.hasPublished;
+  return state;
+}
+function foldReview(events) {
+  const first = events[0];
+  if (!first || first.type !== "review.started") return null;
+  const state = {
+    id: first.reviewId,
+    state: "active",
+    branch: first.branch ?? null,
+    path: first.branch ? null : first.path ?? null,
+    startedAt: first.at
+  };
+  for (const e of events.slice(1)) {
+    if (state.state !== "active") break;
+    if (e.type === "review.branch.changed") state.branch = e.branch;
+    else if (e.type === "review.submitted") {
+      state.state = "submitted";
+      state.submittedAt = e.at;
+      if (e.summary) state.summary = e.summary;
+    } else if (e.type === "review.discarded") {
+      state.state = "discarded";
+    }
+  }
+  return state;
+}
+
+// ../../packages/core/src/store.ts
+var import_promises = require("node:fs/promises");
+var import_node_path = require("node:path");
+
+// ../../packages/core/src/history.ts
+var HISTORY_STATES = ["open", "needs-info", "addressed", "resolved", "deleted"];
+function threadHistory(events, opts = {}) {
+  const first = events[0];
+  if (!first || first.type !== "thread.created") return null;
+  const reviews = opts.reviews ?? /* @__PURE__ */ new Map();
+  const published = (reviewId, at) => {
+    if (reviewId === null) return at;
+    const review = reviews.get(reviewId);
+    return review?.state === "submitted" ? review.submittedAt ?? at : null;
+  };
+  let anchor = first.anchor;
+  let branch = first.branch ?? null;
+  let status = "open";
+  let deletedAt = null;
+  const conversation = [];
+  const comments = /* @__PURE__ */ new Map();
+  const publishedAt = /* @__PURE__ */ new Map();
+  const drop = (id) => {
+    comments.delete(id);
+    const i = conversation.findIndex((x) => x.kind === "comment" && x.id === id);
+    if (i >= 0) conversation.splice(i, 1);
+  };
+  const agentOf = (e) => e.by === "agent" && e.agent ? { agent: e.agent } : {};
+  for (const e of events.slice(1)) {
+    switch (e.type) {
+      case "comment.added": {
+        const at = published(e.reviewId, e.at);
+        if (at === null) break;
+        const c = {
+          kind: "comment",
+          id: e.commentId,
+          author: e.by,
+          ...agentOf(e),
+          body: e.body,
+          at: e.at,
+          ...at !== e.at ? { publishedAt: at } : {}
+        };
+        comments.set(c.id, c);
+        publishedAt.set(c.id, at);
+        conversation.push(c);
+        break;
+      }
+      case "comment.edited": {
+        const c = comments.get(e.commentId);
+        if (c && c.author === e.by && !c.deletedAt) {
+          c.body = e.body;
+          if (e.at >= publishedAt.get(c.id)) c.editedAt = e.at;
+        }
+        break;
+      }
+      case "comment.deleted": {
+        const c = comments.get(e.commentId);
+        if (!c || c.author !== e.by) break;
+        if (e.at < publishedAt.get(c.id)) drop(c.id);
+        else c.deletedAt ??= e.at;
+        break;
+      }
+      case "status.changed":
+        status = e.status;
+        conversation.push({ kind: "status", status: e.status, by: e.by, ...agentOf(e), at: e.at });
+        break;
+      case "anchor.updated":
+        anchor = e.anchor;
+        break;
+      case "branch.changed":
+        branch = e.branch;
+        break;
+      case "thread.deleted":
+        if (deletedAt === null) {
+          deletedAt = e.at;
+          conversation.push({ kind: "deleted", by: e.by, ...agentOf(e), at: e.at });
+        }
+        break;
+      case "thread.created":
+        break;
+    }
+  }
+  if (deletedAt !== null) {
+    for (const [id, at] of publishedAt) if (at > deletedAt && comments.has(id)) drop(id);
+  }
+  if (comments.size === 0) return null;
+  const all = [...comments.values()];
+  if (deletedAt === null && all.every((c) => c.deletedAt))
+    deletedAt = all.map((c) => c.deletedAt).sort().at(-1);
+  const activity = conversation.flatMap(
+    (x) => x.kind === "comment" ? [x.publishedAt ?? x.at, x.editedAt ?? "", x.deletedAt ?? ""] : [x.at]
+  );
+  if (deletedAt) activity.push(deletedAt);
+  return {
+    id: first.threadId,
+    state: deletedAt ? "deleted" : status,
+    status,
+    anchor,
+    branch,
+    createdAt: first.at,
+    lastActivityAt: activity.reduce((a, b) => b > a ? b : a, first.at),
+    deletedAt,
+    readOnly: opts.futureVersion ?? false,
+    conversation,
+    bytes: opts.bytes ?? 0
+  };
+}
+function activeSince(thread, sinceMs) {
+  return sinceMs === null || Date.parse(thread.lastActivityAt) >= sinceMs;
+}
+function countStates(threads) {
+  const counts = Object.fromEntries(HISTORY_STATES.map((s) => [s, 0]));
+  for (const t of threads) counts[t.state]++;
+  return counts;
+}
+
+// ../../packages/core/src/store.ts
+var Store = class {
+  /**
+   * A store of the files under `root`, kept in `<root>/.local-review/` by default. `dir` puts it
+   * elsewhere (e.g. the machine store of the files outside any open folder).
+   */
+  constructor(root, dir = (0, import_node_path.join)(root, STORE_DIR)) {
+    this.root = root;
+    this.dir = dir;
+  }
+  root;
+  dir;
+  get threadsDir() {
+    return (0, import_node_path.join)(this.dir, "threads");
+  }
+  threadFile(threadId) {
+    if (!THREAD_ID.test(threadId)) throw new Error(`Invalid thread id: ${threadId}`);
+    return (0, import_node_path.join)(this.threadsDir, `${threadId}.jsonl`);
+  }
+  get reviewsDir() {
+    return (0, import_node_path.join)(this.dir, "reviews");
+  }
+  reviewFile(reviewId) {
+    if (!REVIEW_ID.test(reviewId)) throw new Error(`Invalid review id: ${reviewId}`);
+    return (0, import_node_path.join)(this.reviewsDir, `${reviewId}.jsonl`);
+  }
+  /** Thread id of a journal file name, or `null` if the name is not a thread journal. */
+  static threadIdOf(fileName) {
+    const id = fileName.endsWith(".jsonl") ? fileName.slice(0, -".jsonl".length) : "";
+    return THREAD_ID.test(id) ? id : null;
+  }
+  /** Loads every non-deleted thread and every review. A missing store is simply empty: reading never creates it. */
+  async loadAll() {
+    const { reviews, warnings } = await this.loadReviews();
+    const threads = [];
+    for (const file of await listJournals(this.threadsDir)) {
+      const { state, warnings: w } = await this.readJournal((0, import_node_path.join)(this.threadsDir, file), `threads/${file}`, reviews);
+      warnings.push(...w);
+      if (state && !state.deleted) threads.push(state);
+    }
+    return { threads, reviews: [...reviews.values()], warnings };
+  }
+  /**
+   * The whole history of every thread, whatever its state (deleted ones included), for reading
+   * back what happened. Threads holding only drafts are left out. Reading never creates the store.
+   */
+  async loadHistory() {
+    const { reviews, warnings } = await this.loadReviews();
+    const files = await listJournals(this.threadsDir);
+    const read = await Promise.all(files.map((f) => (0, import_promises.readFile)((0, import_node_path.join)(this.threadsDir, f), "utf8")));
+    const threads = [];
+    files.forEach((file, i) => {
+      const text = read[i];
+      const label = `threads/${file}`;
+      const parsed = parseJournal(text, label);
+      warnings.push(...parsed.warnings);
+      if (parsed.events[0]?.type !== "thread.created") {
+        warnings.push(`${label}: no thread.created event, file skipped`);
+        return;
+      }
+      const history = threadHistory(parsed.events, {
+        reviews,
+        futureVersion: parsed.futureVersion,
+        bytes: Buffer.byteLength(text)
+      });
+      if (history) threads.push(history);
+    });
+    return { threads, warnings };
+  }
+  async loadThread(threadId) {
+    const { reviews } = await this.loadReviews();
+    try {
+      return await this.readJournal(this.threadFile(threadId), `threads/${threadId}.jsonl`, reviews);
+    } catch (err) {
+      if (isNotFound(err)) return { state: null, warnings: [] };
+      throw err;
+    }
+  }
+  async loadReviews() {
+    const reviews = /* @__PURE__ */ new Map();
+    const warnings = [];
+    for (const file of await listJournals(this.reviewsDir)) {
+      const label = `reviews/${file}`;
+      const parsed = parseReviewJournal(await (0, import_promises.readFile)((0, import_node_path.join)(this.reviewsDir, file), "utf8"), label);
+      warnings.push(...parsed.warnings);
+      const state = foldReview(parsed.events);
+      if (state) reviews.set(state.id, state);
+      else warnings.push(`${label}: no review.started event, file skipped`);
+    }
+    return { reviews, warnings };
+  }
+  /** The review in progress for a branch, or off any branch (`null`) for a folder, if any. */
+  async activeReview(branch = null, path = null) {
+    const { reviews } = await this.loadReviews();
+    return latestActive(reviews, { branch, path });
+  }
+  /** Every review in progress: at most one per branch, and off any branch one per folder. */
+  async activeReviews() {
+    const { reviews } = await this.loadReviews();
+    const latest = /* @__PURE__ */ new Map();
+    for (const r of reviews.values()) {
+      if (r.state !== "active") continue;
+      const current = latest.get(reviewScopeKey(r));
+      if (!current || r.startedAt > current.startedAt) latest.set(reviewScopeKey(r), r);
+    }
+    return [...latest.values()];
+  }
+  /**
+   * Starts a review of a branch, or off any branch (`branch` = `null`) of the folder at `path`;
+   * or returns the one already in progress there.
+   */
+  async startReview(branch = null, path = null) {
+    const active = await this.activeReview(branch, path);
+    if (active) return active;
+    await this.ensureInitialized();
+    const reviewId = newReviewId();
+    const event = {
+      v: SCHEMA_VERSION,
+      type: "review.started",
+      at: (/* @__PURE__ */ new Date()).toISOString(),
+      by: "user",
+      reviewId,
+      ...branch ? { branch } : path ? { path } : {}
+    };
+    await (0, import_promises.appendFile)(this.reviewFile(reviewId), serializeEvents([event]), { flag: "a" });
+    return foldReview([event]);
+  }
+  /** A review in progress follows its renamed branch. */
+  async setReviewBranch(reviewId, branch) {
+    await this.assertActiveReview(reviewId);
+    const event = {
+      v: SCHEMA_VERSION,
+      type: "review.branch.changed",
+      at: (/* @__PURE__ */ new Date()).toISOString(),
+      by: "user",
+      branch
+    };
+    await (0, import_promises.appendFile)(this.reviewFile(reviewId), serializeEvents([event]), { flag: "a" });
+  }
+  async submitReview(reviewId, summary) {
+    await this.assertActiveReview(reviewId);
+    const { threads: before } = await this.loadAll();
+    const text = summary?.trim();
+    const event = {
+      v: SCHEMA_VERSION,
+      type: "review.submitted",
+      at: (/* @__PURE__ */ new Date()).toISOString(),
+      by: "user",
+      ...text ? { summary: text } : {}
+    };
+    await (0, import_promises.appendFile)(this.reviewFile(reviewId), serializeEvents([event]), { flag: "a" });
+    for (const t of before) {
+      const repliesInReview = t.comments.some((c) => c.reviewId === reviewId && c.author === "user");
+      if (repliesInReview && t.status !== "open" && !t.readOnly) await this.setStatus(t.id, "open", "user");
+    }
+    const { reviews } = await this.loadReviews();
+    return reviews.get(reviewId);
+  }
+  /** Abandons a review: its draft comments are dropped, and threads holding only drafts disappear. */
+  async discardReview(reviewId) {
+    await this.assertActiveReview(reviewId);
+    const event = {
+      v: SCHEMA_VERSION,
+      type: "review.discarded",
+      at: (/* @__PURE__ */ new Date()).toISOString(),
+      by: "user"
+    };
+    await (0, import_promises.appendFile)(this.reviewFile(reviewId), serializeEvents([event]), { flag: "a" });
+    const { reviews } = await this.loadReviews();
+    return reviews.get(reviewId);
+  }
+  /**
+   * Adds a comment, optionally changing the status in the same write so that readers never
+   * observe the comment without its status.
+   *
+   * A published reply from the user hands the thread back to the agent: unless a status is
+   * given, a thread that is `needs-info`, `addressed` or `resolved` goes back to `open`.
+   */
+  async addComment(threadId, c, opts = {}) {
+    const body = c.body.trim();
+    if (body === "") throw new Error("Comment body is empty");
+    if (opts.status) assertCanSetStatus(opts.status, c.author);
+    if (c.reviewId !== null) await this.assertCanDraft(c.reviewId, c.author);
+    const current = await this.writableThread(threadId, c.author);
+    const who2 = actor(c.author, c.agent);
+    const reopens = c.author === "user" && c.reviewId === null && current.status !== "open";
+    const status = opts.status ?? (reopens ? "open" : void 0);
+    const at = (/* @__PURE__ */ new Date()).toISOString();
+    const events = [
+      { v: SCHEMA_VERSION, type: "comment.added", at, ...who2, commentId: newCommentId(), body, reviewId: c.reviewId }
+    ];
+    if (status) events.push({ v: SCHEMA_VERSION, type: "status.changed", at, ...who2, status });
+    return this.appendAndReload(threadId, events);
+  }
+  async setStatus(threadId, status, by, agent) {
+    assertCanSetStatus(status, by);
+    const who2 = actor(by, agent);
+    await this.writableThread(threadId, by);
+    const event = {
+      v: SCHEMA_VERSION,
+      type: "status.changed",
+      at: (/* @__PURE__ */ new Date()).toISOString(),
+      ...who2,
+      status
+    };
+    return this.appendAndReload(threadId, [event]);
+  }
+  /** Records where the thread's code now is (after the file changed). */
+  async updateAnchor(threadId, anchor, by, agent) {
+    const who2 = actor(by, agent);
+    await this.writableThread(threadId, by);
+    const event = {
+      v: SCHEMA_VERSION,
+      type: "anchor.updated",
+      at: (/* @__PURE__ */ new Date()).toISOString(),
+      ...who2,
+      anchor
+    };
+    return this.appendAndReload(threadId, [event]);
+  }
+  /** A thread follows its renamed branch (or is given one). */
+  async setBranch(threadId, branch) {
+    await this.writableThread(threadId, "user");
+    const event = {
+      v: SCHEMA_VERSION,
+      type: "branch.changed",
+      at: (/* @__PURE__ */ new Date()).toISOString(),
+      by: "user",
+      branch
+    };
+    return this.appendAndReload(threadId, [event]);
+  }
+  /** Edits a comment. Only its author can edit it. */
+  async editComment(threadId, commentId, body, by, agent) {
+    const text = body.trim();
+    if (text === "") throw new Error("Comment body is empty");
+    const who2 = actor(by, agent);
+    const current = await this.writableThread(threadId, by);
+    assertOwnComment(current, commentId, by);
+    const comment = current.comments.find((c) => c.id === commentId);
+    if (comment.body === text) return current;
+    const at = (/* @__PURE__ */ new Date()).toISOString();
+    const events = [{ v: SCHEMA_VERSION, type: "comment.edited", at, ...who2, commentId, body: text }];
+    const handled = current.status === "addressed" || current.status === "needs-info";
+    if (by === "user" && !comment.isDraft && handled)
+      events.push({ v: SCHEMA_VERSION, type: "status.changed", at, ...who2, status: "open" });
+    return this.appendAndReload(threadId, events);
+  }
+  /**
+   * Deletes a comment. Only its author can delete it. Deleting the last comment deletes the
+   * thread too, in the same write: a thread never exists without comments.
+   */
+  async deleteComment(threadId, commentId, by, agent) {
+    const who2 = actor(by, agent);
+    const current = await this.writableThread(threadId, by);
+    assertOwnComment(current, commentId, by);
+    const at = (/* @__PURE__ */ new Date()).toISOString();
+    const events = [{ v: SCHEMA_VERSION, type: "comment.deleted", at, ...who2, commentId }];
+    if (current.comments.length === 1) events.push({ v: SCHEMA_VERSION, type: "thread.deleted", at, ...who2 });
+    return this.appendAndReload(threadId, events);
+  }
+  /**
+   * Deletes a whole thread, agent replies included. Only the user can. The journal keeps its
+   * history (append-only): the thread is simply never shown again.
+   */
+  async deleteThread(threadId, by) {
+    if (by !== "user") throw new Error("Only the user can delete a thread");
+    await this.writableThread(threadId, by);
+    const event = { v: SCHEMA_VERSION, type: "thread.deleted", at: (/* @__PURE__ */ new Date()).toISOString(), by };
+    return this.appendAndReload(threadId, [event]);
+  }
+  /** A thread `by` may write to. Agents never see threads that only hold drafts. */
+  async writableThread(threadId, by) {
+    const { state } = await this.loadThread(threadId);
+    if (!state || state.deleted || by === "agent" && !state.hasPublished) {
+      throw new Error(`Thread not found: ${threadId}`);
+    }
+    if (state.readOnly)
+      throw new Error(
+        `Thread ${threadId} was written by a newer version of Local Review, so it is read-only: update Local Review to change it`
+      );
+    return state;
+  }
+  async appendAndReload(threadId, events) {
+    await (0, import_promises.appendFile)(this.threadFile(threadId), serializeEvents(events), { flag: "a" });
+    const { state } = await this.loadThread(threadId);
+    if (!state) throw new Error(`Thread vanished while writing: ${threadId}`);
+    return state;
+  }
+  /** Drafts belong to the user: only the user writes them, and only in the review in progress. */
+  async assertCanDraft(reviewId, by) {
+    if (by !== "user") throw new Error("Only the user writes draft comments");
+    await this.assertActiveReview(reviewId);
+  }
+  async assertActiveReview(reviewId) {
+    const { reviews } = await this.loadReviews();
+    const review = reviews.get(reviewId);
+    if (!review) throw new Error(`Review not found: ${reviewId}`);
+    if (review.state !== "active") throw new Error(`Review ${reviewId} is already ${review.state}`);
+  }
+  async readJournal(file, label, reviews) {
+    const text = await (0, import_promises.readFile)(file, "utf8");
+    const parsed = parseJournal(text, label);
+    const state = foldThread(parsed.events, { futureVersion: parsed.futureVersion, reviews });
+    const warnings = [...parsed.warnings];
+    if (!state) warnings.push(`${label}: no thread.created event, file skipped`);
+    return { state, warnings };
+  }
+  async createThread(anchor, first, branch = null) {
+    const body = first.body.trim();
+    if (body === "") throw new Error("Comment body is empty");
+    if (first.reviewId !== null) await this.assertCanDraft(first.reviewId, first.author);
+    await this.ensureInitialized();
+    const who2 = actor(first.author, first.agent);
+    const threadId = newThreadId();
+    const at = (/* @__PURE__ */ new Date()).toISOString();
+    const events = [
+      { v: SCHEMA_VERSION, type: "thread.created", at, ...who2, threadId, anchor, ...branch ? { branch } : {} },
+      {
+        v: SCHEMA_VERSION,
+        type: "comment.added",
+        at,
+        ...who2,
+        commentId: newCommentId(),
+        body,
+        reviewId: first.reviewId
+      }
+    ];
+    await (0, import_promises.appendFile)(this.threadFile(threadId), serializeEvents(events), { flag: "a" });
+    const { reviews } = await this.loadReviews();
+    const state = foldThread(events, { reviews });
+    if (!state) throw new Error("unreachable: freshly created thread failed to fold");
+    return state;
+  }
+  async ensureInitialized() {
+    await (0, import_promises.mkdir)(this.threadsDir, { recursive: true });
+    await (0, import_promises.mkdir)(this.reviewsDir, { recursive: true });
+    try {
+      await (0, import_promises.writeFile)((0, import_node_path.join)(this.dir, "schema-version"), `${SCHEMA_VERSION}
+`, { flag: "wx" });
+    } catch (err) {
+      if (!isAlreadyExists(err)) throw err;
+    }
+  }
+};
+var THREAD_ID = /^t_[0-9A-HJKMNP-TV-Z]{26}$/;
+var REVIEW_ID = /^r_[0-9A-HJKMNP-TV-Z]{26}$/;
+async function listJournals(dir) {
+  try {
+    return (await (0, import_promises.readdir)(dir)).filter((f) => f.endsWith(".jsonl")).sort();
+  } catch (err) {
+    if (isNotFound(err)) return [];
+    throw err;
+  }
+}
+function latestActive(reviews, scope) {
+  const key = reviewScopeKey(scope);
+  const active = [...reviews.values()].filter((r) => r.state === "active" && reviewScopeKey(r) === key);
+  active.sort((a, b) => b.startedAt.localeCompare(a.startedAt) || b.id.localeCompare(a.id));
+  return active[0] ?? null;
+}
+function actor(by, agent) {
+  if (by === "user") return { by };
+  const name = agent?.trim();
+  if (!name) throw new Error("An agent must give its name");
+  return { by, agent: name };
+}
+function assertOwnComment(thread, commentId, by) {
+  const comment = thread.comments.find((c) => c.id === commentId);
+  if (!comment) throw new Error(`Comment not found: ${commentId}`);
+  if (comment.author !== by) throw new Error("You can only change your own comments");
+}
+function assertCanSetStatus(status, by) {
+  if (status === "resolved" && by !== "user") throw new Error("Only the user can resolve a thread");
+}
+function isNotFound(err) {
+  return err?.code === "ENOENT";
+}
+function isAlreadyExists(err) {
+  return err?.code === "EEXIST";
+}
+
+// ../../packages/core/src/agentView.ts
+var import_node_fs = require("node:fs");
+var import_node_path4 = require("node:path");
+
+// ../../packages/core/src/sessions.ts
+var import_node_os = require("node:os");
+var import_node_path3 = require("node:path");
+
+// ../../packages/core/src/topics.ts
+var import_node_child_process = require("node:child_process");
+var import_promises2 = require("node:fs/promises");
+var import_node_path2 = require("node:path");
+function git(args, cwd, raw = false) {
+  return new Promise(
+    (done) => (0, import_node_child_process.execFile)(
+      "git",
+      args,
+      { cwd, timeout: 3e3, maxBuffer: 16 * 1024 * 1024 },
+      (err, stdout) => done(err ? null : raw ? stdout : stdout.trim())
+    )
+  );
+}
+async function existingDir(path) {
+  let dir = path;
+  for (; ; ) {
+    const s = await (0, import_promises2.stat)(dir).catch(() => null);
+    if (s) return s.isDirectory() ? dir : (0, import_node_path2.dirname)(dir);
+    const parent = (0, import_node_path2.dirname)(dir);
+    if (parent === dir) return dir;
+    dir = parent;
+  }
+}
+async function worktreeTopOf(dir) {
+  return await git(["rev-parse", "--show-toplevel"], await existingDir(dir)) || null;
+}
+
+// ../../packages/core/src/sessions.ts
+var LOOSE_ROOT = "/";
+function looseStore(env = process.env) {
+  return new Store(LOOSE_ROOT, (0, import_node_path3.join)(localReviewHome(env), "files"));
+}
+function storeAt(root, env = process.env) {
+  return root === LOOSE_ROOT ? looseStore(env) : new Store(root);
+}
+function localReviewHome(env = process.env) {
+  return env.LOCAL_REVIEW_HOME?.trim() || (0, import_node_path3.join)((0, import_node_os.homedir)(), ".local-review");
+}
+
+// ../../packages/core/src/agentView.ts
+function isStoreRoot(dir, env = process.env) {
+  const store = (0, import_node_path4.join)(dir, STORE_DIR);
+  if (!(0, import_node_fs.existsSync)((0, import_node_path4.join)(store, "schema-version")) && !(0, import_node_fs.existsSync)((0, import_node_path4.join)(store, "threads"))) return false;
+  return realpath2(store) !== realpath2(localReviewHome(env));
+}
+function findStoreRoot(fromDir, env = process.env) {
+  let dir = (0, import_node_path4.resolve)(fromDir);
+  for (; ; ) {
+    if (isStoreRoot(dir, env)) return dir;
+    const parent = (0, import_node_path4.dirname)(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+function realpath2(path) {
+  try {
+    return (0, import_node_fs.realpathSync)(path);
+  } catch {
+    return (0, import_node_path4.resolve)(path);
+  }
+}
+
+// ../../packages/core/src/project.ts
+var import_node_child_process2 = require("node:child_process");
+var import_promises3 = require("node:fs/promises");
+var import_node_path5 = require("node:path");
+var SKIPPED = /* @__PURE__ */ new Set([
+  "node_modules",
+  "dist",
+  "out",
+  "build",
+  "target",
+  "vendor",
+  "coverage",
+  "__pycache__",
+  "venv",
+  "Library",
+  "Applications"
+]);
+async function projectStores(root, env = process.env) {
+  if (root === LOOSE_ROOT) return [{ root, origin: "root" }];
+  const top = (0, import_node_path5.resolve)(root);
+  const found2 = [];
+  const seen = /* @__PURE__ */ new Set();
+  const add = async (dir, origin) => {
+    const key = await (0, import_promises3.realpath)((0, import_node_path5.join)(dir, STORE_DIR)).catch(() => (0, import_node_path5.join)(dir, STORE_DIR));
+    if (seen.has(key)) return;
+    seen.add(key);
+    found2.push({ root: dir, origin });
+  };
+  const repos = [];
+  const below = [];
+  await walk(top, env, below, repos);
+  for (const dir of below) await add(dir, dir === top ? "root" : "below");
+  if (!below.includes(top)) {
+    const above = findStoreRoot(top, env);
+    if (above) {
+      await add(above, "above");
+      repos.push(above);
+    }
+  }
+  const realTop = await (0, import_promises3.realpath)(top).catch(() => top);
+  const worktrees = /* @__PURE__ */ new Set();
+  for (const list of await Promise.all(repos.map(worktreesOf)))
+    for (const wt of list) if (!walked(realTop, wt)) worktrees.add(wt);
+  for (const wt of [...worktrees].sort()) {
+    const stores = [];
+    await walk(wt, env, stores, []);
+    for (const dir of stores) await add(dir, "worktree");
+  }
+  const order = { root: 0, below: 1, above: 2, worktree: 3 };
+  return found2.sort((a, b) => order[a.origin] - order[b.origin] || a.root.localeCompare(b.root));
+}
+function walked(top, dir) {
+  const rel = (0, import_node_path5.relative)(top, dir);
+  if (rel === "") return true;
+  if (rel.startsWith("..") || (0, import_node_path5.isAbsolute)(rel)) return false;
+  return rel.split(import_node_path5.sep).every((part) => !part.startsWith(".") && !SKIPPED.has(part));
+}
+async function walk(dir, env, stores, repos) {
+  let entries;
+  try {
+    entries = await (0, import_promises3.readdir)(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  if (entries.some((e) => e.name === ".git")) repos.push(dir);
+  if (entries.some((e) => e.name === STORE_DIR && e.isDirectory()) && isStoreRoot(dir, env)) stores.push(dir);
+  const children = entries.filter((e) => e.isDirectory() && !e.name.startsWith(".") && !SKIPPED.has(e.name));
+  await Promise.all(children.map((e) => walk((0, import_node_path5.join)(dir, e.name), env, stores, repos)));
+}
+function worktreesOf(dir) {
+  return new Promise(
+    (done) => (0, import_node_child_process2.execFile)("git", ["worktree", "list", "--porcelain"], { cwd: dir, timeout: 3e3 }, (err, stdout) => {
+      if (err) return done([]);
+      const paths = stdout.split("\n").filter((l) => l.startsWith("worktree ")).map((l) => l.slice("worktree ".length));
+      void Promise.all(paths.map((p) => (0, import_promises3.realpath)(p).catch(() => null))).then(
+        (real) => done(real.filter((p) => p !== null))
+      );
+    })
+  );
+}
+async function projectHistory(root, opts = {}) {
+  const env = opts.env ?? process.env;
+  const sinceMs = opts.since ? opts.since.getTime() : null;
+  const stores = await Promise.all(
+    (await projectStores(root, env)).map(async (s) => {
+      const { threads, warnings } = await storeAt(s.root, env).loadHistory();
+      const kept = threads.filter((t) => activeSince(t, sinceMs)).sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+      return {
+        ...s,
+        threads: kept,
+        bytes: kept.reduce((n, t) => n + t.bytes, 0),
+        states: countStates(kept),
+        warnings
+      };
+    })
+  );
+  const all = stores.flatMap((s) => s.threads);
+  return {
+    root: root === LOOSE_ROOT ? root : (0, import_node_path5.resolve)(root),
+    since: opts.since ? opts.since.toISOString() : null,
+    stores,
+    threads: all.length,
+    bytes: stores.reduce((n, s) => n + s.bytes, 0),
+    states: countStates(all)
+  };
+}
+
+// ../../packages/core/src/retro.ts
+var import_promises4 = require("node:fs/promises");
+var import_node_path6 = require("node:path");
+var RETRO_SCHEMA_VERSION = 1;
+var RETROS_DIR = "retros";
+var FEEDBACK_CATEGORIES = {
+  1: "misread request: the agent did something else than what was asked",
+  2: "existing rule not followed: the project's rules files already say it, the agent broke it",
+  3: "project rule or knowledge missing: a project-specific fact or convention the agent could not know",
+  4: "convention ignored: naming, formatting, style, layout (general good practice, not a project rule)",
+  5: "unrequested change: the agent changed things outside the request",
+  6: "over-engineering or poor approach: too complex, wrong design",
+  7: "logic or functional defect: the code does not work as intended",
+  8: "missed edge case or validation",
+  9: "hallucinated API or missing domain knowledge",
+  10: "incomplete work: part of the request not done",
+  11: "claimed done without verifying: said it works or tests pass without checking, or weakened tests",
+  12: "context loss: forgot a decision or instruction given earlier",
+  13: "missing docs, comments or tests",
+  14: "not a defect: question, discussion, praise, or the reviewer was wrong"
+};
+var RETRO_EVENTS = /* @__PURE__ */ new Set([
+  "retro.started",
+  "retro.feedback",
+  "retro.classified",
+  "retro.proposed",
+  "retro.decided",
+  "retro.applied",
+  "retro.undone",
+  "retro.finished"
+]);
+var PREFERENCE_EVENTS = /* @__PURE__ */ new Set([
+  "preference.added",
+  "preference.removed"
+]);
+var RETRO_ID = /^rt_[0-9A-HJKMNP-TV-Z]{26}$/;
+var newRetroId = () => `rt_${ulid()}`;
+function parseLines(text, source, types) {
+  const events = [];
+  const warnings = [];
+  let future = false;
+  const end = text.lastIndexOf("\n");
+  const lines = end === -1 ? [] : text.slice(0, end).split("\n");
+  lines.forEach((line, i) => {
+    if (line.trim() === "") return;
+    let raw;
+    try {
+      raw = JSON.parse(line);
+    } catch {
+      warnings.push(`${source}:${i + 1}: invalid JSON, line skipped`);
+      return;
+    }
+    const e = raw;
+    if (typeof raw !== "object" || raw === null || typeof e.v !== "number" || typeof e.type !== "string") {
+      warnings.push(`${source}:${i + 1}: not an event, line skipped`);
+      return;
+    }
+    if (e.v > RETRO_SCHEMA_VERSION) {
+      future = true;
+      return;
+    }
+    if (!types.has(e.type)) {
+      warnings.push(`${source}:${i + 1}: unknown event type "${e.type}", line skipped`);
+      return;
+    }
+    events.push(raw);
+  });
+  return { events, warnings, future };
+}
+function foldRetro(events, warnings = [], future = false) {
+  const first = events[0];
+  if (!first || first.type !== "retro.started") return null;
+  const r = {
+    id: first.retroId,
+    root: first.root,
+    since: first.since,
+    until: first.until,
+    startedAt: first.at,
+    stores: first.stores,
+    threads: first.threads,
+    bytes: first.bytes,
+    preferences: first.preferences ?? [],
+    feedback: [],
+    classification: null,
+    proposals: [],
+    watch: [],
+    dropped: [],
+    decisions: {},
+    applied: {},
+    finishedAt: null,
+    readOnly: future,
+    warnings
+  };
+  for (const e of events.slice(1)) {
+    switch (e.type) {
+      case "retro.feedback":
+        r.feedback.push(e.body);
+        break;
+      case "retro.classified": {
+        const c = r.classification ??= { by: [], labels: {} };
+        if (!c.by.includes(e.by)) c.by.push(e.by);
+        Object.assign(c.labels, e.labels);
+        break;
+      }
+      case "retro.proposed":
+        r.proposals = e.proposals;
+        r.watch = e.watch;
+        r.dropped = e.dropped;
+        r.decisions = {};
+        r.applied = {};
+        break;
+      case "retro.decided":
+        r.decisions[e.proposal] = {
+          decision: e.decision,
+          at: e.at,
+          ...e.target ? { target: e.target } : {},
+          ...e.note ? { note: e.note } : {}
+        };
+        break;
+      case "retro.applied":
+        r.applied[e.proposal] = [.../* @__PURE__ */ new Set([...r.applied[e.proposal] ?? [], ...e.files])];
+        break;
+      case "retro.undone":
+        delete r.decisions[e.proposal];
+        delete r.applied[e.proposal];
+        break;
+      case "retro.finished":
+        r.finishedAt ??= e.at;
+        break;
+      case "retro.started":
+        break;
+    }
+  }
+  return r;
+}
+function foldPreferences(events) {
+  const prefs = /* @__PURE__ */ new Map();
+  for (const e of events) {
+    if (e.type === "preference.added") prefs.set(e.id, { id: e.id, body: e.body, at: e.at });
+    else prefs.delete(e.id);
+  }
+  return [...prefs.values()];
+}
+async function retroHome(root, env = process.env) {
+  if (root === LOOSE_ROOT) throw new Error("a retro is about a project folder, not the files outside any folder");
+  const dir = (0, import_node_path6.resolve)(root);
+  if (isStoreRoot(dir, env)) return dir;
+  return await worktreeTopOf(dir) ?? dir;
+}
+var RetroBook = class {
+  constructor(home) {
+    this.home = home;
+    this.dir = (0, import_node_path6.join)(home, STORE_DIR, RETROS_DIR);
+  }
+  home;
+  dir;
+  retroFile(id) {
+    if (!RETRO_ID.test(id)) throw new Error(`Invalid retro id: ${id}`);
+    return (0, import_node_path6.join)(this.dir, `${id}.jsonl`);
+  }
+  /** A folder for the files a retro writes for its agents. */
+  async workDir(id) {
+    if (!RETRO_ID.test(id)) throw new Error(`Invalid retro id: ${id}`);
+    const dir = (0, import_node_path6.join)(this.dir, id);
+    await (0, import_promises4.mkdir)(dir, { recursive: true });
+    return dir;
+  }
+  get preferencesFile() {
+    return (0, import_node_path6.join)(this.dir, "preferences.jsonl");
+  }
+  /** Every retro of this book, oldest first. */
+  async list() {
+    let files;
+    try {
+      files = (await (0, import_promises4.readdir)(this.dir)).filter((f) => RETRO_ID.test(f.replace(/\.jsonl$/, "")) && f.endsWith(".jsonl"));
+    } catch (err) {
+      if (err.code === "ENOENT") return [];
+      throw err;
+    }
+    const retros = await Promise.all(files.map((f) => this.read(f.slice(0, -".jsonl".length))));
+    return retros.filter((r) => r !== null).sort((a, b) => a.startedAt.localeCompare(b.startedAt) || a.id.localeCompare(b.id));
+  }
+  async read(id) {
+    let text;
+    try {
+      text = await (0, import_promises4.readFile)(this.retroFile(id), "utf8");
+    } catch (err) {
+      if (err.code === "ENOENT") return null;
+      throw err;
+    }
+    const parsed = parseLines(text, `retros/${id}.jsonl`, RETRO_EVENTS);
+    return foldRetro(parsed.events, parsed.warnings, parsed.future);
+  }
+  /** The retro, which must exist and accept writes. */
+  async get(id) {
+    const r = await this.read(id);
+    if (!r) throw new Error(`Retro not found: ${id}`);
+    return r;
+  }
+  /** The last finished retro of the project folder `root`, if any. */
+  async lastFinished(root) {
+    const done = (await this.list()).filter((r) => r.finishedAt !== null && r.root === (0, import_node_path6.resolve)(root));
+    return done.at(-1) ?? null;
+  }
+  async preferences() {
+    let text;
+    try {
+      text = await (0, import_promises4.readFile)(this.preferencesFile, "utf8");
+    } catch (err) {
+      if (err.code === "ENOENT") return [];
+      throw err;
+    }
+    return foldPreferences(parseLines(text, "retros/preferences.jsonl", PREFERENCE_EVENTS).events);
+  }
+  async addPreference(body) {
+    const text = body.trim();
+    if (text === "") throw new Error("A preference cannot be empty");
+    const ids = (await this.allPreferenceIds()).map((id2) => Number(id2.slice(1)));
+    const id = `P${Math.max(0, ...ids) + 1}`;
+    const at = (/* @__PURE__ */ new Date()).toISOString();
+    await this.append(this.preferencesFile, [
+      { v: RETRO_SCHEMA_VERSION, type: "preference.added", at, id, body: text }
+    ]);
+    return { id, body: text, at };
+  }
+  async removePreference(id) {
+    if (!(await this.preferences()).some((p) => p.id === id)) throw new Error(`Preference not found: ${id}`);
+    await this.append(this.preferencesFile, [
+      { v: RETRO_SCHEMA_VERSION, type: "preference.removed", at: (/* @__PURE__ */ new Date()).toISOString(), id }
+    ]);
+  }
+  /** Every preference id ever given, removed ones included: an id is never reused. */
+  async allPreferenceIds() {
+    try {
+      const text = await (0, import_promises4.readFile)(this.preferencesFile, "utf8");
+      return parseLines(text, "preferences", PREFERENCE_EVENTS).events.map((e) => e.id);
+    } catch {
+      return [];
+    }
+  }
+  /** Starts a retro: its period and the threads it reads. */
+  async start(scope) {
+    const retroId = newRetroId();
+    const preferences = await this.preferences();
+    await this.append(this.retroFile(retroId), [
+      {
+        v: RETRO_SCHEMA_VERSION,
+        type: "retro.started",
+        at: (/* @__PURE__ */ new Date()).toISOString(),
+        retroId,
+        ...scope,
+        root: (0, import_node_path6.resolve)(scope.root),
+        preferences
+      }
+    ]);
+    return this.get(retroId);
+  }
+  /** Appends events to a retro still in progress. */
+  async record(id, events) {
+    const r = await this.get(id);
+    if (r.readOnly) throw new Error(`Retro ${id} was written by a newer version of Local Review: update Local Review`);
+    if (r.finishedAt) throw new Error(`Retro ${id} is finished`);
+    const at = (/* @__PURE__ */ new Date()).toISOString();
+    await this.append(
+      this.retroFile(id),
+      events.map((e) => ({ v: RETRO_SCHEMA_VERSION, at, ...e }))
+    );
+    return this.get(id);
+  }
+  async append(file, events) {
+    await (0, import_promises4.mkdir)(this.dir, { recursive: true });
+    await (0, import_promises4.appendFile)(file, events.map((e) => JSON.stringify(e) + "\n").join(""), { flag: "a" });
+  }
+};
+
+// ../../packages/core/src/retroGuards.ts
+var STOPWORDS = new Set(
+  "the and for with that this from into when then than are was were has have not use uses using les des une pour avec dans sur par pas que qui est sont aux ses son leur".split(" ")
+);
+
+// ../../packages/core/src/retroKey.ts
+var import_promises5 = require("node:fs/promises");
+var import_node_os2 = require("node:os");
+var import_node_path7 = require("node:path");
+function jevKeyFile(env = process.env) {
+  return (0, import_node_path7.join)(env.HOME?.trim() || (0, import_node_os2.homedir)(), ".config", "local-review", "jev-key");
+}
+async function jevKeyStatus(env = process.env) {
+  const path = jevKeyFile(env);
+  const fromEnv = (env.JEV_API_KEY ?? "").trim() !== "";
+  const st = await (0, import_promises5.stat)(path).catch(() => null);
+  const exists2 = st?.isFile() === true;
+  const status = {
+    source: fromEnv ? "env" : exists2 ? "file" : "none",
+    path,
+    exists: exists2,
+    mode: null,
+    private: false,
+    inRepo: null,
+    ok: fromEnv,
+    fixes: []
+  };
+  if (!exists2 || !st) return status;
+  status.mode = (st.mode & 511).toString(8);
+  const mine = typeof process.getuid !== "function" || st.uid === process.getuid();
+  status.private = (st.mode & 63) === 0 && mine;
+  status.inRepo = await worktreeTopOf((0, import_node_path7.dirname)(path));
+  if (!status.private) status.fixes.push(`chmod 600 "${path}"`);
+  if (status.inRepo)
+    status.fixes.push(`move it out of the repository ${status.inRepo} (e.g. to the default place, ${jevKeyFile(env)})`);
+  if (!fromEnv) status.ok = status.private && status.inRepo === null;
+  return status;
+}
+
+// ../../packages/core/src/retroScope.ts
+var import_promises6 = require("node:fs/promises");
+var import_node_path8 = require("node:path");
+var who = (by, agent) => by === "user" ? "User" : agent ?? "Agent";
+function entryText(e) {
+  switch (e.kind) {
+    case "comment": {
+      const notes = [e.publishedAt ?? e.at];
+      if (e.editedAt) notes.push(`edited ${e.editedAt}`);
+      if (e.deletedAt) notes.push(`deleted ${e.deletedAt}`);
+      return `[${who(e.author, e.agent)}] (${notes.join(", ")}) ${e.body}`;
+    }
+    case "status":
+      return `(status -> ${e.status} by ${who(e.by, e.agent)}, ${e.at})`;
+    case "deleted":
+      return `(thread deleted by ${who(e.by, e.agent)}, ${e.at})`;
+  }
+}
+function threadText(t, store) {
+  const a = t.anchor;
+  const where = a.range ? `${a.path}:${a.range.startLine}-${a.range.endLine}` : `${a.path} (whole file)`;
+  const lines = [
+    `THREAD ${t.id} \xB7 ${where} \xB7 ${t.state}` + (store ? ` \xB7 store ${store}` : "") + (t.branch ? ` \xB7 branch ${t.branch.branch}` : "")
+  ];
+  if (a.range && a.snippet) lines.push("code:", ...a.snippet.split("\n").map((l) => `  ${l}`));
+  for (const e of t.conversation) lines.push(entryText(e));
+  return lines.join("\n");
+}
+async function retroThreads(retro, env = process.env) {
+  const history = await projectHistory(retro.root, { since: retro.since ? new Date(retro.since) : null, env });
+  const wanted = new Set(retro.threads);
+  const threads = /* @__PURE__ */ new Map();
+  for (const s of history.stores)
+    for (const t of s.threads) if (wanted.has(t.id)) threads.set(t.id, { thread: t, store: s.root });
+  return { history, threads };
+}
+async function writeRetroFile(book, id, name, content) {
+  const file = (0, import_node_path8.join)(await book.workDir(id), name);
+  await (0, import_promises6.writeFile)(file, content);
+  return file;
+}
+
+// src/retroAudit.ts
+var import_node_child_process3 = require("node:child_process");
+var AUDIT_COMMAND = "/doctor prompt-audit";
+var AUDIT_MIN_VERSION = [2, 1, 283];
+var AUDIT_MODEL = "opus";
+var AUDIT_TIMEOUT_MS = 15 * 6e4;
+var runProcess = (command, args, { cwd, env, timeoutMs }) => new Promise((resolve6) => {
+  (0, import_node_child_process3.execFile)(command, args, { cwd, env, timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
+    const e = err;
+    resolve6({
+      stdout,
+      stderr,
+      code: e ? typeof e.code === "number" ? e.code : null : 0,
+      timedOut: Boolean(e?.killed)
+    });
+  });
+});
+function auditArgs(claudeDir) {
+  return [
+    "-p",
+    AUDIT_COMMAND,
+    "--model",
+    AUDIT_MODEL,
+    "--permission-mode",
+    "default",
+    "--disallowedTools",
+    "Bash",
+    "Edit",
+    "Write",
+    "NotebookEdit",
+    "--add-dir",
+    claudeDir,
+    "--output-format",
+    "json"
+  ];
+}
+var parseVersion = (text) => {
+  const m = /(\d+)\.(\d+)\.(\d+)/.exec(text);
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+};
+var atLeast = (v, min) => {
+  for (let i = 0; i < min.length; i++) if (v[i] !== min[i]) return v[i] > min[i];
+  return true;
+};
+async function runAudit(root, claudeDir, env, run = runProcess, timeoutMs = AUDIT_TIMEOUT_MS) {
+  const claude = env.LR_CLAUDE_BIN?.trim() || "claude";
+  const v = await run(claude, ["--version"], { cwd: root, env, timeoutMs: 3e4 });
+  const version = v.code === 0 ? parseVersion(v.stdout) : null;
+  if (!version) return { kind: "skipped", reason: "Claude Code was not found" };
+  if (!atLeast(version, AUDIT_MIN_VERSION))
+    return {
+      kind: "skipped",
+      reason: `${AUDIT_COMMAND} needs Claude Code ${AUDIT_MIN_VERSION.join(".")} or later (here ${version.join(".")})`
+    };
+  const r = await run(claude, auditArgs(claudeDir), { cwd: root, env, timeoutMs });
+  if (r.timedOut) return { kind: "failed", reason: `it took more than ${Math.round(timeoutMs / 6e4)} min` };
+  let out;
+  try {
+    out = JSON.parse(r.stdout);
+  } catch {
+    const why = (r.stderr || r.stdout).trim().split("\n").at(-1) ?? "";
+    return { kind: "failed", reason: `Claude Code ended with code ${r.code ?? "?"}${why ? `: ${why}` : ""}` };
+  }
+  const report = typeof out.result === "string" ? out.result.trim() : "";
+  if (out.is_error === true || !report)
+    return { kind: "failed", reason: report ? report.split("\n")[0] : "the audit gave no report" };
+  return {
+    kind: "done",
+    report,
+    costUsd: typeof out.total_cost_usd === "number" ? out.total_cost_usd : null,
+    durationMs: typeof out.duration_ms === "number" ? out.duration_ms : null
+  };
+}
+
+// src/retroJev.ts
+var import_promises7 = require("node:fs/promises");
+var JEV_URL = "https://jevtypesafeai.com/api/v1/decide";
+var INTRO = "Code review thread between a developer and their AI coding agent. ";
+var QUESTIONS = {
+  category: {
+    type: "choice",
+    instructions: INTRO + "Which category best explains why the developer commented (the root cause, not the symptom)?",
+    criteria: Object.fromEntries(Object.entries(FEEDBACK_CATEGORIES).map(([n, d]) => [n, d]))
+  },
+  missing_rule: {
+    type: "noul",
+    instructions: INTRO + "Does the developer's feedback reveal a constraint, convention or fact specific to THIS project (not general good practice) that the rules files do not state?"
+  },
+  ignored_rule: {
+    type: "noul",
+    instructions: INTRO + "Does the developer's feedback point to something the rules files already state, that the agent did not follow?"
+  }
+};
+async function readJevKey(env = process.env) {
+  const fromEnv = env.JEV_API_KEY?.trim();
+  if (fromEnv) return fromEnv;
+  const s = await jevKeyStatus(env);
+  if (!s.exists) throw new Error(`no Jev key: ${s.path} does not exist (lr retro key tells how to add one)`);
+  if (!s.ok) throw new Error(`the Jev key file is not safe, fix it first: ${s.fixes.join("; ")}`);
+  const key = (await (0, import_promises7.readFile)(s.path, "utf8")).trim();
+  if (!key) throw new Error(`the Jev key file ${s.path} is empty`);
+  return key;
+}
+var unit = (x) => typeof x === "number" && x >= 0 && x <= 1 ? x : void 0;
+async function decide(text, rules, deps) {
+  const res = await deps.fetch(deps.url ?? JEV_URL, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${deps.key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ state: `Rules files of the project:
+${rules}
+
+---
+
+${text}`, questions: QUESTIONS }),
+    signal: AbortSignal.timeout(deps.timeoutMs ?? 6e4)
+  });
+  if (!res.ok) throw new Error(`Jev answered HTTP ${res.status}`);
+  const o = await res.json();
+  const a = o.answers ?? {};
+  const category = Number(a.category?.choice);
+  if (!FEEDBACK_CATEGORIES[category]) throw new Error("Jev gave no category");
+  const label = { category };
+  const conf = unit(a.category?.confidence);
+  const missing = unit(a.missing_rule?.noul);
+  const ignored = unit(a.ignored_rule?.noul);
+  if (conf !== void 0) label.confidence = conf;
+  if (missing !== void 0) label.missingRule = missing;
+  if (ignored !== void 0) label.ignoredRule = ignored;
+  return { label, cost: typeof o.usage?.cost_usd === "number" ? o.usage.cost_usd : 0 };
+}
+async function classifyWithJev(threads, rules, deps) {
+  const result = { labels: {}, failed: [], costUsd: 0 };
+  const queue = [...threads];
+  const worker = async () => {
+    for (let t = queue.shift(); t; t = queue.shift()) {
+      let error = "";
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const { label, cost } = await decide(t.text, rules, deps);
+          result.labels[t.id] = label;
+          result.costUsd += cost;
+          error = "";
+          break;
+        } catch (err) {
+          error = err instanceof Error && err.message.startsWith("Jev ") ? err.message : `request failed (${err?.name ?? "error"})`;
+        }
+      }
+      if (error) result.failed.push({ thread: t.id, error });
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, deps.concurrency ?? 4) }, worker));
+  return result;
+}
+
+// src/retroSetup.ts
+var import_promises8 = require("node:fs/promises");
+var import_node_path9 = require("node:path");
+var FILE_CAP = 24e3;
+var SETUP_BUDGET = 1e5;
+var orNull = (p) => p.catch(() => null);
+var exists = async (p) => await orNull((0, import_promises8.stat)(p)) !== null;
+async function markdown(dir, depth = 3) {
+  if (depth < 0) return [];
+  const names = await (0, import_promises8.readdir)(dir).catch(() => []);
+  const out = [];
+  for (const name of names.sort()) {
+    const p = (0, import_node_path9.join)(dir, name);
+    const st = await orNull((0, import_promises8.stat)(p));
+    if (!st) continue;
+    if (st.isDirectory()) out.push(...await markdown(p, depth - 1));
+    else if (name.endsWith(".md")) out.push(p);
+  }
+  return out;
+}
+var isInside = (path, dir) => {
+  const rel = (0, import_node_path9.relative)(dir, path);
+  return rel !== "" && !rel.startsWith("..") && !(0, import_node_path9.isAbsolute)(rel);
+};
+function projectDirs(root, repos, home) {
+  const parents = [];
+  let dir = (0, import_node_path9.dirname)((0, import_node_path9.resolve)(root));
+  const top = (0, import_node_path9.resolve)(home);
+  while (dir !== (0, import_node_path9.dirname)(dir) && isInside(dir, top)) {
+    parents.unshift(dir);
+    dir = (0, import_node_path9.dirname)(dir);
+  }
+  return [.../* @__PURE__ */ new Set([...parents, (0, import_node_path9.resolve)(root), ...repos.map((r) => (0, import_node_path9.resolve)(r))])];
+}
+async function found(root, repos, home, claudeDir) {
+  const files = [];
+  const add = async (path, kind, scope) => {
+    if (!files.some((f) => f.path === path) && await exists(path)) files.push({ path, kind, scope });
+  };
+  const dirs = projectDirs(root, repos, home);
+  for (const d of dirs)
+    for (const name of ["CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md"])
+      await add((0, import_node_path9.join)(d, name), "rules", "project");
+  await add((0, import_node_path9.join)(claudeDir, "CLAUDE.md"), "rules", "user");
+  const setupOf = async (claude, agents, scope) => {
+    for (const f of await markdown((0, import_node_path9.join)(claude, "rules"))) await add(f, "rules", scope);
+    for (const f of await markdown((0, import_node_path9.join)(claude, "skills"), 2))
+      if ((0, import_node_path9.basename)(f) === "SKILL.md") await add(f, "skill", scope);
+    for (const f of await markdown((0, import_node_path9.join)(claude, "commands"))) await add(f, "command", scope);
+    for (const f of await markdown((0, import_node_path9.join)(claude, "agents"))) await add(f, "agent", scope);
+    for (const name of ["settings.json", "settings.local.json"]) await add((0, import_node_path9.join)(claude, name), "hooks", scope);
+    for (const f of await markdown(agents)) await add(f, "other", scope);
+  };
+  for (const d of [(0, import_node_path9.resolve)(root), ...repos.map((r) => (0, import_node_path9.resolve)(r))])
+    await setupOf((0, import_node_path9.join)(d, ".claude"), (0, import_node_path9.join)(d, ".agents"), "project");
+  await setupOf(claudeDir, (0, import_node_path9.join)(home, ".agents"), "user");
+  return files;
+}
+function header(text) {
+  const m = /^---\n([\s\S]*?)\n---/.exec(text);
+  return m ? `---
+${m[1]}
+---
+(header only: read the file for the rest)` : text.split("\n").slice(0, 5).join("\n");
+}
+function hooksOf(text) {
+  try {
+    const hooks = JSON.parse(text).hooks;
+    return hooks ? JSON.stringify({ hooks }, null, 2) : null;
+  } catch {
+    return null;
+  }
+}
+async function collectSetup(root, repos, home, claudeDir = (0, import_node_path9.join)(home, ".claude"), budget = SETUP_BUDGET) {
+  const out = [];
+  let used = 0;
+  const all = await found(root, repos, home, claudeDir);
+  const order = (f) => (f.kind === "rules" || f.kind === "hooks" ? 0 : 1) + (f.scope === "user" ? 2 : 0);
+  for (const f of [...all].sort((a, b) => order(a) - order(b))) {
+    const raw = await orNull((0, import_promises8.readFile)(f.path, "utf8"));
+    if (raw === null) continue;
+    let content = f.kind === "hooks" ? hooksOf(raw) : raw;
+    if (content === null) continue;
+    let shown = "full";
+    if (f.kind !== "rules" && f.kind !== "hooks" && used + Math.min(content.length, FILE_CAP) > budget) {
+      content = header(content);
+      shown = "header";
+    } else if (content.length > FILE_CAP) {
+      content = content.slice(0, FILE_CAP) + "\n[\u2026 cut: read the file for the rest]";
+      shown = "truncated";
+    }
+    used += content.length;
+    out.push({ ...f, bytes: Buffer.byteLength(raw), content, shown });
+  }
+  return out;
+}
+var TITLES = {
+  rules: "Rules files",
+  hooks: "Hooks (from the settings)",
+  skill: "Skills",
+  command: "Commands",
+  agent: "Sub-agents",
+  other: "Other agent files (.agents/)"
+};
+function renderSetup(root, home, files) {
+  const label = (p) => {
+    if (isInside(p, (0, import_node_path9.resolve)(root))) return (0, import_node_path9.relative)(root, p);
+    if (isInside(p, (0, import_node_path9.resolve)(home))) return "~/" + (0, import_node_path9.relative)(home, p);
+    return p;
+  };
+  const lines = [
+    `# Claude Code setup \u2014 ${root}`,
+    "",
+    `${files.length} files. The project's files come first, then the user's (~). Paths relative to the project.`,
+    "Targets: project-shared = a CLAUDE.md or .claude/ file committed in a repository; project-personal = CLAUDE.local.md",
+    "(or the CLAUDE.md of a parent folder outside any repository); user = ~/.claude/CLAUDE.md, ~/.claude/."
+  ];
+  for (const kind of Object.keys(TITLES)) {
+    const fs = files.filter((f) => f.kind === kind);
+    lines.push("", `## ${TITLES[kind]}`, "");
+    if (fs.length === 0) lines.push("None.");
+    for (const f of fs)
+      lines.push(
+        `### ${label(f.path)} (${f.scope}${f.shown === "full" ? "" : `, ${f.shown}`}, ${f.bytes} bytes)`,
+        "",
+        "````",
+        f.content.trimEnd(),
+        "````",
+        ""
+      );
+  }
+  return lines.join("\n");
+}
+
+// src/retroCli.ts
+var RETRO_CLI_USAGE = `lr-retro \u2014 the Claude Code part of Local Review's retros
+
+  lr-retro setup <retro-id> [--root <dir>]   Write Claude Code's setup of the project (rules files,
+                                             .claude/ and .agents/ of the project and of ~) in a file
+                                             of the retro, for its analysis
+  lr-retro jev <retro-id> [--root <dir>]     Classify the retro's threads with Jev (needs a key:
+                                             lr retro key), and record the labels
+  lr-retro audit <retro-id> [--root <dir>]   Audit the setup with /doctor prompt-audit (a separate,
+                                             read-only Claude Code; several minutes), in a file of
+                                             the retro, for its analysis`;
+var RULES_CAP = 8e3;
+async function runRetroCli(args, io) {
+  try {
+    const { values, positionals } = (0, import_node_util.parseArgs)({
+      args,
+      options: { root: { type: "string" } },
+      allowPositionals: true
+    });
+    const [action, id] = positionals;
+    if (action !== "setup" && action !== "jev" && action !== "audit") {
+      io.out(RETRO_CLI_USAGE);
+      return action === void 0 || action === "help" ? 0 : 1;
+    }
+    if (!id) throw new Error("missing <retro-id>");
+    const root = values.root ?? io.cwd;
+    const book = new RetroBook(await retroHome(root, io.env));
+    const retro = await book.get(id);
+    const home = io.env.HOME?.trim() || (0, import_node_os3.homedir)();
+    const claudeDir = io.env.CLAUDE_CONFIG_DIR?.trim() || (0, import_node_path10.join)(home, ".claude");
+    const repos = retro.stores.map((s) => s.root);
+    if (action === "setup") {
+      const files = await collectSetup(retro.root, repos, home, claudeDir);
+      const file = await writeRetroFile(book, retro.id, "setup.md", renderSetup(retro.root, home, files));
+      const header2 = files.filter((f) => f.shown === "header").length;
+      io.out(
+        `Written: ${file}
+${files.length} setup files (${files.filter((f) => f.kind === "rules").length} rules files)` + (header2 ? `, ${header2} shown by their header only (over the size budget: read them if needed)` : "") + "."
+      );
+      return 0;
+    }
+    if (action === "audit") {
+      const outcome = await runAudit(retro.root, claudeDir, io.env, io.run);
+      if (outcome.kind === "skipped") {
+        io.out(`Audit skipped: ${outcome.reason}.`);
+        return 0;
+      }
+      if (outcome.kind === "failed") {
+        io.err(`lr-retro: the audit failed: ${outcome.reason}.`);
+        return 1;
+      }
+      const file = await writeRetroFile(
+        book,
+        retro.id,
+        "audit.md",
+        [
+          `# Audit of the setup \u2014 ${AUDIT_COMMAND}`,
+          "",
+          `Run for the retro ${retro.id} in ${retro.root}, read-only (no shell, no edit), with access to ${claudeDir}.`,
+          "",
+          outcome.report,
+          ""
+        ].join("\n")
+      );
+      const minutes = outcome.durationMs === null ? "" : ` in ${Math.max(1, Math.round(outcome.durationMs / 6e4))} min`;
+      const cost = outcome.costUsd === null ? "" : ` (about $${outcome.costUsd.toFixed(2)})`;
+      io.out(`Written: ${file}
+The audit of the setup is done${minutes}${cost}.`);
+      return 0;
+    }
+    const key = await readJevKey(io.env);
+    const { threads } = await retroThreads(retro, io.env);
+    const rules = (await collectSetup(retro.root, repos, home, claudeDir)).filter((f) => f.kind === "rules").map((f) => `## ${f.path}
+${f.content}`).join("\n\n").slice(0, RULES_CAP);
+    const result = await classifyWithJev(
+      [...threads.values()].map(({ thread, store }) => ({ id: thread.id, text: threadText(thread, store) })),
+      rules,
+      { fetch: io.fetch ?? fetch, key, url: io.env.LR_JEV_URL?.trim() || void 0 }
+    );
+    const n = Object.keys(result.labels).length;
+    if (n > 0) await book.record(retro.id, [{ type: "retro.classified", by: "jev", labels: result.labels }]);
+    io.out(
+      `Classified ${n}/${threads.size} threads with Jev` + (result.costUsd ? ` (about $${result.costUsd.toFixed(2)})` : "") + "." + (result.failed.length ? `
+${result.failed.length} failed: ${result.failed.map((f) => `${f.thread} (${f.error})`).join(", ")}` : "")
+    );
+    return n > 0 ? 0 : 1;
+  } catch (err) {
+    io.err(`lr-retro: ${err instanceof Error ? err.message : String(err)}`);
+    return 1;
+  }
+}
+
+// src/retroMain.ts
+runRetroCli(process.argv.slice(2), {
+  cwd: process.cwd(),
+  env: process.env,
+  out: (text) => process.stdout.write(text + "\n"),
+  err: (text) => process.stderr.write(text + "\n")
+}).then(
+  (code) => {
+    process.exitCode = code;
+  },
+  (err) => {
+    process.stderr.write(`lr-retro: ${String(err)}
+`);
+    process.exitCode = 1;
+  }
+);
