@@ -121,8 +121,8 @@ describe('lr config', () => {
   it('shows the settings of this machine and changes them', async () => {
     expect((await lr(['config'])).out).toContain('auto-save-worktrees: on');
     expect((await lr(['config', 'set', 'auto-save-worktrees', 'off'])).out).toBe('auto-save-worktrees is now off.\n');
-    expect(await readConfig(env())).toEqual({ autoSaveWorktrees: false });
-    expect(JSON.parse((await lr(['config', '--format', 'json'])).out)).toEqual({ autoSaveWorktrees: false });
+    expect(await readConfig(env())).toMatchObject({ autoSaveWorktrees: false });
+    expect(JSON.parse((await lr(['config', '--format', 'json'])).out)).toMatchObject({ autoSaveWorktrees: false });
     expect((await lr(['config'])).out).toContain('auto-save-worktrees: off');
   });
 

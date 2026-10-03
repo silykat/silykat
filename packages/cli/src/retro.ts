@@ -2,18 +2,24 @@ import { readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import {
   analysisInput,
+  cadenceSummary,
+  changeRef,
+  changesToVerify,
   checkProposals,
+  dueReasons,
   classifyInput,
   COLUMNS,
   DECISIONS,
   exclusionsOf,
   FEEDBACK_CATEGORIES,
+  formatBytes,
   HISTORY_STATES,
   jevKeySetupCommand,
   jevKeyStatus,
   prepareStoreHome,
   RetroBook,
   retroHome,
+  retroCadence,
   retroScope,
   retroThreads,
   statsOf,
@@ -28,10 +34,12 @@ import {
   type Target,
   type ThreadHistory,
   type ThreadLabel,
+  type Verdict,
+  type Verification,
 } from '@local-review/core';
 import { parse, str, UsageError, type Values } from './args';
 import type { Io } from './cli';
-import { formatBytes, storeLabel } from './history';
+import { storeLabel } from './history';
 
 export const RETRO_USAGE = `Retros (look back at the feedback of a period with your agent, and improve its setup):
   lr retro scope [--since <date> | --all]  What a retro would cover: period (since the last retro),
@@ -54,6 +62,8 @@ export const RETRO_USAGE = `Retros (look back at the feedback of a period with y
   lr retro list                            The retros of the project
   lr retro prefs [add --body <text> | remove <id>]     The user's retro preferences
   lr retro key                             Is the Jev key set up, and safely? (never read)
+  lr retro cadence                         Is a retro due? Days and size of the threads since the
+                                          last retro, against the reminder settings (lr config)
   The project is --root (default: the current folder). --body - reads stdin, --body-file a file.`;
 
 const RETRO_OPTIONS = {
@@ -106,6 +116,8 @@ export async function retro(rest: string[], io: Io, parseSince: ParseSince): Pro
       return prefs(ctx);
     case 'key':
       return key(ctx);
+    case 'cadence':
+      return cadence(ctx);
     default:
       throw new UsageError(`unknown retro action: ${action ?? '(none)'}`);
   }
@@ -206,6 +218,11 @@ function renderScope(s: RetroScope): string {
   lines.push('', '## Last retro', '');
   if (!s.lastRetro) lines.push('None: this would be the first retro of this project.');
   else lines.push(...renderOutcome(s.lastRetro));
+  if (s.toVerify.length > 0)
+    lines.push(
+      '',
+      `This retro will check whether the ${s.toVerify.length} change(s) adopted then reduced the feedback on their subject.`,
+    );
   if (s.unfinished.length > 0) {
     lines.push('', '## Unfinished retros', '');
     for (const r of s.unfinished)
@@ -380,11 +397,18 @@ async function check(c: Ctx, record: boolean): Promise<number> {
     threads: new Map([...threads].map(([id, x]) => [id, x.thread])),
     labels: r.classification?.labels ?? {},
     exclusions: exclusionsOf(previous),
+    adopted: changesToVerify(r, previous),
   });
   const rejected = result.rejected.length > 0;
   if (record && !rejected)
     await b.record(r.id, [
-      { type: 'retro.proposed', proposals: result.proposals, watch: result.watch, dropped: result.dropped },
+      {
+        type: 'retro.proposed',
+        proposals: result.proposals,
+        watch: result.watch,
+        dropped: result.dropped,
+        ...(result.verifications.length ? { verifications: result.verifications } : {}),
+      },
     ]);
   if (c.json) c.io.out(JSON.stringify({ recorded: record && !rejected, ...result }, null, 2));
   else c.io.out(renderGuards(result, record && !rejected, record));
@@ -399,18 +423,38 @@ function renderGuards(g: GuardResult, recorded: boolean, record: boolean): strin
         ? `${g.rejected.length} proposal(s) rejected: fix them${record ? ', nothing was recorded' : ''}.`
         : `The guard rails pass: ${g.proposals.length} proposals, ${g.watch.length} to watch, ${g.dropped.length} left out.`,
   ];
-  for (const x of g.rejected) lines.push(`- REJECTED #${x.index} ${x.subject}: ${x.reasons.join('; ')}`);
+  for (const x of g.rejected)
+    lines.push(`- REJECTED ${x.index ? `#${x.index} ` : ''}${x.subject}: ${x.reasons.join('; ')}`);
+  for (const v of g.verifications) lines.push(`- ${verificationLine(v)}`);
   for (const p of g.proposals)
     lines.push(
       `- ${p.id} [${p.column}] ${p.subject}: ${p.figures.threads} threads` +
         (p.askTarget ? ', target to ask' : '') +
         (p.convertedFromKeep ? ', turned from keep into improve' : '') +
-        (p.reopens ? `, reopens ${p.reopens.retro}/${p.reopens.proposal}` : ''),
+        (p.reopens ? `, reopens ${p.reopens.retro}/${p.reopens.proposal}` : '') +
+        (p.revisits ? `, revises ${changeRef(p.revisits)}` : ''),
     );
   for (const w of g.watch) lines.push(`- ${w.id} [watch] ${w.subject}`);
   for (const d of g.dropped) lines.push(`- left out: ${d.subject} (${d.reason})`);
   for (const n of g.notes) lines.push(`  note: ${n}`);
   return lines.join('\n');
+}
+
+const VERDICT: Record<Verdict, string> = {
+  stopped: 'stopped: kept',
+  decreased: 'decreased: kept',
+  'not-decreased': 'not decreased: to revise',
+};
+
+const share = (x: { threads: number; total: number }) =>
+  `${x.threads} of ${x.total} threads${x.total ? ` (${Math.round((x.threads / x.total) * 100)}%)` : ''}`;
+
+/** The check of an adopted change, in one line: its numbers before and after, and the verdict. */
+export function verificationLine(v: Verification): string {
+  return (
+    `${changeRef(v)} ${v.title}: ${share(v.before)} before, ${share(v.after)} since → ${VERDICT[v.verdict]}` +
+    (v.after.ids.length ? ` (${v.after.ids.join(', ')})` : '')
+  );
 }
 
 export const COLUMN_TITLE: Record<Column, string> = { keep: 'To keep', remove: 'To remove', improve: 'To improve' };
@@ -455,6 +499,10 @@ function renderProposal(p: Proposal, r: RetroState, threads: ReadonlyMap<string,
     lines.push(
       `- **Excluded before** (${day(p.reopens.at)}), back for new threads: ${p.reopens.newThreads.join(', ')}`,
     );
+  if (p.revisits)
+    lines.push(
+      `- **Revises** ${changeRef(p.revisits)}, adopted at the last retro: the feedback on its subject did not decrease`,
+    );
   if (d) lines.push(`- **Decision**: ${d.decision}${d.target ? ` (${d.target})` : ''}${d.note ? `: ${d.note}` : ''}`);
   const files = r.applied[p.id];
   if (files?.length) lines.push(`- **Changed**: ${files.join(', ')}`);
@@ -488,6 +536,14 @@ async function show(c: Ctx): Promise<number> {
       (r.finishedAt ? ` · finished ${day(r.finishedAt)}` : ''),
   ];
   if (r.preferences.length) lines.push('', 'Preferences: ' + r.preferences.map((p) => `${p.id} ${p.body}`).join(' · '));
+  if (r.verifications.length || r.feedback.length) {
+    lines.push('', "## The last retro's changes: did they help?", '');
+    for (const f of r.feedback) lines.push(`- **Your feeling**: ${f}`);
+    for (const v of r.verifications) {
+      lines.push(`- ${verificationLine(v)}`);
+      if (v.note) lines.push(`  ${v.note}`);
+    }
+  }
   if (r.proposals.length === 0 && r.watch.length === 0) lines.push('', 'No proposal recorded yet.');
   for (const col of COLUMNS) {
     const ps = r.proposals.filter((p) => p.column === col);
@@ -641,5 +697,18 @@ async function key(c: Ctx): Promise<number> {
           'Fix:',
           ...s.fixes.map((f) => `  ${f}`),
         ].join('\n');
+  });
+}
+
+async function cadence(c: Ctx): Promise<number> {
+  const cad = await retroCadence(c.root, { env: c.io.env });
+  if (!cad) throw new UsageError('a retro is about a project folder, not the root of the file system');
+  return out(c, cad, () => {
+    const t = cad.thresholds;
+    return [
+      cad.due ? `A retro is due: ${cadenceSummary(cad)}.` : `No retro due yet: ${cadenceSummary(cad)}.`,
+      ...dueReasons(cad).map((r) => `- ${r}`),
+      `Reminder settings (lr config): ${t.days} days, or ${formatBytes(t.bytes)} of threads, and never more than ${t.maxDays} days.`,
+    ].join('\n');
   });
 }

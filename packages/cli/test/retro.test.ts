@@ -357,7 +357,12 @@ describe('lr retro', () => {
     const finished = await lr(['retro', 'finish', id, '--format', 'json']);
     expect(JSON.parse(finished.out)).toMatchObject({ files: [], undecided: [] });
     const empty = await startRetroOn(['--all']);
-    await lr(['retro', 'propose', empty, '--body', JSON.stringify({ proposals: [utcProposal(t)] })]);
+    // The change adopted at the first retro must be checked: here, no thread raises its subject again.
+    const unchecked = await lr(['retro', 'propose', empty, '--body', JSON.stringify({ proposals: [utcProposal(t)] })]);
+    expect(unchecked.code).toBe(1);
+    expect(unchecked.out).toContain(`REJECTED check of ${id}/p1: "verify" must check`);
+    const verify = [{ change: `${id}/p1`, threads: [] }];
+    await lr(['retro', 'propose', empty, '--body', JSON.stringify({ proposals: [utcProposal(t)], verify })]);
     expect((await lr(['retro', 'finish', empty])).out).toContain('1 without a decision (p1)');
     expect((await lr(['retro', 'scope', '--since', '2020-01-01'])).out).toContain(
       '- p1 [To improve] Say that dates are UTC: no decision',
