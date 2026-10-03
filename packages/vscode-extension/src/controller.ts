@@ -13,6 +13,7 @@ import {
   saveWorktreeThreads,
   topicOf,
   worktreeInfo,
+  type WorktreeInfo,
   type WorktreeSave,
   type Anchor,
   type BranchRef,
@@ -148,6 +149,8 @@ export class ReviewController implements vscode.Disposable {
   choose: ChooseHandler = warningChoice;
   /** The git worktrees already warned about (kept across restarts by the extension). */
   worktreeWarnings: { has(path: string): boolean; add(path: string): void } = new Set<string>();
+  /** What git said of each open folder: a linked worktree or not. */
+  private readonly worktreeOf = new Map<string, Promise<WorktreeInfo | null>>();
   private ctx: RenderContext;
 
   constructor(
@@ -1345,7 +1348,10 @@ export class ReviewController implements vscode.Disposable {
    */
   async warnIfWorktree(path: string): Promise<void> {
     if (this.worktreeWarnings.has(path)) return;
-    const info = await worktreeInfo(path).catch(() => null);
+    // Asked once per folder: a folder does not become a worktree, and git runs on every comment otherwise.
+    let pending = this.worktreeOf.get(path);
+    if (!pending) this.worktreeOf.set(path, (pending = worktreeInfo(path).catch(() => null)));
+    const info = await pending;
     if (!info?.linked || this.worktreeWarnings.has(path)) return;
     this.worktreeWarnings.add(path);
     const choice = await this.choose(
