@@ -2,6 +2,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { RetroBook, retroHome, retroThreads, threadText, writeRetroFile } from '@local-review/core';
+import { AUDIT_COMMAND, runAudit, type Runner } from './retroAudit';
 import { classifyWithJev, readJevKey, type JevDeps } from './retroJev';
 import { collectSetup, renderSetup } from './retroSetup';
 
@@ -12,7 +13,10 @@ export const RETRO_CLI_USAGE = `lr-retro — the Claude Code part of Local Revie
                                              .claude/ and .agents/ of the project and of ~) in a file
                                              of the retro, for its analysis
   lr-retro jev <retro-id> [--root <dir>]     Classify the retro's threads with Jev (needs a key:
-                                             lr retro key), and record the labels`;
+                                             lr retro key), and record the labels
+  lr-retro audit <retro-id> [--root <dir>]   Audit the setup with /doctor prompt-audit (a separate,
+                                             read-only Claude Code; several minutes), in a file of
+                                             the retro, for its analysis`;
 
 export interface RetroCliIo {
   cwd: string;
@@ -20,6 +24,8 @@ export interface RetroCliIo {
   out(text: string): void;
   err(text: string): void;
   fetch?: JevDeps['fetch'];
+  /** Starts a process (the audit's Claude Code). */
+  run?: Runner;
 }
 
 /** The rules files, as context for each Jev decision. */
@@ -33,7 +39,7 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
       allowPositionals: true,
     });
     const [action, id] = positionals;
-    if (action !== 'setup' && action !== 'jev') {
+    if (action !== 'setup' && action !== 'jev' && action !== 'audit') {
       io.out(RETRO_CLI_USAGE);
       return action === undefined || action === 'help' ? 0 : 1;
     }
@@ -54,6 +60,35 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
           (header ? `, ${header} shown by their header only (over the size budget: read them if needed)` : '') +
           '.',
       );
+      return 0;
+    }
+    if (action === 'audit') {
+      const outcome = await runAudit(retro.root, claudeDir, io.env, io.run);
+      if (outcome.kind === 'skipped') {
+        io.out(`Audit skipped: ${outcome.reason}.`);
+        return 0;
+      }
+      if (outcome.kind === 'failed') {
+        io.err(`lr-retro: the audit failed: ${outcome.reason}.`);
+        return 1;
+      }
+      const file = await writeRetroFile(
+        book,
+        retro.id,
+        'audit.md',
+        [
+          `# Audit of the setup — ${AUDIT_COMMAND}`,
+          '',
+          `Run for the retro ${retro.id} in ${retro.root}, read-only (no shell, no edit), with access to ${claudeDir}.`,
+          '',
+          outcome.report,
+          '',
+        ].join('\n'),
+      );
+      const minutes =
+        outcome.durationMs === null ? '' : ` in ${Math.max(1, Math.round(outcome.durationMs / 60_000))} min`;
+      const cost = outcome.costUsd === null ? '' : ` (about $${outcome.costUsd.toFixed(2)})`;
+      io.out(`Written: ${file}\nThe audit of the setup is done${minutes}${cost}.`);
       return 0;
     }
     const key = await readJevKey(io.env);

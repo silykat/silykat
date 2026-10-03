@@ -4,14 +4,14 @@
 // src/hookMain.ts
 var import_node_os3 = require("node:os");
 
-// ../../packages/core/src/types.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/types.ts
 var SCHEMA_VERSION = 1;
 var STORE_DIR = ".local-review";
 var DELETE_REASONS = ["user", "branch-gone"];
 var branchKey = (b) => b ? `${b.repo}#${b.branch}` : "";
 var reviewScopeKey = (s) => s.branch ? branchKey(s.branch) : s.path ? `path:${s.path}` : "";
 
-// ../../packages/core/src/ids.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/ids.ts
 var import_node_crypto = require("node:crypto");
 var ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 function ulid(now = Date.now()) {
@@ -30,7 +30,7 @@ var newThreadId = () => `t_${ulid()}`;
 var newCommentId = () => `c_${ulid()}`;
 var newReviewId = () => `r_${ulid()}`;
 
-// ../../packages/core/src/events.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/events.ts
 var THREAD_EVENT_TYPES = /* @__PURE__ */ new Set([
   "thread.created",
   "comment.added",
@@ -96,7 +96,7 @@ function isRecord(x) {
   return typeof x === "object" && x !== null && !Array.isArray(x);
 }
 
-// ../../packages/core/src/fold.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/fold.ts
 function foldThread(events, opts = {}) {
   const first = events[0];
   if (!first || first.type !== "thread.created") return null;
@@ -199,11 +199,11 @@ function foldReview(events) {
   return state;
 }
 
-// ../../packages/core/src/store.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/store.ts
 var import_promises = require("node:fs/promises");
 var import_node_path = require("node:path");
 
-// ../../packages/core/src/history.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/history.ts
 function threadHistory(events, opts = {}) {
   const first = events[0];
   if (!first || first.type !== "thread.created") return null;
@@ -320,7 +320,7 @@ function threadHistory(events, opts = {}) {
 }
 var knownReason = (r) => DELETE_REASONS.includes(r) ? r : null;
 
-// ../../packages/core/src/store.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/store.ts
 var Store = class {
   /**
    * A store of the files under `root`, kept in `<root>/.local-review/` by default. `dir` puts it
@@ -711,16 +711,16 @@ function isAlreadyExists(err) {
   return err?.code === "EEXIST";
 }
 
-// ../../packages/core/src/agentView.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/agentView.ts
 var import_node_fs = require("node:fs");
 var import_node_path4 = require("node:path");
 
-// ../../packages/core/src/sessions.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/sessions.ts
 var import_promises3 = require("node:fs/promises");
 var import_node_os = require("node:os");
 var import_node_path3 = require("node:path");
 
-// ../../packages/core/src/topics.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/topics.ts
 var import_node_child_process = require("node:child_process");
 var import_promises2 = require("node:fs/promises");
 var import_node_path2 = require("node:path");
@@ -797,7 +797,7 @@ async function filesChangedSince(dir, sinceMs) {
   return paths.filter((_, i) => recent[i]);
 }
 
-// ../../packages/core/src/sessions.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/sessions.ts
 var CURSOR_HEAD_BYTES = 256;
 function localReviewHome(env = process.env) {
   return env.LOCAL_REVIEW_HOME?.trim() || (0, import_node_path3.join)((0, import_node_os.homedir)(), ".local-review");
@@ -1006,7 +1006,7 @@ function parseDelivery(line) {
   }
 }
 
-// ../../packages/core/src/agentView.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/agentView.ts
 function isStoreRoot(dir, env = process.env) {
   const store = (0, import_node_path4.join)(dir, STORE_DIR);
   if (!(0, import_node_fs.existsSync)((0, import_node_path4.join)(store, "schema-version")) && !(0, import_node_fs.existsSync)((0, import_node_path4.join)(store, "threads"))) return false;
@@ -1020,11 +1020,11 @@ function realpath2(path) {
   }
 }
 
-// ../../packages/core/src/project.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/project.ts
 var import_promises4 = require("node:fs/promises");
 var import_node_path5 = require("node:path");
 
-// ../../packages/core/src/saved.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/saved.ts
 var SAVED_DIR = "saved";
 function parseOrigin(text) {
   let raw;
@@ -1041,7 +1041,7 @@ function parseOrigin(text) {
   return { worktree, root, repo, branch: str("branch"), firstSavedAt: str("firstSavedAt") ?? savedAt, savedAt };
 }
 
-// ../../packages/core/src/project.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/project.ts
 var SKIPPED = /* @__PURE__ */ new Set([
   "node_modules",
   "dist",
@@ -1073,12 +1073,12 @@ async function walk(dir, env, stores, repos) {
   await Promise.all(children.map((e) => walk((0, import_node_path5.join)(dir, e.name), env, stores, repos)));
 }
 
-// ../../packages/core/src/retroGuards.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/retroGuards.ts
 var STOPWORDS = new Set(
   "the and for with that this from into when then than are was were has have not use uses using les des une pour avec dans sur par pas que qui est sont aux ses son leur".split(" ")
 );
 
-// ../../packages/core/src/config.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/config.ts
 var import_promises5 = require("node:fs/promises");
 var import_node_path6 = require("node:path");
 var DEFAULT_CONFIG = { autoSaveWorktrees: true };
@@ -1094,14 +1094,14 @@ async function readConfig(env = process.env) {
   return config;
 }
 
-// ../../packages/core/src/worktrees.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/worktrees.ts
 var import_node_child_process3 = require("node:child_process");
 var import_node_crypto2 = require("node:crypto");
 var import_promises7 = require("node:fs/promises");
 var import_node_os2 = require("node:os");
 var import_node_path8 = require("node:path");
 
-// ../../packages/core/src/storeHome.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/storeHome.ts
 var import_node_child_process2 = require("node:child_process");
 var import_promises6 = require("node:fs/promises");
 var import_node_path7 = require("node:path");
@@ -1129,7 +1129,7 @@ async function prepareStoreHome(home) {
   await (0, import_promises6.mkdir)(store, { recursive: true });
 }
 
-// ../../packages/core/src/worktrees.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/worktrees.ts
 function git2(args, cwd) {
   return new Promise(
     (done) => (0, import_node_child_process3.execFile)("git", args, { cwd, timeout: 3e3 }, (err, stdout) => done(err ? null : stdout.trim()))

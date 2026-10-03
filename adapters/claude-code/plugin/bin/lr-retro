@@ -6,14 +6,14 @@ var import_node_os3 = require("node:os");
 var import_node_path11 = require("node:path");
 var import_node_util = require("node:util");
 
-// ../../packages/core/src/types.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/types.ts
 var SCHEMA_VERSION = 1;
 var STORE_DIR = ".local-review";
 var DELETE_REASONS = ["user", "branch-gone"];
 var branchKey = (b) => b ? `${b.repo}#${b.branch}` : "";
 var reviewScopeKey = (s) => s.branch ? branchKey(s.branch) : s.path ? `path:${s.path}` : "";
 
-// ../../packages/core/src/ids.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/ids.ts
 var import_node_crypto = require("node:crypto");
 var ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 function ulid(now = Date.now()) {
@@ -32,7 +32,7 @@ var newThreadId = () => `t_${ulid()}`;
 var newCommentId = () => `c_${ulid()}`;
 var newReviewId = () => `r_${ulid()}`;
 
-// ../../packages/core/src/events.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/events.ts
 var THREAD_EVENT_TYPES = /* @__PURE__ */ new Set([
   "thread.created",
   "comment.added",
@@ -98,7 +98,7 @@ function isRecord(x) {
   return typeof x === "object" && x !== null && !Array.isArray(x);
 }
 
-// ../../packages/core/src/fold.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/fold.ts
 function foldThread(events, opts = {}) {
   const first = events[0];
   if (!first || first.type !== "thread.created") return null;
@@ -201,11 +201,11 @@ function foldReview(events) {
   return state;
 }
 
-// ../../packages/core/src/store.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/store.ts
 var import_promises = require("node:fs/promises");
 var import_node_path = require("node:path");
 
-// ../../packages/core/src/history.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/history.ts
 var HISTORY_STATES = ["open", "needs-info", "addressed", "resolved", "deleted"];
 function threadHistory(events, opts = {}) {
   const first = events[0];
@@ -339,7 +339,7 @@ function deletionLabel(reason) {
   return reason === "user" ? "removed by the user" : reason === "branch-gone" ? "its branch was deleted" : "reason unknown";
 }
 
-// ../../packages/core/src/store.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/store.ts
 var Store = class {
   /**
    * A store of the files under `root`, kept in `<root>/.local-review/` by default. `dir` puts it
@@ -730,15 +730,15 @@ function isAlreadyExists(err) {
   return err?.code === "EEXIST";
 }
 
-// ../../packages/core/src/agentView.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/agentView.ts
 var import_node_fs = require("node:fs");
 var import_node_path4 = require("node:path");
 
-// ../../packages/core/src/sessions.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/sessions.ts
 var import_node_os = require("node:os");
 var import_node_path3 = require("node:path");
 
-// ../../packages/core/src/topics.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/topics.ts
 var import_node_child_process = require("node:child_process");
 var import_promises2 = require("node:fs/promises");
 var import_node_path2 = require("node:path");
@@ -766,7 +766,7 @@ async function worktreeTopOf(dir) {
   return await git(["rev-parse", "--show-toplevel"], await existingDir(dir)) || null;
 }
 
-// ../../packages/core/src/sessions.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/sessions.ts
 var LOOSE_ROOT = "/";
 function looseStore(env = process.env) {
   return new Store(LOOSE_ROOT, (0, import_node_path3.join)(localReviewHome(env), "files"));
@@ -778,7 +778,7 @@ function localReviewHome(env = process.env) {
   return env.LOCAL_REVIEW_HOME?.trim() || (0, import_node_path3.join)((0, import_node_os.homedir)(), ".local-review");
 }
 
-// ../../packages/core/src/agentView.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/agentView.ts
 function isStoreRoot(dir, env = process.env) {
   const store = (0, import_node_path4.join)(dir, STORE_DIR);
   if (!(0, import_node_fs.existsSync)((0, import_node_path4.join)(store, "schema-version")) && !(0, import_node_fs.existsSync)((0, import_node_path4.join)(store, "threads"))) return false;
@@ -801,12 +801,12 @@ function realpath2(path) {
   }
 }
 
-// ../../packages/core/src/project.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/project.ts
 var import_node_child_process2 = require("node:child_process");
 var import_promises4 = require("node:fs/promises");
 var import_node_path6 = require("node:path");
 
-// ../../packages/core/src/saved.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/saved.ts
 var import_promises3 = require("node:fs/promises");
 var import_node_path5 = require("node:path");
 var SAVED_DIR = "saved";
@@ -840,7 +840,7 @@ function parseOrigin(text) {
   return { worktree, root, repo, branch: str("branch"), firstSavedAt: str("firstSavedAt") ?? savedAt, savedAt };
 }
 
-// ../../packages/core/src/project.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/project.ts
 var SKIPPED = /* @__PURE__ */ new Set([
   "node_modules",
   "dist",
@@ -960,7 +960,7 @@ async function projectHistory(root, opts = {}) {
   };
 }
 
-// ../../packages/core/src/retro.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/retro.ts
 var import_promises5 = require("node:fs/promises");
 var import_node_path7 = require("node:path");
 var RETRO_SCHEMA_VERSION = 1;
@@ -1230,12 +1230,12 @@ var RetroBook = class {
   }
 };
 
-// ../../packages/core/src/retroGuards.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/retroGuards.ts
 var STOPWORDS = new Set(
   "the and for with that this from into when then than are was were has have not use uses using les des une pour avec dans sur par pas que qui est sont aux ses son leur".split(" ")
 );
 
-// ../../packages/core/src/retroKey.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/retroKey.ts
 var import_promises6 = require("node:fs/promises");
 var import_node_os2 = require("node:os");
 var import_node_path8 = require("node:path");
@@ -1269,7 +1269,7 @@ async function jevKeyStatus(env = process.env) {
   return status;
 }
 
-// ../../packages/core/src/retroScope.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/retroScope.ts
 var import_promises7 = require("node:fs/promises");
 var import_node_path9 = require("node:path");
 var who = (by, agent) => by === "user" ? "User" : agent ?? "Agent";
@@ -1314,6 +1314,80 @@ async function writeRetroFile(book, id, name, content) {
   const file = (0, import_node_path9.join)(await book.workDir(id), name);
   await (0, import_promises7.writeFile)(file, content);
   return file;
+}
+
+// src/retroAudit.ts
+var import_node_child_process3 = require("node:child_process");
+var AUDIT_COMMAND = "/doctor prompt-audit";
+var AUDIT_MIN_VERSION = [2, 1, 283];
+var AUDIT_MODEL = "opus";
+var AUDIT_TIMEOUT_MS = 15 * 6e4;
+var runProcess = (command, args, { cwd, env, timeoutMs }) => new Promise((resolve6) => {
+  (0, import_node_child_process3.execFile)(command, args, { cwd, env, timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
+    const e = err;
+    resolve6({
+      stdout,
+      stderr,
+      code: e ? typeof e.code === "number" ? e.code : null : 0,
+      timedOut: Boolean(e?.killed)
+    });
+  });
+});
+function auditArgs(claudeDir) {
+  return [
+    "-p",
+    AUDIT_COMMAND,
+    "--model",
+    AUDIT_MODEL,
+    "--permission-mode",
+    "default",
+    "--disallowedTools",
+    "Bash",
+    "Edit",
+    "Write",
+    "NotebookEdit",
+    "--add-dir",
+    claudeDir,
+    "--output-format",
+    "json"
+  ];
+}
+var parseVersion = (text) => {
+  const m = /(\d+)\.(\d+)\.(\d+)/.exec(text);
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+};
+var atLeast = (v, min) => {
+  for (let i = 0; i < min.length; i++) if (v[i] !== min[i]) return v[i] > min[i];
+  return true;
+};
+async function runAudit(root, claudeDir, env, run = runProcess, timeoutMs = AUDIT_TIMEOUT_MS) {
+  const claude = env.LR_CLAUDE_BIN?.trim() || "claude";
+  const v = await run(claude, ["--version"], { cwd: root, env, timeoutMs: 3e4 });
+  const version = v.code === 0 ? parseVersion(v.stdout) : null;
+  if (!version) return { kind: "skipped", reason: "Claude Code was not found" };
+  if (!atLeast(version, AUDIT_MIN_VERSION))
+    return {
+      kind: "skipped",
+      reason: `${AUDIT_COMMAND} needs Claude Code ${AUDIT_MIN_VERSION.join(".")} or later (here ${version.join(".")})`
+    };
+  const r = await run(claude, auditArgs(claudeDir), { cwd: root, env, timeoutMs });
+  if (r.timedOut) return { kind: "failed", reason: `it took more than ${Math.round(timeoutMs / 6e4)} min` };
+  let out;
+  try {
+    out = JSON.parse(r.stdout);
+  } catch {
+    const why = (r.stderr || r.stdout).trim().split("\n").at(-1) ?? "";
+    return { kind: "failed", reason: `Claude Code ended with code ${r.code ?? "?"}${why ? `: ${why}` : ""}` };
+  }
+  const report = typeof out.result === "string" ? out.result.trim() : "";
+  if (out.is_error === true || !report)
+    return { kind: "failed", reason: report ? report.split("\n")[0] : "the audit gave no report" };
+  return {
+    kind: "done",
+    report,
+    costUsd: typeof out.total_cost_usd === "number" ? out.total_cost_usd : null,
+    durationMs: typeof out.duration_ms === "number" ? out.duration_ms : null
+  };
 }
 
 // src/retroJev.ts
@@ -1537,7 +1611,10 @@ var RETRO_CLI_USAGE = `lr-retro \u2014 the Claude Code part of Local Review's re
                                              .claude/ and .agents/ of the project and of ~) in a file
                                              of the retro, for its analysis
   lr-retro jev <retro-id> [--root <dir>]     Classify the retro's threads with Jev (needs a key:
-                                             lr retro key), and record the labels`;
+                                             lr retro key), and record the labels
+  lr-retro audit <retro-id> [--root <dir>]   Audit the setup with /doctor prompt-audit (a separate,
+                                             read-only Claude Code; several minutes), in a file of
+                                             the retro, for its analysis`;
 var RULES_CAP = 8e3;
 async function runRetroCli(args, io) {
   try {
@@ -1547,7 +1624,7 @@ async function runRetroCli(args, io) {
       allowPositionals: true
     });
     const [action, id] = positionals;
-    if (action !== "setup" && action !== "jev") {
+    if (action !== "setup" && action !== "jev" && action !== "audit") {
       io.out(RETRO_CLI_USAGE);
       return action === void 0 || action === "help" ? 0 : 1;
     }
@@ -1566,6 +1643,35 @@ async function runRetroCli(args, io) {
         `Written: ${file}
 ${files.length} setup files (${files.filter((f) => f.kind === "rules").length} rules files)` + (header2 ? `, ${header2} shown by their header only (over the size budget: read them if needed)` : "") + "."
       );
+      return 0;
+    }
+    if (action === "audit") {
+      const outcome = await runAudit(retro.root, claudeDir, io.env, io.run);
+      if (outcome.kind === "skipped") {
+        io.out(`Audit skipped: ${outcome.reason}.`);
+        return 0;
+      }
+      if (outcome.kind === "failed") {
+        io.err(`lr-retro: the audit failed: ${outcome.reason}.`);
+        return 1;
+      }
+      const file = await writeRetroFile(
+        book,
+        retro.id,
+        "audit.md",
+        [
+          `# Audit of the setup \u2014 ${AUDIT_COMMAND}`,
+          "",
+          `Run for the retro ${retro.id} in ${retro.root}, read-only (no shell, no edit), with access to ${claudeDir}.`,
+          "",
+          outcome.report,
+          ""
+        ].join("\n")
+      );
+      const minutes = outcome.durationMs === null ? "" : ` in ${Math.max(1, Math.round(outcome.durationMs / 6e4))} min`;
+      const cost = outcome.costUsd === null ? "" : ` (about $${outcome.costUsd.toFixed(2)})`;
+      io.out(`Written: ${file}
+The audit of the setup is done${minutes}${cost}.`);
       return 0;
     }
     const key = await readJevKey(io.env);

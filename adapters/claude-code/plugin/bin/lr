@@ -27,14 +27,14 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 var import_promises13 = require("node:fs/promises");
 var import_node_path16 = require("node:path");
 
-// ../core/src/types.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/types.ts
 var SCHEMA_VERSION = 1;
 var STORE_DIR = ".local-review";
 var DELETE_REASONS = ["user", "branch-gone"];
 var branchKey = (b) => b ? `${b.repo}#${b.branch}` : "";
 var reviewScopeKey = (s) => s.branch ? branchKey(s.branch) : s.path ? `path:${s.path}` : "";
 
-// ../core/src/ids.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/ids.ts
 var import_node_crypto = require("node:crypto");
 var ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 function ulid(now = Date.now()) {
@@ -53,12 +53,12 @@ var newThreadId = () => `t_${ulid()}`;
 var newCommentId = () => `c_${ulid()}`;
 var newReviewId = () => `r_${ulid()}`;
 
-// ../core/src/anchorContext.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/anchorContext.ts
 function splitLines(text2) {
   return text2.split(/\r\n|\r|\n/);
 }
 
-// ../core/src/events.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/events.ts
 var THREAD_EVENT_TYPES = /* @__PURE__ */ new Set([
   "thread.created",
   "comment.added",
@@ -124,7 +124,7 @@ function isRecord(x) {
   return typeof x === "object" && x !== null && !Array.isArray(x);
 }
 
-// ../core/src/fold.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/fold.ts
 function foldThread(events, opts = {}) {
   const first = events[0];
   if (!first || first.type !== "thread.created") return null;
@@ -227,11 +227,11 @@ function foldReview(events) {
   return state;
 }
 
-// ../core/src/store.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/store.ts
 var import_promises = require("node:fs/promises");
 var import_node_path = require("node:path");
 
-// ../core/src/history.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/history.ts
 var HISTORY_STATES = ["open", "needs-info", "addressed", "resolved", "deleted"];
 function threadHistory(events, opts = {}) {
   const first = events[0];
@@ -365,7 +365,7 @@ function deletionLabel(reason) {
   return reason === "user" ? "removed by the user" : reason === "branch-gone" ? "its branch was deleted" : "reason unknown";
 }
 
-// ../core/src/store.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/store.ts
 var Store = class {
   /**
    * A store of the files under `root`, kept in `<root>/.local-review/` by default. `dir` puts it
@@ -756,7 +756,7 @@ function isAlreadyExists(err) {
   return err?.code === "EEXIST";
 }
 
-// ../core/src/reanchor.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/reanchor.ts
 function reanchor(anchor, fileText) {
   if (!anchor.range) return null;
   const lines = splitLines(fileText);
@@ -799,17 +799,17 @@ function contextScore(anchor, lines, start2, n) {
   return score;
 }
 
-// ../core/src/agentView.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/agentView.ts
 var import_node_crypto2 = require("node:crypto");
 var import_node_fs = require("node:fs");
 var import_node_path4 = require("node:path");
 
-// ../core/src/sessions.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/sessions.ts
 var import_promises3 = require("node:fs/promises");
 var import_node_os = require("node:os");
 var import_node_path3 = require("node:path");
 
-// ../core/src/topics.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/topics.ts
 var import_node_child_process = require("node:child_process");
 var import_promises2 = require("node:fs/promises");
 var import_node_path2 = require("node:path");
@@ -877,7 +877,7 @@ async function worktreeTopOf(dir) {
   return await git(["rev-parse", "--show-toplevel"], await existingDir(dir)) || null;
 }
 
-// ../core/src/sessions.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/sessions.ts
 var CURSOR_HEAD_BYTES = 256;
 var LOOSE_ROOT = "/";
 function looseStore(env = process.env) {
@@ -1116,7 +1116,7 @@ function sessionOfProcess(sessions2, ancestors) {
   return void 0;
 }
 
-// ../core/src/agentView.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/agentView.ts
 function userRevision(comments) {
   const asked = comments.filter((c) => c.author === "user" && !c.isDraft).map((c) => [c.id, c.body]);
   return (0, import_node_crypto2.createHash)("sha256").update(JSON.stringify(asked)).digest("hex").slice(0, 8);
@@ -1181,7 +1181,7 @@ function realpath2(path) {
   }
 }
 
-// ../core/src/anchorVersion.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/anchorVersion.ts
 function isIndexRef(ref) {
   return ref === "~" || ref === "";
 }
@@ -1193,12 +1193,12 @@ function versionTag(anchor) {
   return short ?? anchor.ref;
 }
 
-// ../core/src/project.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/project.ts
 var import_node_child_process2 = require("node:child_process");
 var import_promises5 = require("node:fs/promises");
 var import_node_path6 = require("node:path");
 
-// ../core/src/saved.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/saved.ts
 var import_promises4 = require("node:fs/promises");
 var import_node_path5 = require("node:path");
 var SAVED_DIR = "saved";
@@ -1232,7 +1232,7 @@ function parseOrigin(text2) {
   return { worktree: worktree2, root, repo, branch: str2("branch"), firstSavedAt: str2("firstSavedAt") ?? savedAt, savedAt };
 }
 
-// ../core/src/project.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/project.ts
 var SKIPPED2 = /* @__PURE__ */ new Set([
   "node_modules",
   "dist",
@@ -1357,7 +1357,7 @@ async function projectHistory(root, opts = {}) {
   };
 }
 
-// ../core/src/retro.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/retro.ts
 var import_promises6 = require("node:fs/promises");
 var import_node_path7 = require("node:path");
 var RETRO_SCHEMA_VERSION = 1;
@@ -1641,7 +1641,7 @@ var RetroBook = class {
   }
 };
 
-// ../core/src/retroGuards.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/retroGuards.ts
 function threadSignals(t) {
   let reopened = false;
   let question = false;
@@ -1895,7 +1895,7 @@ function checkProposals(input2, ctx) {
   return result;
 }
 
-// ../core/src/retroKey.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/retroKey.ts
 var import_promises7 = require("node:fs/promises");
 var import_node_os2 = require("node:os");
 var import_node_path8 = require("node:path");
@@ -1933,7 +1933,7 @@ function jevKeySetupCommand(path = "$HOME/.config/local-review/jev-key") {
   return `sh -c 'umask 077 && mkdir -p "${dir}" && trap "stty echo; echo; exit 130" INT TERM && printf "Jev API key (hidden): " && stty -echo && IFS= read -r k; stty echo; echo; [ -n "$k" ] && : > "${path}" && chmod 600 "${path}" && printf "%s\\n" "$k" > "${path}" && echo "Saved in ${path}"'`;
 }
 
-// ../core/src/retroScope.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/retroScope.ts
 var import_promises8 = require("node:fs/promises");
 var import_node_path9 = require("node:path");
 var DAY = 864e5;
@@ -2135,7 +2135,7 @@ async function writeRetroFile(book2, id, name, content) {
   return file;
 }
 
-// ../core/src/config.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/config.ts
 var import_promises9 = require("node:fs/promises");
 var import_node_path10 = require("node:path");
 var DEFAULT_CONFIG = { autoSaveWorktrees: true };
@@ -2172,13 +2172,13 @@ async function writeConfig(change, env = process.env) {
   return readConfig(env);
 }
 
-// ../core/src/worktrees.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/worktrees.ts
 var import_node_child_process4 = require("node:child_process");
 var import_node_crypto3 = require("node:crypto");
 var import_promises11 = require("node:fs/promises");
 var import_node_path12 = require("node:path");
 
-// ../core/src/storeHome.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/storeHome.ts
 var import_node_child_process3 = require("node:child_process");
 var import_promises10 = require("node:fs/promises");
 var import_node_path11 = require("node:path");
@@ -2206,7 +2206,7 @@ async function prepareStoreHome(home) {
   await (0, import_promises10.mkdir)(store, { recursive: true });
 }
 
-// ../core/src/worktrees.ts
+// ../../../../../../../../../../Users/thegreen/local-review/src/local-review/packages/core/src/worktrees.ts
 function git2(args, cwd) {
   return new Promise(
     (done) => (0, import_node_child_process4.execFile)("git", args, { cwd, timeout: 3e3 }, (err, stdout) => done(err ? null : stdout.trim()))
@@ -2570,9 +2570,14 @@ var RETRO_USAGE = `Retros (look back at the feedback of a period with your agent
   lr retro check <retro> --body -          Apply the guard rails to proposals, record nothing
   lr retro propose <retro> --body -        Record the proposals (refused while some are rejected)
   lr retro show <retro>                    The retro: proposals with their threads and numbers
+  lr retro show <retro> <proposal> | --next
+                                          One proposal, to present it to the user (--next: the next
+                                          one to decide, in the order of the discussion)
   lr retro decide <retro> <proposal> accepted|modified|excluded|retargeted
            [--target project-shared|project-personal|user] [--note <text>]
   lr retro applied <retro> <proposal> --file <path>\u2026   Files changed for a proposal
+  lr retro undo <retro> <proposal>         Undo a decision recorded by mistake, with its files
+                                          (the journal is never edited by hand)
   lr retro finish <retro>                  Close the retro: prints the files changed
   lr retro list                            The retros of the project
   lr retro prefs [add --body <text> | remove <id>]     The user's retro preferences
@@ -2588,7 +2593,8 @@ var RETRO_OPTIONS = {
   by: { type: "string" },
   target: { type: "string" },
   note: { type: "string" },
-  file: { type: "string", multiple: true }
+  file: { type: "string", multiple: true },
+  next: { type: "boolean" }
 };
 async function retro(rest, io, parseSince2) {
   const [action, ...args] = rest;
@@ -2617,6 +2623,8 @@ async function retro(rest, io, parseSince2) {
       return decide(ctx);
     case "applied":
       return applied(ctx);
+    case "undo":
+      return undo(ctx);
     case "finish":
       return finish(ctx);
     case "list":
@@ -2883,10 +2891,11 @@ function renderProposal(p, r, threads) {
   const lines = [
     `### ${p.id} \xB7 ${COLUMN_TITLE[p.column]} \xB7 ${p.title}`,
     "",
-    `- **Source**: ${f.threads} threads`,
+    `- **Source**: ${f.threads} threads` + (p.audit ? `, and the audit of the setup` : ""),
     ...p.evidence.map(
       (e) => `  - ${e.thread}${where3(threads.get(e.thread)?.thread)}${e.excerpt ? `: "${e.excerpt}"` : ""}`
     ),
+    ...p.audit ? [`  - ${AUDIT_NAME}, ${p.audit.location}: ${p.audit.finding}`] : [],
     `- **Numbers**: ${f.threads} threads, ${f.reopened} reopened, ${f.questions} with a question from the agent, ${f.rounds} round(s) of back-and-forth, from ${day(f.first)} to ${day(f.last)}`,
     `- **File**: ${p.file}` + (p.rule ? `
 - **Rule**: ${p.rule}` : ""),
@@ -2910,8 +2919,75 @@ function renderProposal(p, r, threads) {
   if (files?.length) lines.push(`- **Changed**: ${files.join(", ")}`);
   return lines.join("\n");
 }
+var AUDIT_NAME = "/doctor prompt-audit";
+var DISCUSSION = ["improve", "remove", "keep"];
+var blockquote = (text2) => text2.split("\n").map((l) => l.trim() ? `> ${l}` : ">").join("\n");
+function presentProposal(p, position, total, r, threads) {
+  const f = p.figures;
+  const d = r.decisions[p.id];
+  const source = `${f.threads} thread${f.threads === 1 ? "" : "s"}` + (p.audit ? `, and the audit of your setup (${AUDIT_NAME})` : "");
+  const lines = [
+    "---",
+    "",
+    `## Proposal ${position}/${total} (${p.id}) \xB7 ${COLUMN_TITLE[p.column]} \xB7 ${p.title}`,
+    "",
+    `**Source**: ${source}`,
+    ...p.evidence.map(
+      (e) => `- ${e.thread}${where3(threads.get(e.thread)?.thread)}${e.excerpt ? `: "${e.excerpt}"` : ""}`
+    ),
+    ...p.audit ? [`- ${AUDIT_NAME}, \`${p.audit.location}\`: ${p.audit.finding}`] : [],
+    ""
+  ];
+  if (f.threads > 0)
+    lines.push(
+      `**Numbers**: ${f.threads} threads, ${f.reopened} reopened, ${f.questions} with a question from the agent, ${f.rounds} round(s) of back-and-forth, from ${day(f.first)} to ${day(f.last)}.`,
+      ""
+    );
+  lines.push(`**File**: \`${p.file}\` (${p.kind})`, "");
+  if (p.rule) lines.push("**Existing rule**:", blockquote(p.rule), "");
+  lines.push(`**Why**: ${p.why}`, "");
+  if (p.change) lines.push("**Proposed change**:", blockquote(p.change), "");
+  lines.push(
+    p.askTarget ? `**Target**: to choose (nothing in the threads tells it). Suggested: ${TARGET_TITLE[p.target]}${p.targetWhy ? `, ${p.targetWhy}` : ""}.` : `**Target**: ${TARGET_TITLE[p.target]}${p.targetWhy ? `, because ${p.targetWhy}` : ""}.`,
+    "",
+    `**Confidence**: ${Math.round(p.confidence * 100)}% \xB7 recommended: ${p.recommendation}`
+  );
+  if (p.convertedFromKeep)
+    lines.push(
+      "",
+      `**Guard rail**: proposed as "keep", but you had to enforce the rule in ${p.convertedFromKeep.threads.join(", ")}.`
+    );
+  if (p.reopens)
+    lines.push(
+      "",
+      `**Excluded before** (${day(p.reopens.at)}), back for new threads: ${p.reopens.newThreads.join(", ")}.`
+    );
+  if (d) lines.push("", `**Decision**: ${d.decision}${d.target ? ` (${d.target})` : ""}${d.note ? `: ${d.note}` : ""}`);
+  return lines.join("\n");
+}
+async function showOne(c, r) {
+  const order = DISCUSSION.flatMap((col) => r.proposals.filter((p2) => p2.column === col));
+  const wanted = c.positionals[1];
+  const p = wanted ? order.find((x) => x.id === wanted) : order.find((x) => !r.decisions[x.id]);
+  if (!p) {
+    if (wanted) throw new Error(`Proposal not found: ${wanted} (lr retro show ${r.id})`);
+    c.io.out(order.length ? `All ${order.length} proposals are decided.` : "No proposal recorded yet.");
+    return 0;
+  }
+  const position = order.indexOf(p) + 1;
+  if (c.json) {
+    c.io.out(
+      JSON.stringify({ position, total: order.length, proposal: p, decision: r.decisions[p.id] ?? null }, null, 2)
+    );
+    return 0;
+  }
+  const { threads } = await retroThreads(r, c.io.env);
+  c.io.out(presentProposal(p, position, order.length, r, threads));
+  return 0;
+}
 async function show(c) {
   const { retro: r } = await retroOf(c);
+  if (c.positionals[1] || c.values.next) return showOne(c, r);
   const { threads } = await retroThreads(r, c.io.env);
   if (c.json) {
     c.io.out(
@@ -2976,6 +3052,21 @@ async function decide(c) {
     { type: "retro.decided", proposal: p.id, decision, ...target ? { target } : {}, ...note ? { note } : {} }
   ]);
   c.io.out(`${p.id} ${decision}${target ? ` (${target})` : ""}.`);
+  return 0;
+}
+async function undo(c) {
+  const { book: b, retro: r } = await retroOf(c);
+  const proposal = c.positionals[1];
+  const p = r.proposals.find((x) => x.id === proposal);
+  if (!p) throw new Error(`Proposal not found: ${proposal ?? "(none)"} (lr retro show ${r.id})`);
+  if (r.finishedAt) throw new Error(`Retro ${r.id} is finished`);
+  const d = r.decisions[p.id];
+  if (!d) throw new Error(`${p.id} has no decision to undo`);
+  const files = r.applied[p.id] ?? [];
+  await b.record(r.id, [{ type: "retro.undone", proposal: p.id }]);
+  c.io.out(
+    `${p.id}: decision "${d.decision}" undone` + (files.length ? `, and its files changed forgotten (${files.join(", ")}): undo those changes if they were not for it.` : ".")
+  );
   return 0;
 }
 async function applied(c) {
