@@ -1,6 +1,5 @@
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { parseArgs } from 'node:util';
 import {
   agentView,
   findStoreRoot,
@@ -21,7 +20,9 @@ import {
   type ThreadStatus,
 } from '@local-review/core';
 import { locate, renderReviews, renderThread, type Located } from './digest';
+import { parse, str, UsageError, type Values } from './args';
 import { historyJson, renderHistory } from './history';
+import { retro, RETRO_USAGE } from './retro';
 
 export interface Io {
   cwd: string;
@@ -38,8 +39,6 @@ export interface Io {
  * other errors; `CHANGED`, that the user changed the thread since the version the agent read.
  */
 export const EXIT = { OK: 0, ERROR: 1, NOT_FOUND: 2, CHANGED: 3 } as const;
-
-class UsageError extends Error {}
 
 /** The user changed the thread since the agent read it: its reply would answer an old request. */
 class ChangedError extends Error {}
@@ -67,6 +66,8 @@ History (every thread, whatever its state: open, addressed, resolved, deleted):
                                           even outside it. --since: threads active since a date
                                           (2026-10-01, local midnight; an ISO time; or 7d for
                                           7 days ago). md starts with counts per state and store
+
+${RETRO_USAGE}
 
 Subscriptions (comments are published to the sessions subscribed to their branch or path):
   lr subscribe [<dir-or-file>] [--path]   Subscribe this session to the branch of that folder
@@ -106,6 +107,8 @@ export async function runCli(args: string[], io: Io): Promise<number> {
         return await setStatus(rest, io);
       case 'history':
         return await history(rest, io);
+      case 'retro':
+        return await retro(rest, io, parseSince);
       case 'sessions':
         return await sessions(rest, io);
       case 'session':
@@ -139,22 +142,6 @@ export async function runCli(args: string[], io: Io): Promise<number> {
     return /not found/i.test(message) ? EXIT.NOT_FOUND : EXIT.ERROR;
   }
 }
-
-type Values = Record<string, string | boolean | string[] | undefined>;
-
-function parse(
-  rest: string[],
-  options: Record<string, { type: 'string' | 'boolean'; multiple?: boolean }>,
-): { values: Values; positionals: string[] } {
-  try {
-    const parsed = parseArgs({ args: rest, options: { root: { type: 'string' }, ...options }, allowPositionals: true });
-    return { values: parsed.values as Values, positionals: parsed.positionals };
-  } catch (err) {
-    throw new UsageError(err instanceof Error ? err.message : String(err));
-  }
-}
-
-const str = (v: Values[string]): string | undefined => (typeof v === 'string' ? v : undefined);
 
 function openStore(root: string | undefined, io: Io): Store {
   const dir = root ? resolve(io.cwd, root) : findStoreRoot(io.cwd, io.env);
