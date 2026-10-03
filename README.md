@@ -160,7 +160,7 @@ A file in none of the folders open in VS Code (e.g. a spec your agent wrote in a
 
 When a comment reaches Claude, it follows the `local-review:review` skill: it reads the threads waiting for it with their current code, then for each one either applies the request and replies **addressed**, or asks one precise question (**needs-info**) without touching the code, or explains a disagreement. It ends with a short summary. You can also ask for it at any time: **`/local-review:review`**.
 
-Each reply keeps the link to the conversation it was written in: the id of the Claude Code session, and of the step that wrote it. `lr history` shows it (resume that conversation with `claude --resume <session id>`), and a retro reads it back to understand an ambiguous thread.
+Each reply keeps the link to the conversation it was written in: the id of the Claude Code session, and of the step that wrote it. `lr history` shows it (resume that conversation with `claude --resume <session id>`, from the folder it ran in), and a retro reads it back to understand an ambiguous thread.
 
 ### Sessions and subscriptions
 
