@@ -108,6 +108,7 @@ function renderEntry(e: HistoryEntry): string {
       if (e.publishedAt) notes.push(`submitted in a review ${e.publishedAt}`);
       if (e.editedAt) notes.push(`edited ${e.editedAt}`);
       if (e.deletedAt) notes.push(`deleted ${e.deletedAt}`);
+      if (e.session) notes.push(`session ${e.session.id}${e.session.message ? `, message ${e.session.message}` : ''}`);
       return `**${who(e.author, e.agent)}** (${notes.join(', ')}):\n${e.body}`;
     }
     case 'status':
@@ -147,6 +148,7 @@ function entryJson(e: HistoryEntry) {
         ...(e.publishedAt ? { publishedAt: e.publishedAt } : {}),
         ...(e.editedAt ? { editedAt: e.editedAt } : {}),
         ...(e.deletedAt ? { deletedAt: e.deletedAt } : {}),
+        ...(e.session ? { session: e.session } : {}),
       };
     case 'status':
       return { type: 'status', status: e.status, by: author(e.by, e.agent), at: e.at };

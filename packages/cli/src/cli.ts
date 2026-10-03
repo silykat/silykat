@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import {
   agentView,
+  callFor,
   CONFIG_KEYS,
   configFile,
   findStoreRoot,
@@ -21,6 +22,7 @@ import {
   topicLabel,
   topicOf,
   Store,
+  type AgentSessionRef,
   type AgentThreadView,
   type ThreadStatus,
 } from '@local-review/core';
@@ -58,7 +60,10 @@ Usage:
                                           the threads of what it is subscribed to (--any-topic: all)
   lr show <thread-id> [--format md|json]  One thread, in full
   lr reply <thread-id> --agent <name> (--body <markdown> | --body-file <path> | --body -)
-           [--status addressed|needs-info] [--rev <version>]
+           [--status addressed|needs-info] [--rev <version>] [--session <id>] [--message <id>]
+           The reply records your session (found from the processes running lr, or --session,
+           or $LR_SESSION) and, when known, your message (--message): a retro can then read
+           your conversation back
   lr set-status <thread-id> addressed|needs-info --agent <name> [--rev <version>]
            --rev: the version you read (lr list / lr show): refused, exit 3, if the user changed
            the thread since. Exit 2: the thread no longer exists (e.g. deleted by the user).
@@ -301,6 +306,8 @@ async function reply(rest: string[], io: Io): Promise<number> {
     'body-file': { type: 'string' },
     status: { type: 'string' },
     rev: { type: 'string' },
+    session: { type: 'string' },
+    message: { type: 'string' },
   });
   const id = requireThreadId(positionals);
   const agent = requireAgent(str(values.agent), io);
@@ -313,9 +320,33 @@ async function reply(rest: string[], io: Io): Promise<number> {
 
   const store = openStore(str(values.root), io);
   await assertCurrent(store, id, str(values.rev));
-  const state = await store.addComment(id, { author: 'agent', agent, body, reviewId: null }, status ? { status } : {});
+  const session = await replySession(id, values, io);
+  const state = await store.addComment(
+    id,
+    { author: 'agent', agent, body, reviewId: null, ...(session ? { session } : {}) },
+    status ? { status } : {},
+  );
   io.out(`Replied on ${state.id} (status: ${state.status}).`);
   return EXIT.OK;
+}
+
+/**
+ * The agent's conversation a reply is written in, for retros: the session (named, or the registered
+ * session this command runs in) and, when its adapter noted it, the message running `lr reply`. A
+ * best effort: a reply never fails for want of it.
+ */
+async function replySession(threadId: string, values: Values, io: Io): Promise<AgentSessionRef | undefined> {
+  try {
+    const registry = registryFor(io);
+    const named = str(values.session)?.trim() || io.env.LR_SESSION?.trim();
+    const id =
+      named || sessionOfProcess(await registry.list(), (await io.ancestors?.()) ?? (await processAncestors()))?.id;
+    if (!id) return undefined;
+    const message = str(values.message)?.trim() || callFor(await registry.calls(id).catch(() => []), threadId)?.message;
+    return message ? { id, message } : { id };
+  } catch {
+    return undefined;
+  }
 }
 
 async function setStatus(rest: string[], io: Io): Promise<number> {
