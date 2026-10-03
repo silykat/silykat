@@ -1,4 +1,8 @@
-export const SCHEMA_VERSION = 1;
+/**
+ * The newest format this version reads and writes (`.local-review/schema-version`). Each event says
+ * which format it needs in its own `v` (see `eventVersion`): version 2 added archiving.
+ */
+export const SCHEMA_VERSION = 2;
 export const STORE_DIR = '.local-review';
 
 /** Who wrote an event. `agent` is any AI coding agent (Claude, Codex…), named by the event's `agent` field. */
@@ -116,6 +120,13 @@ export interface ThreadState {
   comments: CommentState[];
   createdAt: string;
   deleted: boolean;
+  /**
+   * Archived by the user: finished, and kept out of the editor and of what agents see, but still in
+   * the history and in retros. It can be brought back (unarchived).
+   */
+  archived: boolean;
+  /** When it was last archived; `null` when it is not archived. */
+  archivedAt: string | null;
   /** Written by a newer schema version: never write to it. */
   readOnly: boolean;
   lastAuthor: Author | null;

@@ -182,6 +182,31 @@ export function replyCall(input: HookInput): { message: string; command: string 
   return replies ? { message, command } : null;
 }
 
+/**
+ * A shell command deleting threads for good (`lr purge … --yes`): Claude Code asks the user to
+ * allow it, whatever the permission rules, with the number announced (`--count`) when given. The
+ * user confirms the deletion themselves, not only through what Claude says. `null` for any other
+ * command.
+ */
+export function purgeConfirmation(input: HookInput): string | null {
+  const command = input.tool_input?.command;
+  if (input.tool_name !== 'Bash' || typeof command !== 'string') return null;
+  for (const words of shellSegments(command)) {
+    const i = words.findIndex((w) => basename(w) === 'lr');
+    if (i < 0 || words[i + 1] !== 'purge' || !words.includes('--yes')) continue;
+    const at = words.indexOf('--count');
+    const count = at >= 0 && /^\d+$/.test(words[at + 1] ?? '') ? Number(words[at + 1]) : null;
+    const before = words[words.indexOf('--before') + 1];
+    const what = count === null ? 'old comment threads' : `${plural(count, 'comment thread')}`;
+    return (
+      `Local Review: this deletes ${what} for good` +
+      (before && words.includes('--before') ? ` (finished, with no activity since ${before})` : '') +
+      ': gone from the history and from retros. It runs only if the user allows it; if they refuse, nothing is deleted.'
+    );
+  }
+  return null;
+}
+
 /** Before `lr reply` runs: note its tool call, which `lr` records with the reply (for retros). */
 async function noteReply(id: string, input: HookInput, deps: HookDeps): Promise<void> {
   const call = replyCall(input);

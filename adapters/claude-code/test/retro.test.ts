@@ -359,6 +359,15 @@ describe('lr-retro', () => {
         fakeClaude('3.0.0', { stdout: 'oops', stderr: 'boom\nlast words', code: 2 }).runner,
       );
       expect(broken.err).toContain('Claude Code ended with code 2: last words');
+      const silent = await run(
+        ['audit', id, '--root', root],
+        {},
+        undefined,
+        fakeClaude('3.0.0', { stdout: '', stderr: '', code: null }).runner,
+      );
+      expect(silent.err).toContain('Claude Code ended with code ?.');
+      const noVersion = await run(['audit', id, '--root', root], {}, undefined, fakeClaude('Claude Code', {}).runner);
+      expect(noVersion.out).toContain('Audit skipped: Claude Code was not found.');
       const empty = await run(
         ['audit', id, '--root', root],
         {},

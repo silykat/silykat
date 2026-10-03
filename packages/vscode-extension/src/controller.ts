@@ -746,6 +746,40 @@ export class ReviewController implements vscode.Disposable {
     }
   }
 
+  /**
+   * "Archive Thread" in the thread header: the thread leaves the editor, and stays in the history
+   * (`lr history`, retros). "Show Archived Threads" brings it back.
+   */
+  async archiveThread(thread: vscode.CommentThread): Promise<void> {
+    const threadId = this.byThread.get(thread);
+    const managed = threadId ? this.managed.get(threadId) : undefined;
+    if (!threadId || !managed || managed.state.readOnly || !managed.state.hasPublished) return;
+    try {
+      await managed.root.store.archiveThread(threadId);
+      this.forget(threadId);
+      void vscode.window.showInformationMessage(
+        'Local Review: thread archived. It stays in the history; Local Review: Show Archived Threads brings it back.',
+      );
+    } catch (err) {
+      this.log.error('Failed to archive the thread', err);
+      void vscode.window.showErrorMessage(`Local Review: the thread could not be archived (${String(err)}).`);
+    }
+  }
+
+  /** The folders whose threads the editor shows (the machine store of loose files included). */
+  rootPaths(): string[] {
+    return this.roots.all().map((r) => r.path);
+  }
+
+  /** Re-reads threads changed outside the editor's own actions (archived, unarchived, deleted for good). */
+  async refreshThreads(ids: readonly string[]): Promise<void> {
+    for (const root of this.roots.all())
+      for (const id of ids) {
+        const known = this.managed.get(id)?.root === root || this.hidden.get(id)?.root === root;
+        if (known || (await exists(root.store.threadFile(id)))) await this.refreshThread(root, id);
+      }
+  }
+
   /** Re-reads one journal after it changed on disk, whoever wrote it. */
   async refreshThread(root: Root, threadId: string): Promise<void> {
     const latest = this.startLoad(`thread|${root.path}|${threadId}`, root);
@@ -761,7 +795,7 @@ export class ReviewController implements vscode.Disposable {
     }
 
     const existing = this.managed.get(threadId);
-    if (!state || state.deleted) {
+    if (!state || state.deleted || state.archived) {
       this.forget(threadId);
       return;
     }

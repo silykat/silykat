@@ -120,6 +120,7 @@ describe('signals and statistics', () => {
           bytes: 1,
           states: {} as never,
           deletions: {} as never,
+          archived: 0,
           warnings: [],
         },
       ],
@@ -127,6 +128,7 @@ describe('signals and statistics', () => {
       bytes: 1,
       states: {} as never,
       deletions: {} as never,
+      archived: 0,
     });
     expect(e.tokens).toBeGreaterThan(10);
     expect(e.classifyJev).toBeLessThan(e.classifyModel);
