@@ -292,6 +292,11 @@ function parseDelivery(line) {
   }
 }
 
+// ../../packages/core/src/retroGuards.ts
+var STOPWORDS = new Set(
+  "the and for with that this from into when then than are was were has have not use uses using les des une pour avec dans sur par pas que qui est sont aux ses son leur".split(" ")
+);
+
 // src/hook.ts
 var import_node_child_process2 = require("node:child_process");
 var import_node_path3 = require("node:path");

@@ -223,6 +223,11 @@ function parseDelivery(line) {
   }
 }
 
+// ../../packages/core/src/retroGuards.ts
+var STOPWORDS = new Set(
+  "the and for with that this from into when then than are was were has have not use uses using les des une pour avec dans sur par pas que qui est sont aux ses son leur".split(" ")
+);
+
 // src/channel.ts
 var BATCH_MS = 1500;
 var SUPPORTED_PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
