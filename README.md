@@ -192,14 +192,15 @@ A retro is a look back at the review feedback you gave your agent since the last
 
 In a Claude Code session started in your working folder (the **project**: that folder, its subfolders, every repository in it and their git worktrees), run **`/local-review:retro`**, or ask for a retro. Then:
 
-1. **The last retro** (from the second one on): Claude asks whether you noticed the improvements decided then, and whether you want to change anything in the retro itself (what it looks at, its level of detail, subjects to ignore…). Your wishes become the **retro preferences** of the project, applied from now on.
+1. **The last retro** (from the second one on): Claude recalls what was decided then (whether it helped is measured from your feedback, not asked), and asks whether you want to change anything in the retro itself (what it looks at, its level of detail, subjects to ignore…). Your wishes become the **retro preferences** of the project, applied from now on.
 2. **The scope**: the period (since the last retro; for a first one, Claude proposes the last 7 days, 30 days or everything), the comment stores found, the number of threads, the size of the data and an estimate of the time. You confirm.
-3. **The analysis**, in two sub-agents with a fresh context, so that the session keeps its own for the discussion: one **classifies** the threads (Jev with a key, else Haiku), the other **analyses** all the threads together with your setup (rules files, skills, commands, sub-agents, hooks of the project and of `~/.claude`), the classification, statistics and the previous retros. When a thread is ambiguous (why did Claude do that?), it reads back the conversation where Claude replied: the request, the files read, the commands and edits, the skill in use. Claude Code deletes its conversations after 30 days by default (the `cleanupPeriodDays` setting): an older one is no longer available, and the retro says so and does without it. The retro tells you which conversations it read back.
-4. **The proposals**, in three columns, **To keep**, **To remove** and **To improve**. Each one shows its source (the threads, with an excerpt), its numbers (threads, reopened, questions, back-and-forth), the rule or file concerned, why, the change, its target and its confidence. Preferences seen in a single thread are kept **to watch**. For stale or contradictory rules, Claude suggests `/doctor prompt-audit` (Claude Code 2.1.283 or later).
-5. **The discussion**, one proposal at a time: accept, modify, exclude, or change its target: **project, shared** (the repository's `CLAUDE.md` or `.claude/`, for the team), **project, personal** (`CLAUDE.local.md`, yours only) or **you, everywhere** (`~/.claude/`). You can also just talk it through.
-6. **Claude applies** what you validated, one change per subject, and ends with the list of files changed.
+3. **The audit of your setup**, alongside: Claude Code's own `/doctor prompt-audit` (2.1.283 or later), run in a separate, read-only Claude Code (no shell, no edit), looks for stale, contradictory or duplicated rules in your `CLAUDE.md` files, skills, agents and commands, the project's and `~/.claude`'s. It uses Opus and takes a few minutes (about 4 minutes and $1.70 at API prices with Sonnet, on a project with a few rules files and a large `~/.claude`; more with Opus).
+4. **The analysis**, in two sub-agents with a fresh context, so that the session keeps its own for the discussion: one **classifies** the threads (Jev with a key, else Haiku), the other (Opus, for the most careful reasoning) **analyses** all the threads together with your setup (rules files, skills, commands, sub-agents, hooks of the project and of `~/.claude`), the audit, the classification, statistics and the previous retros. When a thread is ambiguous (why did Claude do that?), it reads back the conversation where Claude replied: the request, the files read, the commands and edits, the skill in use. Claude Code deletes its conversations after 30 days by default (the `cleanupPeriodDays` setting): an older one is no longer available, and the retro says so and does without it. The retro tells you which conversations it read back.
+5. **The proposals**, in three columns, **To keep**, **To remove** and **To improve**. Preferences seen in a single thread are kept **to watch**.
+6. **The discussion**, one proposal at a time, each in its own message and always in the same parts: its source (the threads, with an excerpt, or the audit's finding), its numbers (threads, reopened, questions, back-and-forth), the file and the existing rule, why, the target and the confidence; then **the exact change**: a diff of the file, or the whole content of a new file, also shown next to each choice of the question. Accept, modify, exclude, or change its target: **project, shared** (the repository's `CLAUDE.md` or `.claude/`, for the team), **project, personal** (`CLAUDE.local.md`, yours only) or **you, everywhere** (`~/.claude/`). A modified change is shown again before anything is written. You can also just talk it through.
+7. **Each change is applied** as soon as you validate it, exactly as you read it, by a sub-agent in the background: the discussion goes on meanwhile. The retro ends with the list of files changed.
 
-Guard rails are checked by program (in `lr`, whatever the agent): a proposal needs at least 2 threads; a rule you had to enforce during the period is never proposed as "keep"; one subject per proposal; the target is asked when nothing in your threads tells it; a subject you excluded comes back only if new feedback raises it.
+Guard rails are checked by program (in `lr`, whatever the agent): a proposal needs at least 2 threads (or a finding of the audit, to remove or rewrite a rule); a rule you had to enforce during the period is never proposed as "keep"; one subject per proposal; the target is asked when nothing in your threads tells it; a subject you excluded comes back only if new feedback raises it.
 
 Each retro is recorded in `.local-review/retros/` at the top of the project (or of its repository): the period, the threads read, the proposals, your decisions, exclusions and preferences. The next retro starts from it. `lr retro list` and `lr retro show <id>` read them back.
 
@@ -221,18 +222,18 @@ Each retro is recorded in `.local-review/retros/` at the top of the project (or 
 
 Agents read and answer the threads with `lr`, an agent-neutral command line; the Claude Code plugin puts it on Claude's `PATH`. You rarely need it yourself, but it is handy to see what the agent sees:
 
-| Command                                                  | What it does                                                       |
-| -------------------------------------------------------- | ------------------------------------------------------------------ |
-| `lr status`                                              | How many threads wait for the agent, and for you                   |
-| `lr list [--all] [--thread <id>]…`                       | The threads waiting for the agent, with their current code         |
-| `lr show <thread-id>`                                    | One thread in full                                                 |
-| `lr reply <thread-id> --agent <name> --rev <v> --body -` | Reply (body on stdin), optionally `--status addressed\|needs-info` |
-| `lr subscribe [<folder>] [--path]`, `lr unsubscribe`     | Subscribe the session `lr` runs in to a branch or a path, or stop  |
-| `lr subscriptions`, `lr sessions`                        | What this session is subscribed to; the running sessions           |
-| `lr history [--since <date>]`                            | Every thread of the project, whatever its state, in full           |
-| `lr worktree save [<folder>]`                            | Save a git worktree's threads before removing the worktree         |
-| `lr config`, `lr config set <name> on\|off`              | The settings of this machine (`auto-save-worktrees`)               |
-| `lr retro scope`, `lr retro show <id>`, `lr retro list`  | What a retro would cover; a retro and its proposals; past retros   |
+| Command                                                  | What it does                                                                               |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `lr status`                                              | How many threads wait for the agent, and for you                                           |
+| `lr list [--all] [--thread <id>]…`                       | The threads waiting for the agent, with their current code                                 |
+| `lr show <thread-id>`                                    | One thread in full                                                                         |
+| `lr reply <thread-id> --agent <name> --rev <v> --body -` | Reply (body on stdin), optionally `--status addressed\|needs-info`                         |
+| `lr subscribe [<folder>] [--path]`, `lr unsubscribe`     | Subscribe the session `lr` runs in to a branch or a path, or stop                          |
+| `lr subscriptions`, `lr sessions`                        | What this session is subscribed to; the running sessions                                   |
+| `lr history [--since <date>]`                            | Every thread of the project, whatever its state, in full                                   |
+| `lr worktree save [<folder>]`                            | Save a git worktree's threads before removing the worktree                                 |
+| `lr config`, `lr config set <name> on\|off`              | The settings of this machine (`auto-save-worktrees`)                                       |
+| `lr retro scope`, `lr retro show <id>`, `lr retro list`  | What a retro would cover; a retro and its proposals (`--next`: one at a time); past retros |
 
 Add `--root <folder>` to target a project from elsewhere (`--root /` for files outside the open folders), and `--format json` for tools. `lr --help` has the full reference.
 

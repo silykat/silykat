@@ -438,7 +438,8 @@ describe('lr-retro conversation', () => {
     const long = (n: number) => `${'x'.repeat(5000)} ${n}`;
     const entries: TranscriptEntry[] = [];
     for (let round = 1; round <= 3; round++) {
-      const t = (s: number) => `2026-10-03T1${round}:00:0${s}.000Z`;
+      // After the replies are written (now), whatever the time the test runs: only the call ids link them.
+      const t = (s: number) => new Date(Date.now() + round * 3_600_000 + s * 1000).toISOString();
       entries.push(prompt(long(round), t(0)));
       for (let i = 0; i < 6; i++) entries.push(said(long(i), t(1), `msg_${round}_${i}`));
       entries.push(call(`toolu_r${round}`, 'Bash', { command: `lr reply ${linked} --body x` }, t(2), `msg_${round}_c`));

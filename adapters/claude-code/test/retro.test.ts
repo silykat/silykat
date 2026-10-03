@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildAnchorContext, RetroBook, Store, type Anchor } from '@local-review/core';
+import { AUDIT_MODEL, auditArgs, runProcess, type Runner } from '../src/retroAudit';
 import { classifyWithJev, readJevKey, type JevDeps } from '../src/retroJev';
 import { runRetroCli } from '../src/retroCli';
 import { collectSetup, FILE_CAP, renderSetup } from '../src/retroSetup';
@@ -217,7 +218,7 @@ describe('lr-retro', () => {
     return { root, book, id: r.id, t1: t1.id, t2: t2.id };
   }
 
-  async function run(args: string[], env: Record<string, string>, fetchImpl?: JevDeps['fetch']) {
+  async function run(args: string[], env: Record<string, string>, fetchImpl?: JevDeps['fetch'], runner?: Runner) {
     let out = '';
     let err = '';
     const code = await runRetroCli(args, {
@@ -226,6 +227,7 @@ describe('lr-retro', () => {
       out: (t) => (out += t + '\n'),
       err: (t) => (err += t + '\n'),
       ...(fetchImpl ? { fetch: fetchImpl } : {}),
+      ...(runner ? { run: runner } : {}),
     });
     return { code, out, err };
   }
@@ -287,8 +289,123 @@ describe('lr-retro', () => {
     expect(denied.out).not.toContain(KEY);
   });
 
+  describe('the audit of the setup', () => {
+    /** A fake Claude Code: its version, then the audit's JSON answer (or what `audit` returns). */
+    const fakeClaude = (version: string, audit: Partial<Awaited<ReturnType<Runner>>>) => {
+      const calls: { args: readonly string[]; cwd: string }[] = [];
+      const runner: Runner = async (_cmd, args, { cwd }) => {
+        calls.push({ args, cwd });
+        if (args[0] === '--version') return { stdout: version, stderr: '', code: 0, timedOut: false };
+        return { stdout: '', stderr: '', code: 0, timedOut: false, ...audit };
+      };
+      return { runner, calls };
+    };
+
+    it('runs /doctor prompt-audit read-only in the project, and writes its report in the retro', async () => {
+      const { root, id } = await retro();
+      const answer = {
+        result: '## Findings\n- CLAUDE.md:2-3 contradicts itself',
+        total_cost_usd: 0.42,
+        duration_ms: 185_000,
+      };
+      const { runner, calls } = fakeClaude('2.1.288 (Claude Code)', { stdout: JSON.stringify(answer) });
+      const r = await run(['audit', id, '--root', root], {}, undefined, runner);
+      expect(r).toMatchObject({ code: 0, err: '' });
+      const file = join(root, '.local-review', 'retros', id, 'audit.md');
+      expect(r.out).toBe(`Written: ${file}\nThe audit of the setup is done in 3 min (about $0.42).\n`);
+      const report = await readFile(file, 'utf8');
+      expect(report).toContain('# Audit of the setup — /doctor prompt-audit');
+      expect(report).toContain('CLAUDE.md:2-3 contradicts itself');
+      expect(calls[1]).toEqual({ args: auditArgs(join(home, '.claude')), cwd: root });
+      expect(calls[1]!.args.slice(0, 2)).toEqual(['-p', '/doctor prompt-audit']);
+      expect(calls[1]!.args).toContain(AUDIT_MODEL);
+      for (const tool of ['Bash', 'Edit', 'Write', 'NotebookEdit']) expect(calls[1]!.args).toContain(tool);
+    });
+
+    it('works from the first version that has it, even without its cost or duration', async () => {
+      const { root, id } = await retro();
+      const r = await run(
+        ['audit', id, '--root', root],
+        {},
+        undefined,
+        fakeClaude('2.1.283', { stdout: JSON.stringify({ result: 'Nothing stale.' }) }).runner,
+      );
+      expect(r.out).toContain('The audit of the setup is done.\n');
+    });
+
+    it('is skipped without a recent enough Claude Code, and fails clearly', async () => {
+      const { root, id } = await retro();
+      const old = await run(['audit', id, '--root', root], {}, undefined, fakeClaude('2.1.200', {}).runner);
+      expect(old).toMatchObject({ code: 0 });
+      expect(old.out).toContain(
+        'Audit skipped: /doctor prompt-audit needs Claude Code 2.1.283 or later (here 2.1.200).',
+      );
+      const missing: Runner = async () => ({ stdout: '', stderr: 'not found', code: null, timedOut: false });
+      expect((await run(['audit', id, '--root', root], {}, undefined, missing)).out).toContain(
+        'Audit skipped: Claude Code was not found.',
+      );
+      const slow = await run(
+        ['audit', id, '--root', root],
+        {},
+        undefined,
+        fakeClaude('2.1.300', { timedOut: true }).runner,
+      );
+      expect(slow.code).toBe(1);
+      expect(slow.err).toContain('the audit failed: it took more than 15 min');
+      const broken = await run(
+        ['audit', id, '--root', root],
+        {},
+        undefined,
+        fakeClaude('3.0.0', { stdout: 'oops', stderr: 'boom\nlast words', code: 2 }).runner,
+      );
+      expect(broken.err).toContain('Claude Code ended with code 2: last words');
+      const empty = await run(
+        ['audit', id, '--root', root],
+        {},
+        undefined,
+        fakeClaude('2.2.0', { stdout: JSON.stringify({ result: '', is_error: true }) }).runner,
+      );
+      expect(empty.err).toContain('the audit gave no report');
+      const errored = await run(
+        ['audit', id, '--root', root],
+        {},
+        undefined,
+        fakeClaude('2.2.0', { stdout: JSON.stringify({ result: 'Not logged in\nmore', is_error: true }) }).runner,
+      );
+      expect(errored.err).toContain('the audit failed: Not logged in.');
+    });
+
+    it('starts a real process, and tells a timeout', async () => {
+      const ok = await runProcess(process.execPath, ['-e', 'process.stdout.write("hi")'], {
+        cwd: base,
+        env: process.env,
+        timeoutMs: 10_000,
+      });
+      expect(ok).toEqual({ stdout: 'hi', stderr: '', code: 0, timedOut: false });
+      const failed = await runProcess(process.execPath, ['-e', 'process.exit(3)'], {
+        cwd: base,
+        env: process.env,
+        timeoutMs: 10_000,
+      });
+      expect(failed).toMatchObject({ code: 3, timedOut: false });
+      const slow = await runProcess(process.execPath, ['-e', 'setTimeout(() => {}, 10000)'], {
+        cwd: base,
+        env: process.env,
+        timeoutMs: 200,
+      });
+      expect(slow.timedOut).toBe(true);
+      const absent = await runProcess(join(base, 'no-such-binary'), [], {
+        cwd: base,
+        env: process.env,
+        timeoutMs: 1000,
+      });
+      expect(absent).toMatchObject({ code: null, timedOut: false });
+    });
+  });
+
   it('explains its usage', async () => {
     expect((await run([], {})).out).toContain('lr-retro setup <retro-id>');
+    expect((await run([], {})).out).toContain('lr-retro audit <retro-id>');
     expect((await run(['what'], {})).code).toBe(1);
     expect((await run(['setup'], {})).err).toContain('missing <retro-id>');
     expect((await run(['setup', 'rt_00000000000000000000000000', '--root', base], {})).err).toContain(
