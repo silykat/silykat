@@ -8,7 +8,7 @@ allowed-tools: Bash(lr:*), Bash(lr-retro:*)
 
 Like a sprint retro, but between the user and you: look back at the review threads of a period, find what in your setup caused the feedback, and decide **together** what to keep, remove or improve. It is a discussion, not a report: nothing changes without the user's say-so, and what they validate, **you** apply.
 
-The heavy reading is done by two sub-agents with a fresh context (classification, then analysis); you only see their proposals, so that your context stays free for the discussion. `lr retro` (on your PATH) keeps the retro's journal and checks the proposals by program.
+The heavy work is done by sub-agents with a fresh context (classification, analysis, then applying each validated change in the background); you only see their proposals, so that your context stays free for the discussion. `lr retro` (on your PATH) keeps the retro's journal and checks the proposals by program.
 
 **The project** is the folder this session was started in (your primary working directory), even if you moved since. Pass it as `--root <dir>` to every `lr retro` and `lr-retro` command below. Ask the user questions with the AskUserQuestion tool, the recommended option first, labelled "(Recommended)". Talk in the user's language.
 
@@ -92,30 +92,48 @@ The user sees **neither the output of your commands nor your thinking**: only th
    At the first proposal, say in one sentence that "Discuss or modify" (or typing their answer in the question) is how to talk a proposal through: it decides nothing. "Discuss or modify", "Chat about this" or a question typed in: discuss with them, refine the change, then ask again.
 
 4. **A modified change, or another target, is shown again**: the whole new `diff` in the message and in the preview of "Apply this version", then ask again: "Apply this version" / "Change it again" / "Exclude". Never apply a version the user has not read.
-5. **Apply it right away**, exactly as shown, then record the decision and the files (step 9). Then confirm in **one line** (e.g. "p3 applied to `src/CLAUDE.md`."), and go on with the next proposal in a new message.
+5. **Record the decision** at once (step 9), then **hand the change to a sub-agent in the background** (step 9) and go straight on with the next proposal, in a new message: the user never waits for a change to be written.
 
 An excluded subject is never proposed again, unless new feedback raises it. Record it with the user's reason when they give one.
 
-## 9. Apply what was validated
+## 9. Apply what was validated, in the background
 
-Each change is applied as soon as the user validates it (step 8), **exactly the text they read**: no rewording, nothing more. Where it goes:
+Each change is applied as soon as the user validates it, **exactly the text they read**, by the sub-agent **`local-review:retro-applier`** (Agent tool, in the background), so that the discussion goes on meanwhile. Where it goes:
 
 - **project, shared**: the `CLAUDE.md` of the repository concerned, or its `.claude/` (skills, commands, agents; hooks in `.claude/settings.json`);
-- **project, personal**: `CLAUDE.local.md` in that repository (check that git ignores it: `git check-ignore -q CLAUDE.local.md`, else add `CLAUDE.local.md` to `.git/info/exclude`, never to `.gitignore`), or the `CLAUDE.md` of a parent folder that is in no repository; hooks in `.claude/settings.local.json`;
+- **project, personal**: `CLAUDE.local.md` in that repository, or the `CLAUDE.md` of a parent folder that is in no repository; hooks in `.claude/settings.local.json`;
 - **you, in every project**: `~/.claude/CLAUDE.md`, `~/.claude/` (skills, agents; hooks in `~/.claude/settings.json`).
 
-A "keep" changes nothing. A hook or a script must work: run it once on a sample input (a scratch copy for anything that writes data). Never commit, and never change what the user did not validate. Record each decision and the files changed as soon as it is applied:
+First record the decision:
 
 ```bash
 lr retro decide <id> <proposal> accepted --root <dir>
 lr retro decide <id> <proposal> modified --root <dir> --note "what changed"
 lr retro decide <id> <proposal> retargeted --root <dir> --target project-personal
 lr retro decide <id> <proposal> excluded --root <dir> --note "why, in the user's words"
-lr retro applied <id> <proposal> --root <dir> --file <path> [--file <path>…]
 ```
+
+Then, for a change to write (not for "keep" or "exclude"), launch `local-review:retro-applier` with a prompt that holds **the exact change the user read**, never a summary of it:
+
+```text
+Retro <id>, project <dir>, proposal <proposal>.
+File: <absolute path>
+Replace exactly:
+<the text to replace, word for word, as in the file>
+With:
+<its replacement, word for word>
+```
+
+or, for a new file, `New file: <absolute path>` followed by its whole content. Several files: one block per file.
+
+- **One file at a time**: before you show the diff of a proposal whose file a sub-agent is still changing, wait for that sub-agent to finish, so that the diff is computed on the file as it now is.
+- When a sub-agent finishes, tell the user in **one line**, between two proposals (e.g. "p3 applied to `src/CLAUDE.md`."). If it could not apply the change (the file changed meanwhile), tell the user, show the diff again on the file as it is, and ask again.
+- The sub-agent records the files changed itself (`lr retro applied`).
+
+Never commit, and never change what the user did not validate.
 
 `<proposal>` is the proposal's **id**, in parentheses in its heading (`Proposal 4/6 (p5)` is `p5`), never its position. A decision recorded on the wrong proposal is undone with `lr retro undo <id> <proposal> --root <dir>` (it forgets its files too). **Never edit the retro's files by hand**: the journal is append-only.
 
 ## 10. Finish
 
-Run `lr retro finish <id> --root <dir>` and show the user what it printed: **the list of files changed**, and the subjects to watch. Tell them the next retro will start from this one: it will ask whether these changes helped.
+Wait for every `retro-applier` still running to finish. Then run `lr retro finish <id> --root <dir>` and show the user what it printed: **the list of files changed**, and the subjects to watch. Tell them the next retro will start from this one: it will ask whether these changes helped.
