@@ -1502,7 +1502,13 @@ async function readConfig(env = process.env) {
   }
   return config2;
 }
-async function writeConfig(change, env = process.env) {
+var writing = Promise.resolve();
+function writeConfig(change, env = process.env) {
+  const next = writing.then(() => writeConfigNow(change, env));
+  writing = next.catch(() => void 0);
+  return next;
+}
+async function writeConfigNow(change, env) {
   const file = configFile(env);
   let current = {};
   try {
@@ -4391,8 +4397,12 @@ They stay in lr history and in retros after the worktree is removed.`
   return EXIT.OK;
 }
 async function keptHistoryNote(io) {
-  const plan = await historyPlan([io.cwd], io.env).catch(() => null);
-  const summary = plan && historySummary(plan.deleted.length, plan.saved.length);
+  let summary = null;
+  try {
+    const plan = await historyPlan([io.cwd], io.env);
+    summary = historySummary(plan.deleted.length, plan.saved.length);
+  } catch {
+  }
   return " Deleting a thread now erases it, and nothing is saved when an agent removes a worktree." + (summary ? `
 The history already kept stays: ${summary} in ${io.cwd}. To erase it: lr purge --history (it shows what, then --yes).` : "");
 }

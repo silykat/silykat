@@ -422,8 +422,13 @@ async function worktree(rest: string[], io: Io): Promise<number> {
 
 /** After `keep-history off`: the history already kept here, and how to erase it. */
 async function keptHistoryNote(io: Io): Promise<string> {
-  const plan = await historyPlan([io.cwd], io.env).catch(() => null);
-  const summary = plan && historySummary(plan.deleted.length, plan.saved.length);
+  let summary: string | null = null;
+  try {
+    const plan = await historyPlan([io.cwd], io.env);
+    summary = historySummary(plan.deleted.length, plan.saved.length);
+  } catch {
+    // The setting is changed: an unreadable folder only leaves out the count.
+  }
   return (
     ' Deleting a thread now erases it, and nothing is saved when an agent removes a worktree.' +
     (summary

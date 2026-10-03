@@ -125,7 +125,16 @@ export class RetroReminderUi implements vscode.Disposable {
    * Writes the user's VS Code reminder settings to the machine settings, for the agent hooks: the
    * ones that changed (back to the default when reset), or at start the ones set and not mirrored yet.
    */
-  private async mirror(changed: (key: string) => boolean, atStart = false): Promise<void> {
+  private mirror(changed: (key: string) => boolean, atStart = false): Promise<void> {
+    // One at a time: each compares with what the previous one wrote.
+    const next = this.mirroring.then(() => this.mirrorNow(changed, atStart));
+    this.mirroring = next.catch(() => undefined);
+    return next;
+  }
+
+  private mirroring: Promise<void> = Promise.resolve();
+
+  private async mirrorNow(changed: (key: string) => boolean, atStart: boolean): Promise<void> {
     const config = vscode.workspace.getConfiguration(SECTION);
     const machine = await readConfig();
     const change: Partial<MachineConfig> = {};

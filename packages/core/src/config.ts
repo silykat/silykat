@@ -95,10 +95,25 @@ export async function readConfig(env: Record<string, string | undefined> = proce
   return config;
 }
 
-/** Changes settings, keeping the others (and unknown keys written by a newer version). Written atomically. */
-export async function writeConfig(
+/** The writes of this process, one after the other: each reads the file the previous one wrote. */
+let writing: Promise<unknown> = Promise.resolve();
+
+/**
+ * Changes settings, keeping the others (and unknown keys written by a newer version). Written
+ * atomically; the writes of one process run one at a time, so that none undoes another.
+ */
+export function writeConfig(
   change: Partial<MachineConfig>,
   env: Record<string, string | undefined> = process.env,
+): Promise<MachineConfig> {
+  const next = writing.then(() => writeConfigNow(change, env));
+  writing = next.catch(() => undefined);
+  return next;
+}
+
+async function writeConfigNow(
+  change: Partial<MachineConfig>,
+  env: Record<string, string | undefined>,
 ): Promise<MachineConfig> {
   const file = configFile(env);
   let current: Record<string, unknown> = {};

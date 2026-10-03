@@ -1266,6 +1266,7 @@ async function readConfig(env = process.env) {
   }
   return config;
 }
+var writing = Promise.resolve();
 
 // ../../packages/core/src/project.ts
 var import_node_child_process2 = require("node:child_process");

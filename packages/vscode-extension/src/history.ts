@@ -45,26 +45,26 @@ export class HistoryUi implements vscode.Disposable {
         if (e.affectsConfiguration(`${SECTION}.${SETTING}`)) void this.changed();
       }),
     );
-    void this.mirror();
+    void this.mirror(true);
   }
 
-  /** Writes the user's setting to the machine settings, when set and different. */
-  private async mirror(): Promise<boolean | undefined> {
+  /**
+   * Writes the user's setting to the machine settings: at start when set, and on every change (back
+   * to on when reset). The writes run in order (`writeConfig`), so the last change wins.
+   */
+  private async mirror(atStart = false): Promise<void> {
     const set = vscode.workspace.getConfiguration(SECTION).inspect<boolean>(SETTING)?.globalValue;
-    const value = typeof set === 'boolean' ? set : undefined;
+    if (atStart && typeof set !== 'boolean') return;
     try {
-      if (value !== undefined && (await readConfig()).keepHistory !== value) await writeConfig({ keepHistory: value });
+      await writeConfig({ keepHistory: typeof set === 'boolean' ? set : true });
     } catch (err) {
       this.log.warn('Could not write the keep-history machine setting', err);
     }
-    return value;
   }
 
   private async changed(): Promise<void> {
     const set = vscode.workspace.getConfiguration(SECTION).inspect<boolean>(SETTING)?.globalValue;
-    // Reset: back to the default (on) for the machine too.
-    if (set === undefined) await writeConfig({ keepHistory: true }).catch(() => undefined);
-    else await this.mirror();
+    await this.mirror();
     if (set === false) this.offered = this.offerToErase();
   }
 

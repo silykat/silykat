@@ -141,7 +141,7 @@ describe('why a thread was deleted', () => {
 });
 
 describe('machine settings', () => {
-  it('saves worktrees by default, and remembers a change', async () => {
+  it('keeps the history by default, and remembers a change', async () => {
     expect(await readConfig(env())).toMatchObject({ keepHistory: true });
     expect(await writeConfig({ keepHistory: false }, env())).toMatchObject({ keepHistory: false });
     expect(await readConfig(env())).toMatchObject({ keepHistory: false });
@@ -158,6 +158,27 @@ describe('machine settings', () => {
     expect(await readConfig(env())).toMatchObject({ keepHistory: true });
     await writeConfig({ keepHistory: false }, env());
     expect(await readConfig(env())).toMatchObject({ keepHistory: false });
+  });
+
+  it('loses no change when several are written at once', async () => {
+    await Promise.all([
+      writeConfig({ retroReminderDays: 12 }, env()),
+      writeConfig({ retroReminderMaxDays: 9 }, env()),
+      writeConfig({ retroReminderSizeKB: 5 }, env()),
+      writeConfig({ keepHistory: false }, env()),
+      writeConfig({ retroReminderMaxDays: 25 }, env()),
+    ]);
+    expect(await readConfig(env())).toEqual({
+      keepHistory: false,
+      retroReminder: true,
+      retroReminderDays: 12,
+      retroReminderSizeKB: 5,
+      retroReminderMaxDays: 25,
+    });
+    // A failed write does not stop the next ones.
+    await writeFile(join(base, 'blocker'), '');
+    await expect(writeConfig({ retroReminder: false }, { LOCAL_REVIEW_HOME: join(base, 'blocker') })).rejects.toThrow();
+    expect(await writeConfig({ retroReminder: false }, env())).toMatchObject({ retroReminder: false });
   });
 });
 

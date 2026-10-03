@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -222,6 +223,30 @@ describe('lr purge', () => {
     expect((await lr(['purge', '--history', '--before', '7d', '--root', 'api'])).err).toContain(
       'lr purge --history takes neither --before nor --count',
     );
+  });
+
+  it('erases the threads saved from a worktree removed since', async () => {
+    const main = join(base, 'main');
+    const wt = join(base, 'wt');
+    const git = (cwd: string, ...args: string[]) =>
+      execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@e', ...args], { cwd, stdio: 'pipe' });
+    await mkdir(main);
+    git(main, 'init', '-q', '-b', 'main');
+    await writeFile(join(main, 'src.ts'), CODE.join('\n'));
+    git(main, 'add', '.');
+    git(main, 'commit', '-q', '-m', 'init');
+    git(main, 'worktree', 'add', '-q', '-b', 'feat', wt);
+    await new Store(wt).createThread(anchor(1), { author: 'user', body: 'In the worktree', reviewId: null });
+    expect((await lr(['worktree', 'save'], wt)).code).toBe(EXIT.OK);
+    git(main, 'worktree', 'remove', '--force', wt);
+
+    const json = JSON.parse((await lr(['purge', '--history', '--format', 'json'], main)).out);
+    expect(json).toMatchObject({ deleted: [], saved: [expect.stringContaining(join(main, '.local-review', 'saved'))] });
+    expect((await lr(['purge', '--history'], main)).out).toContain(': 1 copy of worktree threads.');
+    expect((await lr(['purge', '--history', '--yes'], main)).out).toBe(
+      'Erased for good: 1 copy of worktree threads.\n',
+    );
+    expect(JSON.parse((await lr(['history', '--format', 'json'], main)).out).threads).toEqual([]);
   });
 
   it('tells what history is kept when the user stops keeping it', async () => {

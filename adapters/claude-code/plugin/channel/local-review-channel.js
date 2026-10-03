@@ -266,6 +266,7 @@ var DEFAULT_CONFIG = {
   retroReminderSizeKB: 1e3,
   retroReminderMaxDays: 25
 };
+var writing = Promise.resolve();
 
 // ../../packages/core/src/cadence.ts
 var DEFAULT_CADENCE = thresholdsOf(DEFAULT_CONFIG);
