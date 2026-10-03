@@ -82,12 +82,14 @@ The user sees **neither the output of your commands nor your thinking**: only th
 
 1. **A new visible message for each proposal**, never in your thinking. Run `lr retro show <id> --next --root <dir>` and write its output **word for word** as your message, from its `---` separator: the title, the source (threads with their excerpt, or the audit), the numbers, the file, the existing rule, the why, the target and the confidence. No recap of the previous proposal in it, no part skipped, no summary instead, nothing said as done before it is.
 2. **The exact change**: read the file concerned and work out precisely what will change in it: the lines removed (`-`) and added (`+`), with two or three unchanged lines around to show where, as a `diff`. A new file: its whole content, with its path. A skill, a hook or a script: every file, in full. A "keep": "No change." Write it in the message, under the proposal.
-3. **One AskUserQuestion**, the recommendation first, and **every option shows in its `preview` the exact change it leads to**, so that the user reads it next to the choice:
-   - "Accept" and "Modify": the `diff` above (in the suggested target's file);
-   - "Change the target", or, when `lr` says the target is **to choose**, one option per target ("Project, shared (committed, for the team)" / "Project, personal (yours, not committed)" / "You, in every project", the suggested one first): the `diff` in **that** target's file;
+3. **One AskUserQuestion**, always these four options, the recommendation first: "Accept" / "Discuss or modify" (description: "We talk it through or change the text; nothing is decided yet") / "Exclude" / "Change the target". When `lr` says the target is **to choose**, the "Accept" option names the suggested target (e.g. "Accept, in your personal rules (suggested)"). **Every option shows in its `preview` the exact change it leads to**, so that the user reads it next to the choice:
+   - "Accept" and "Discuss or modify": the `diff` above (in the suggested target's file);
+   - "Change the target": where it would go instead;
    - "Exclude": "No change."
 
-   The user may also answer freely and discuss: answer, refine the change with them.
+   "Change the target" asks a second question: "Project, shared (committed, for the team)" / "Project, personal (yours, not committed)" / "You, in every project", each with the `diff` in **that** target's file in its `preview`.
+
+   At the first proposal, say in one sentence that "Discuss or modify" (or typing their answer in the question) is how to talk a proposal through: it decides nothing. "Discuss or modify", "Chat about this" or a question typed in: discuss with them, refine the change, then ask again.
 
 4. **A modified change, or another target, is shown again**: the whole new `diff` in the message and in the preview of "Apply this version", then ask again: "Apply this version" / "Change it again" / "Exclude". Never apply a version the user has not read.
 5. **Apply it right away**, exactly as shown, then record the decision and the files (step 9). Then confirm in **one line** (e.g. "p3 applied to `src/CLAUDE.md`."), and go on with the next proposal in a new message.
