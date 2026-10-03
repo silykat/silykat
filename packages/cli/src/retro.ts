@@ -507,7 +507,7 @@ async function show(c: Ctx): Promise<number> {
     lines.push('', "## The agent's conversations read back", '');
     for (const [thread, c] of conversations)
       lines.push(
-        `- ${thread}: ${c.available ? 'read back' : 'no longer available (the agent deleted it), analysed without it'}`,
+        `- ${thread}: ${c.available ? 'read back' : 'no longer available on this machine, analysed without it'}`,
       );
   }
   if (r.dropped.length) {

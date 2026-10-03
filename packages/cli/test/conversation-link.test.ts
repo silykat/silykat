@@ -189,7 +189,7 @@ describe('the link between a reply and the agent conversation', () => {
     const shown = (await lr(['retro', 'show', r.id])).out;
     expect(shown).toContain("## The agent's conversations read back");
     expect(shown).toContain(`- ${t.id}: read back`);
-    expect(shown).toContain('- t_gone: no longer available (the agent deleted it), analysed without it');
+    expect(shown).toContain('- t_gone: no longer available on this machine, analysed without it');
     const json = JSON.parse((await lr(['retro', 'show', r.id, '--format', 'json'])).out) as {
       conversations: Record<string, { available: boolean }>;
     };

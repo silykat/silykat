@@ -3024,7 +3024,7 @@ async function show(c) {
     lines.push("", "## The agent's conversations read back", "");
     for (const [thread, c2] of conversations)
       lines.push(
-        `- ${thread}: ${c2.available ? "read back" : "no longer available (the agent deleted it), analysed without it"}`
+        `- ${thread}: ${c2.available ? "read back" : "no longer available on this machine, analysed without it"}`
       );
   }
   if (r.dropped.length) {
