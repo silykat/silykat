@@ -51,7 +51,7 @@ On a Mac with Apple silicon, the container is Linux arm64; the CI runs on x86-64
 - Load your checkout for skills and hooks: `claude --plugin-dir adapters/claude-code/plugin`. The channel, however, only works with the installed plugin (`--dangerously-load-development-channels plugin:local-review@local-review`): add your checkout as a local marketplace (`claude plugin marketplace add /path/to/local-review`), then `claude plugin update local-review@local-review` after each change.
 - After any change to `core`, the CLI or the adapter, run `npm run build:claude-plugin` and **commit the bundles**: Claude Code installs plugins from git, and `npm test` fails when they are stale.
 - Never bump the plugin version by hand: releases do it (see below). Claude Code only updates a plugin whose version changed.
-- The retro (`/local-review:retro`) runs two sub-agents of the plugin (`agents/`), and `bin/lr-retro`, bundled from `adapters/claude-code/src/retroMain.ts`. Its Jev classification is tested against a local stub: `LR_JEV_URL` points `lr-retro jev` at another address (tests only). Never use a real key in tests.
+- The retro (`/local-review:retro`) runs two sub-agents of the plugin (`agents/`), and `bin/lr-retro`, bundled from `adapters/claude-code/src/retroMain.ts`. Its audit (`lr-retro audit`) starts a separate `claude -p`: tests give it a fake runner (`run` of `runRetroCli`), and `LR_CLAUDE_BIN` points it at another `claude` binary. Its Jev classification is tested against a local stub: `LR_JEV_URL` points `lr-retro jev` at another address (tests only). Never use a real key in tests.
 
 ### Without an agent
 

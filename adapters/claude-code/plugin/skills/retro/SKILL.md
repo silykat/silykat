@@ -1,7 +1,7 @@
 ---
 name: retro
 description: Run a retro with the user on the review feedback they gave you in Local Review (their code review threads in VS Code) since the last retro, to improve your setup together (CLAUDE.md, CLAUDE.local.md, skills, hooks…). Use when the user asks for a retro, a retrospective, or to improve your setup from their review comments.
-allowed-tools: Bash(lr:*), Bash(lr-retro:*), Bash(claude --version)
+allowed-tools: Bash(lr:*), Bash(lr-retro:*)
 ---
 
 # Run a retro of the review feedback
@@ -47,9 +47,11 @@ lr retro start --root <dir> [--since <date> | --all]
 
 It prints the retro id (`rt_…`). If the user answered question 1 of step 2, record it in a sentence: `lr retro feedback <id> --root <dir> --body "<their answer>"`.
 
-## 5. Classification (a sub-agent)
+## 5. The audit and the classification
 
-Run `lr retro key`. It tells whether a key of **Jev** is set up (a classification service: faster and cheaper than a model of the user's subscription; without it, Haiku does the job).
+First, start **the audit of your setup** in the background: run `lr-retro audit <id> --root <dir>` with the Bash tool's `run_in_background` option. It runs `/doctor prompt-audit` in a separate Claude Code, read-only, which looks for stale, contradictory or duplicated rules in the CLAUDE.md files, skills, agents and commands. It takes several minutes: it runs while the threads are classified. Say so in one sentence.
+
+Then the classification (a sub-agent). Run `lr retro key`. It tells whether a key of **Jev** is set up (a classification service: faster and cheaper than a model of the user's subscription; without it, Haiku does the job).
 
 - **Ready**: the classifier is `jev`.
 - **No key**: in two sentences, say what Jev brings and that Haiku works without it, then ask: "Continue with Haiku (Recommended)" / "Set up a Jev key first". To set one up:
@@ -62,51 +64,43 @@ Then launch the sub-agent **`local-review:retro-classifier`** (Agent tool), with
 
 ## 6. Analysis (another sub-agent, fresh context)
 
-Launch the sub-agent **`local-review:retro-analyst`** with this prompt: `Retro <id>, project <dir>.` It reads every thread of the period together, your whole setup, the classification, the statistics, the previous retros and the preferences, and records its proposals with `lr retro propose`, which applies the guard rails by program.
+Wait for **the audit** to end (you are told when the background command finishes). It prints the path of its report (`Written: …/audit.md`), or says it was skipped or failed: then go on without it, and tell the user why in one sentence.
 
-**Never do the analysis yourself**, and never read the threads or the inputs: your context is for the discussion. If a sub-agent was blocked (a command refused), tell the user which command it needs (they can allow `lr` and `lr-retro` commands, and the writing of the retro's files in `.local-review/retros/`), then launch it again. If nothing could be recorded, tell the user and stop (`lr retro finish`).
+Launch the sub-agent **`local-review:retro-analyst`** with this prompt: `Retro <id>, project <dir>, audit: <path of the report>` (without the audit: `Retro <id>, project <dir>.`). It reads every thread of the period together, your whole setup, the audit, the classification, the statistics, the previous retros and the preferences, and records its proposals with `lr retro propose`, which applies the guard rails by program.
+
+**Never do the analysis yourself**, and never read the threads, the inputs or the audit: your context is for the discussion. If a sub-agent was blocked (a command refused), tell the user which command it needs (they can allow `lr` and `lr-retro` commands, and the writing of the retro's files in `.local-review/retros/`), then launch it again. If nothing could be recorded, tell the user and stop (`lr retro finish`).
 
 ## 7. The proposals
 
-Run `lr retro show <id> --root <dir>`. Give an overview first: how many proposals in **To keep**, **To remove** and **To improve**, and the subjects **to watch** (preferences seen in a single thread: not proposed, kept for the next retros).
-
-For stale or contradictory rules (the **To remove** column), Claude Code has `/doctor prompt-audit` since version 2.1.283: run `claude --version`, and when it is recent enough, suggest that the user runs `/doctor prompt-audit` after the retro (it audits CLAUDE.md files, skills, agents and commands, and proposes edits without applying them).
+Run `lr retro show <id> --root <dir>`. Give an overview first: how many proposals in **To keep**, **To remove** and **To improve** (and how many come from the audit of the setup), and the subjects **to watch** (preferences seen in a single thread: not proposed, kept for the next retros).
 
 ## 8. The discussion: second validation, one proposal at a time
 
-Go through the proposals one by one: To improve, then To remove, then To keep. For each one, show:
+The user decides on what they read: **always the same presentation, and always the exact change**. For each proposal, until `lr retro show` says all are decided:
 
-- its title and column;
-- its **source**: the threads cited, with their excerpt;
-- its **numbers** (threads, reopened, questions, back-and-forth, since when);
-- the **rule or file** concerned;
-- the **why**: the common cause, and what the change must avoid;
-- the change, the **target** and why, and its **confidence**.
+1. **A new message for each proposal.** Run `lr retro show <id> --next --root <dir>` and copy its output **as it is**, from its `---` separator: the title, the source (threads with their excerpt, or the audit), the numbers, the file, the existing rule, the why, the target and the confidence. Never add the recap of the previous proposal to this message, never skip a part, never summarize it.
+2. **The exact change**, right under it: read the file concerned and show precisely what will change in it, in a `diff` block: the lines removed (`-`) and added (`+`), with two or three unchanged lines around to show where. A new file: its whole content, in a code block, with its path. A skill, a hook or a script: every file, in full. A "keep": "No change." When the target is to choose, show it for the suggested target's file.
+3. **One AskUserQuestion**, the recommendation first: "Accept" / "Modify" / "Exclude" / "Change the target" (when `lr` says the target is **to choose**: "Project, shared (committed, for the team)" / "Project, personal (yours, not committed)" / "You, in every project" as the target options, the suggested one first). The user may also answer freely and discuss: answer, refine the change with them.
+4. **A modified change, or another target, is shown again**: the whole new `diff` (in the new file for another target), then ask again: "Apply this version" / "Change it again" / "Exclude". Never apply a version the user has not read.
+5. **Apply it right away**, exactly as shown, then record the decision and the files (step 9). Then confirm in **one line** (e.g. "p3 applied to `src/CLAUDE.md`."), and go on with the next proposal in a new message.
 
-Then ask one AskUserQuestion, the recommendation first: "Accept" / "Modify" / "Exclude" / "Change the target". When `lr` says the target is **to ask**, ask the target first: "Project, shared (committed, for the team)" / "Project, personal (yours, not committed)" / "You, in every project", the suggested one first. The user may also answer freely and discuss: answer, refine the proposal with them, then ask again.
+An excluded subject is never proposed again, unless new feedback raises it. Record it with the user's reason when they give one.
 
-Record each decision as soon as it is taken:
+## 9. Apply what was validated
+
+Each change is applied as soon as the user validates it (step 8), **exactly the text they read**: no rewording, nothing more. Where it goes:
+
+- **project, shared**: the `CLAUDE.md` of the repository concerned, or its `.claude/` (skills, commands, agents; hooks in `.claude/settings.json`);
+- **project, personal**: `CLAUDE.local.md` in that repository (check that git ignores it: `git check-ignore -q CLAUDE.local.md`, else add `CLAUDE.local.md` to `.git/info/exclude`, never to `.gitignore`), or the `CLAUDE.md` of a parent folder that is in no repository; hooks in `.claude/settings.local.json`;
+- **you, in every project**: `~/.claude/CLAUDE.md`, `~/.claude/` (skills, agents; hooks in `~/.claude/settings.json`).
+
+A "keep" changes nothing. A hook or a script must work: run it once on a sample input (a scratch copy for anything that writes data). Never commit, and never change what the user did not validate. Record each decision and the files changed as soon as it is applied:
 
 ```bash
 lr retro decide <id> <proposal> accepted --root <dir>
 lr retro decide <id> <proposal> modified --root <dir> --note "what changed"
 lr retro decide <id> <proposal> retargeted --root <dir> --target project-personal
 lr retro decide <id> <proposal> excluded --root <dir> --note "why, in the user's words"
-```
-
-An excluded subject is never proposed again, unless new feedback raises it.
-
-## 9. Apply what was validated
-
-For each proposal accepted, modified or retargeted, **make the change yourself**, one change per subject, exactly as validated:
-
-- **project, shared**: the `CLAUDE.md` of the repository concerned, or its `.claude/` (skills, commands, agents; hooks in `.claude/settings.json`);
-- **project, personal**: `CLAUDE.local.md` in that repository (check that git ignores it: `git check-ignore -q CLAUDE.local.md`, else add `CLAUDE.local.md` to `.git/info/exclude`, never to `.gitignore`), or the `CLAUDE.md` of a parent folder that is in no repository; hooks in `.claude/settings.local.json`;
-- **you, in every project**: `~/.claude/CLAUDE.md`, `~/.claude/` (skills, agents; hooks in `~/.claude/settings.json`).
-
-Keep rules short, concrete and next to the related ones; to remove a rule, delete or reword it. A "keep" changes nothing. A hook must work: run its script once on a sample input. Never commit, and never change what the user did not validate. Then record the files changed:
-
-```bash
 lr retro applied <id> <proposal> --root <dir> --file <path> [--file <path>…]
 ```
 

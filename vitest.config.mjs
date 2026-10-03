@@ -23,8 +23,8 @@ export default defineConfig({
       // extension is mostly covered by its integration tests (`npm run coverage:integration`).
       thresholds: {
         'packages/core/src/**': { statements: 95, branches: 90, functions: 94, lines: 97 },
-        'packages/cli/src/**': { statements: 98, branches: 87, functions: 99, lines: 99 },
-        'adapters/claude-code/src/**': { statements: 97, branches: 85, functions: 98, lines: 99 },
+        'packages/cli/src/**': { statements: 98, branches: 88, functions: 99, lines: 99 },
+        'adapters/claude-code/src/**': { statements: 97, branches: 86, functions: 98, lines: 99 },
         'packages/vscode-extension/src/**': { statements: 4, branches: 6, functions: 4, lines: 4 },
       },
     },
