@@ -40,7 +40,7 @@ Local Review is agent-agnostic by design; **Claude Code** is the first supported
 - **Your agent does the work**: it receives what you publish, changes the code, replies in each thread, and tells you what it did or what it needs.
 - **The right agent gets it**: with several agent sessions in parallel (one per git worktree, a reviewer next to a developer…), each comment goes to the sessions working on its branch.
 - **Safe while the agent works**: edit or delete a comment at any time; the agent never answers an outdated version.
-- **Your whole history**: read back every thread of a project, resolved and deleted ones included, across its repositories and worktrees (`lr history`).
+- **Your whole history**: read back every thread of a project, resolved and deleted ones included, across its repositories and worktrees (`lr history`). It tells a thread you removed from one gone with its branch, and keeps the threads of a git worktree after you remove it, once saved (automatically when your agent removes it).
 - **Retros with your agent**: look back at your feedback with Claude, and decide together what to keep, remove or improve in its setup (`CLAUDE.md`, skills, hooks…); Claude applies what you validate (`/local-review:retro`).
 - **100% local**: no network calls, no telemetry, plain files you can read. The one exception is opt-in: the classification of a retro by Jev, only if you give it a key.
 
@@ -142,7 +142,13 @@ Threads move with the lines when you edit above or inside them; the new position
 
 ### Branches and worktrees
 
-A thread belongs to the branch of its file. After `git checkout`, VS Code shows only the threads of the branch checked out; the others come back with their branch. Each worktree has its own branch, and there is **one review per branch** (one per folder for files not tracked by git, see [Review mode](#review-mode)): the status bar and **Submit Review** act on the review of the file you have open. Renaming a branch keeps its threads; deleting it deletes them. Files ignored by git, and files outside git, are on no branch: their threads always show.
+A thread belongs to the branch of its file. After `git checkout`, VS Code shows only the threads of the branch checked out; the others come back with their branch. Each worktree has its own branch, and there is **one review per branch** (one per folder for files not tracked by git, see [Review mode](#review-mode)): the status bar and **Submit Review** act on the review of the file you have open. Renaming a branch keeps its threads; deleting it deletes them (the history records them as deleted **with their branch**, not as removed by you). Files ignored by git, and files outside git, are on no branch: their threads always show.
+
+#### Removing a worktree
+
+`git worktree remove` deletes the worktree's folder, and its comments with it (they are in its `.local-review/`). The first time a worktree you open has comments, VS Code tells you so. Before removing it, run **Local Review: Save Worktree Threads** (or `lr worktree save` in the worktree, or **Save Threads Now** in that message): its threads are copied to the store of the main repository, with the worktree and branch they come from, and stay in the history and in retros after the worktree is gone. Saving again refreshes the copy; nothing is removed from the worktree, and VS Code does not show the copies.
+
+When your agent is about to remove a worktree (`git worktree remove`, `rm -r` of the worktree, or Claude Code's own worktrees left with "remove"), the Claude Code plugin saves its threads first and Claude tells you so. To turn that off: `lr config set auto-save-worktrees off` (Claude then warns you instead).
 
 ### Files outside the open folders
 
@@ -222,19 +228,23 @@ Agents read and answer the threads with `lr`, an agent-neutral command line; the
 | `lr subscribe [<folder>] [--path]`, `lr unsubscribe`     | Subscribe the session `lr` runs in to a branch or a path, or stop  |
 | `lr subscriptions`, `lr sessions`                        | What this session is subscribed to; the running sessions           |
 | `lr history [--since <date>]`                            | Every thread of the project, whatever its state, in full           |
+| `lr worktree save [<folder>]`                            | Save a git worktree's threads before removing the worktree         |
+| `lr config`, `lr config set <name> on\|off`              | The settings of this machine (`auto-save-worktrees`)               |
 | `lr retro scope`, `lr retro show <id>`, `lr retro list`  | What a retro would cover; a retro and its proposals; past retros   |
 
 Add `--root <folder>` to target a project from elsewhere (`--root /` for files outside the open folders), and `--format json` for tools. `lr --help` has the full reference.
 
 ### The history of your comments
 
-`lr history` reads back **every thread of a project**, whatever its state: open, addressed, resolved or deleted, each with its whole conversation (comments, status changes, dates, comments deleted since), its branch, its file and the commented code. The project is the current folder (or `--root <folder>`), its subfolders, and the git worktrees of the repositories it contains, even when they are kept next to it: run it from the parent folder of several repositories to get them all. `--since 2026-10-01` (or `--since 7d`) keeps the threads active since that date. It starts with a summary: threads per state and per comment store, and the size of the data. `--format json` gives the same to tools. Drafts are never shown: neither those of a review you have not submitted, nor those you deleted before submitting. Ask your agent, e.g. "show me this week's review comments".
+`lr history` reads back **every thread of a project**, whatever its state: open, addressed, resolved or deleted, each with its whole conversation (comments, status changes, dates, comments deleted since), its branch, its file and the commented code. The project is the current folder (or `--root <folder>`), its subfolders, and the git worktrees of the repositories it contains, even when they are kept next to it: run it from the parent folder of several repositories to get them all. `--since 2026-10-01` (or `--since 7d`) keeps the threads active since that date. Deleted threads say why: **removed by you**, or **gone with their branch** (threads deleted before Local Review recorded it say "reason unknown"). Threads saved from a worktree are listed under **saved from a worktree**, with their worktree and the day they were saved; while the worktree still exists, each thread is shown once. It starts with a summary: threads per state (deleted ones by reason) and per comment store, and the size of the data. `--format json` gives the same to tools. Drafts are never shown: neither those of a review you have not submitted, nor those you deleted before submitting. Ask your agent, e.g. "show me this week's review comments".
 
 ## Where your data lives
 
 - **Comments** of a project: `.local-review/` at its root (the git top level, or the open folder), as plain append-only JSON Lines journals. Git ignores it through `.git/info/exclude`.
 - **Comments of files outside the open folders**: `~/.local-review/files/`.
 - **Retros** of a project: `.local-review/retros/` at its top (one journal per retro, plus your retro preferences).
+- **Threads saved from git worktrees**: `.local-review/saved/` of the main repository (one folder per worktree store: its journals as they were, and where they come from).
+- **Settings of this machine** (read by the agent hooks, which run outside VS Code): `~/.local-review/config.json`, changed with `lr config`.
 - **Agent sessions**, their subscriptions and message queues: `~/.local-review/sessions/`.
 
 `$LOCAL_REVIEW_HOME` moves `~/.local-review/` elsewhere. Local Review collects no telemetry, and makes no network call, except the optional classification of a retro by Jev when you set up its key.
