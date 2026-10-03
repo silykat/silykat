@@ -222,6 +222,78 @@ describe('lr retro', () => {
     expect((await lr(['retro', 'start'])).err).toContain('no thread in this period');
   });
 
+  it('presents one proposal at a time, in the order of the discussion, always in the same parts', async () => {
+    const t = await project();
+    const id = await startRetro();
+    const proposals = {
+      proposals: [
+        utcProposal(t, {
+          column: 'keep',
+          subject: 'Small modules',
+          title: 'Keep the small-modules rule',
+          rule: '- Keep modules small.',
+          change: '',
+          targetWhy: 'it is in the team file',
+        }),
+        utcProposal(t, { change: '- Every date is UTC.\n- APIs return ISO 8601 strings.' }),
+        utcProposal(t, {
+          column: 'remove',
+          subject: 'Tabs or spaces',
+          title: 'Remove the tabs rule',
+          rule: '- Always use tabs.',
+          change: 'Delete the line.',
+          evidence: [],
+          audit: { location: 'api/CLAUDE.md:2-3', finding: 'Contradicts "always 2 spaces"' },
+          targetEvidence: [t.utc1],
+        }),
+      ],
+    };
+    expect((await lr(['retro', 'propose', id, '--body', '-'], JSON.stringify(proposals))).code).toBe(0);
+
+    const first = (await lr(['retro', 'show', id, '--next'])).out;
+    expect(first.startsWith('---\n\n## Proposal 1/3 · To improve · Say that dates are UTC\n')).toBe(true);
+    expect(first).toContain(`**Source**: 2 threads\n- ${t.utc1} (src/a.ts:1, open): "Dates are UTC here"`);
+    expect(first).toContain('**Numbers**: 2 threads, 1 reopened');
+    expect(first).toContain('**File**: `api/CLAUDE.md` (rule)');
+    expect(first).toContain('**Proposed change**:\n> - Every date is UTC.\n> - APIs return ISO 8601 strings.');
+    expect(first).toContain('**Target**: to choose (nothing in the threads tells it). Suggested: project, shared');
+    expect(first).toContain('**Confidence**: 80% · recommended: accepted');
+    expect(first).not.toContain('**Existing rule**');
+
+    await lr(['retro', 'decide', id, 'p2', 'accepted']);
+    const second = (await lr(['retro', 'show', id, '--next'])).out;
+    expect(second).toContain('## Proposal 2/3 · To remove · Remove the tabs rule');
+    expect(second).toContain(
+      '**Source**: 0 threads, and the audit of your setup (/doctor prompt-audit)\n- /doctor prompt-audit, `api/CLAUDE.md:2-3`: Contradicts "always 2 spaces"',
+    );
+    expect(second).not.toContain('**Numbers**');
+    expect(second).toContain('**Existing rule**:\n> - Always use tabs.');
+    expect((await lr(['retro', 'show', id])).out).toContain(
+      '- **Source**: 0 threads, and the audit of the setup\n  - /doctor prompt-audit, api/CLAUDE.md:2-3',
+    );
+
+    const kept = (await lr(['retro', 'show', id, 'p1'])).out;
+    expect(kept).toContain('## Proposal 3/3 · To keep · Keep the small-modules rule');
+    expect(kept).not.toContain('**Proposed change**');
+    expect(JSON.parse((await lr(['retro', 'show', id, 'p2', '--format', 'json'])).out)).toMatchObject({
+      position: 1,
+      total: 3,
+      decision: { decision: 'accepted' },
+    });
+    expect((await lr(['retro', 'show', id, 'p2'])).out).toContain('**Decision**: accepted');
+    expect((await lr(['retro', 'show', id, 'p9'])).err).toContain('Proposal not found: p9');
+
+    await lr(['retro', 'decide', id, 'p3', 'excluded', '--note', 'not now']);
+    await lr(['retro', 'decide', id, 'p1', 'accepted']);
+    expect((await lr(['retro', 'show', id, '--next'])).out).toBe('All 3 proposals are decided.\n');
+  });
+
+  it('says when no proposal is recorded yet', async () => {
+    await project();
+    const id = await startRetro();
+    expect((await lr(['retro', 'show', id, '--next'])).out).toBe('No proposal recorded yet.\n');
+  });
+
   it('does not propose again a subject the user excluded, unless new threads raise it', async () => {
     const t = await project();
     const first = await startRetro();
@@ -245,6 +317,22 @@ describe('lr retro', () => {
     expect((await lr(['retro', 'input', id, '--for', 'analysis'])).code).toBe(0);
     expect(await readFile(join(work, '.local-review', 'retros', id, 'analysis-input.md'), 'utf8')).toContain(
       `${first}/p1: Dates are UTC (excluded`,
+    );
+
+    // Two new threads raise it again: it comes back, and says so.
+    const n1 = await api.createThread(anchor(7), { author: 'user', body: 'UTC, still', reviewId: null });
+    const n2 = await api.createThread(anchor(9), { author: 'user', body: 'UTC once more', reviewId: null });
+    const third = (JSON.parse((await lr(['retro', 'start', '--all', '--format', 'json'])).out) as { id: string }).id;
+    const back = utcProposal(t, {
+      evidence: [
+        { thread: n1.id, excerpt: 'UTC, still' },
+        { thread: n2.id, excerpt: 'UTC once more' },
+      ],
+      reopens: `${first}/p1`,
+    });
+    expect((await lr(['retro', 'propose', third, '--body', JSON.stringify({ proposals: [back] })])).code).toBe(0);
+    expect((await lr(['retro', 'show', third, '--next'])).out).toContain(
+      `**Excluded before** (${day((await new RetroBook(work).get(first)).decisions.p1!.at)}), back for new threads: ${n1.id}, ${n2.id}.`,
     );
   });
 
@@ -348,6 +436,10 @@ describe('lr retro', () => {
     expect(shown).toContain('**Guard rail**: proposed as "keep", but you had to enforce the rule in');
     expect(shown).toContain('**Decision**: modified: shorter');
     expect(shown).toContain('**Target**: project, shared (committed, for the team)');
+    const one = (await lr(['retro', 'show', id, 'p1'])).out;
+    expect(one).toContain('**Existing rule**:\n> Dates are UTC.');
+    expect(one).toContain('**Guard rail**: proposed as "keep", but you had to enforce the rule in');
+    expect(one).toContain('**Decision**: modified: shorter');
 
     // A thread whose journal is gone is reported, not invented.
     await rm(join(work, 'api', '.local-review', 'threads', `${t.praise}.jsonl`));

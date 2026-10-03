@@ -47,6 +47,9 @@ export const RETRO_USAGE = `Retros (look back at the feedback of a period with y
   lr retro check <retro> --body -          Apply the guard rails to proposals, record nothing
   lr retro propose <retro> --body -        Record the proposals (refused while some are rejected)
   lr retro show <retro>                    The retro: proposals with their threads and numbers
+  lr retro show <retro> <proposal> | --next
+                                          One proposal, to present it to the user (--next: the next
+                                          one to decide, in the order of the discussion)
   lr retro decide <retro> <proposal> accepted|modified|excluded|retargeted
            [--target project-shared|project-personal|user] [--note <text>]
   lr retro applied <retro> <proposal> --file <path>…   Files changed for a proposal
@@ -67,6 +70,7 @@ const RETRO_OPTIONS = {
   target: { type: 'string' as const },
   note: { type: 'string' as const },
   file: { type: 'string' as const, multiple: true },
+  next: { type: 'boolean' as const },
 };
 
 type ParseSince = (value: string | undefined) => Date | null;
@@ -432,10 +436,11 @@ function renderProposal(p: Proposal, r: RetroState, threads: ReadonlyMap<string,
   const lines = [
     `### ${p.id} · ${COLUMN_TITLE[p.column]} · ${p.title}`,
     '',
-    `- **Source**: ${f.threads} threads`,
+    `- **Source**: ${f.threads} threads` + (p.audit ? `, and the audit of the setup` : ''),
     ...p.evidence.map(
       (e) => `  - ${e.thread}${where(threads.get(e.thread)?.thread)}${e.excerpt ? `: "${e.excerpt}"` : ''}`,
     ),
+    ...(p.audit ? [`  - ${AUDIT_NAME}, ${p.audit.location}: ${p.audit.finding}`] : []),
     `- **Numbers**: ${f.threads} threads, ${f.reopened} reopened, ${f.questions} with a question from the agent, ${f.rounds} round(s) of back-and-forth, from ${day(f.first)} to ${day(f.last)}`,
     `- **File**: ${p.file}` + (p.rule ? `\n- **Rule**: ${p.rule}` : ''),
     `- **Why**: ${p.why}`,
@@ -461,8 +466,102 @@ function renderProposal(p: Proposal, r: RetroState, threads: ReadonlyMap<string,
   return lines.join('\n');
 }
 
+/** The audit of the setup the analysis can draw on. */
+const AUDIT_NAME = '/doctor prompt-audit';
+
+/** The order of the discussion: what to improve, then what to remove, then what to keep. */
+const DISCUSSION: readonly Column[] = ['improve', 'remove', 'keep'];
+
+/** Each line of a text, as a Markdown quote. */
+const blockquote = (text: string) =>
+  text
+    .split('\n')
+    .map((l) => (l.trim() ? `> ${l}` : '>'))
+    .join('\n');
+
+/**
+ * One proposal, as the agent shows it to the user: always the same parts, in the same order, under
+ * a separator, so that it never runs into what came before.
+ */
+function presentProposal(
+  p: Proposal,
+  position: number,
+  total: number,
+  r: RetroState,
+  threads: ReadonlyMap<string, { thread: ThreadHistory }>,
+): string {
+  const f = p.figures;
+  const d = r.decisions[p.id];
+  const source =
+    `${f.threads} thread${f.threads === 1 ? '' : 's'}` +
+    (p.audit ? `, and the audit of your setup (${AUDIT_NAME})` : '');
+  const lines = [
+    '---',
+    '',
+    `## Proposal ${position}/${total} · ${COLUMN_TITLE[p.column]} · ${p.title}`,
+    '',
+    `**Source**: ${source}`,
+    ...p.evidence.map(
+      (e) => `- ${e.thread}${where(threads.get(e.thread)?.thread)}${e.excerpt ? `: "${e.excerpt}"` : ''}`,
+    ),
+    ...(p.audit ? [`- ${AUDIT_NAME}, \`${p.audit.location}\`: ${p.audit.finding}`] : []),
+    '',
+  ];
+  if (f.threads > 0)
+    lines.push(
+      `**Numbers**: ${f.threads} threads, ${f.reopened} reopened, ${f.questions} with a question from the agent, ${f.rounds} round(s) of back-and-forth, from ${day(f.first)} to ${day(f.last)}.`,
+      '',
+    );
+  lines.push(`**File**: \`${p.file}\` (${p.kind})`, '');
+  if (p.rule) lines.push('**Existing rule**:', blockquote(p.rule), '');
+  lines.push(`**Why**: ${p.why}`, '');
+  if (p.change) lines.push('**Proposed change**:', blockquote(p.change), '');
+  lines.push(
+    p.askTarget
+      ? `**Target**: to choose (nothing in the threads tells it). Suggested: ${TARGET_TITLE[p.target]}${p.targetWhy ? `, ${p.targetWhy}` : ''}.`
+      : `**Target**: ${TARGET_TITLE[p.target]}${p.targetWhy ? `, because ${p.targetWhy}` : ''}.`,
+    '',
+    `**Confidence**: ${Math.round(p.confidence * 100)}% · recommended: ${p.recommendation}`,
+  );
+  if (p.convertedFromKeep)
+    lines.push(
+      '',
+      `**Guard rail**: proposed as "keep", but you had to enforce the rule in ${p.convertedFromKeep.threads.join(', ')}.`,
+    );
+  if (p.reopens)
+    lines.push(
+      '',
+      `**Excluded before** (${day(p.reopens.at)}), back for new threads: ${p.reopens.newThreads.join(', ')}.`,
+    );
+  if (d) lines.push('', `**Decision**: ${d.decision}${d.target ? ` (${d.target})` : ''}${d.note ? `: ${d.note}` : ''}`);
+  return lines.join('\n');
+}
+
+/** `lr retro show <retro> <proposal>` or `--next`: one proposal, in the order of the discussion. */
+async function showOne(c: Ctx, r: RetroState): Promise<number> {
+  const order = DISCUSSION.flatMap((col) => r.proposals.filter((p) => p.column === col));
+  const wanted = c.positionals[1];
+  const p = wanted ? order.find((x) => x.id === wanted) : order.find((x) => !r.decisions[x.id]);
+  if (!p) {
+    if (wanted) throw new Error(`Proposal not found: ${wanted} (lr retro show ${r.id})`);
+    c.io.out(order.length ? `All ${order.length} proposals are decided.` : 'No proposal recorded yet.');
+    return 0;
+  }
+  const position = order.indexOf(p) + 1;
+  if (c.json) {
+    c.io.out(
+      JSON.stringify({ position, total: order.length, proposal: p, decision: r.decisions[p.id] ?? null }, null, 2),
+    );
+    return 0;
+  }
+  const { threads } = await retroThreads(r, c.io.env);
+  c.io.out(presentProposal(p, position, order.length, r, threads));
+  return 0;
+}
+
 async function show(c: Ctx): Promise<number> {
   const { retro: r } = await retroOf(c);
+  if (c.positionals[1] || c.values.next) return showOne(c, r);
   const { threads } = await retroThreads(r, c.io.env);
   if (c.json) {
     c.io.out(
