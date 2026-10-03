@@ -5,6 +5,13 @@ export const STORE_DIR = '.local-review';
 export type Author = 'user' | 'agent';
 export type ThreadStatus = 'open' | 'needs-info' | 'addressed' | 'resolved';
 
+/**
+ * Why a thread was deleted: the user removed it (`user`), or its git branch was deleted
+ * (`branch-gone`). Journals written before reasons were recorded have none.
+ */
+export type DeleteReason = 'user' | 'branch-gone';
+export const DELETE_REASONS: readonly DeleteReason[] = ['user', 'branch-gone'];
+
 /** 1-based, inclusive on both ends. */
 export interface LineRange {
   startLine: number;

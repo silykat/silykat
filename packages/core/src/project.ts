@@ -3,21 +3,36 @@ import type { Dirent } from 'node:fs';
 import { readdir, realpath } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { findStoreRoot, isStoreRoot } from './agentView';
-import { activeSince, countStates, type StateCounts, type ThreadHistory } from './history';
+import {
+  activeSince,
+  countDeletions,
+  countStates,
+  type DeletionCounts,
+  type StateCounts,
+  type ThreadHistory,
+} from './history';
+import { savedStores, type SavedOrigin } from './saved';
 import { LOOSE_ROOT, storeAt } from './sessions';
+import { Store } from './store';
 import { STORE_DIR } from './types';
 
 /**
  * How a store was found for a project: the project folder itself, a folder below it, the closest
- * store above it (when the folder has none, as the other `lr` commands do), or a git worktree of
- * a repository of the project, kept outside the folder (e.g. next to the repository).
+ * store above it (when the folder has none, as the other `lr` commands do), a git worktree of a
+ * repository of the project, kept outside the folder (e.g. next to the repository), or the threads
+ * of a worktree saved in one of these stores before the worktree was removed.
  */
-export type StoreOrigin = 'root' | 'below' | 'above' | 'worktree';
+export type StoreOrigin = 'root' | 'below' | 'above' | 'worktree' | 'saved';
 
 export interface ProjectStore {
-  /** The folder holding the `.local-review/` store (`/` for the machine store of loose files). */
+  /**
+   * The folder of the files commented (`/` for the machine store of loose files): it holds the
+   * `.local-review/` store, except for saved threads, whose worktree may be gone.
+   */
   root: string;
   origin: StoreOrigin;
+  /** Saved threads only: the folder of the copy, and where it comes from. */
+  saved?: SavedOrigin & { dir: string };
 }
 
 /**
@@ -82,7 +97,17 @@ export async function projectStores(
     for (const dir of stores) await add(dir, 'worktree');
   }
 
-  const order: Record<StoreOrigin, number> = { root: 0, below: 1, above: 2, worktree: 3 };
+  // Threads saved from worktrees (maybe removed since) into any of these stores.
+  for (const s of [...found]) {
+    for (const saved of await savedStores(join(s.root, STORE_DIR))) {
+      const key = await realpath(saved.dir).catch(() => saved.dir);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      found.push({ root: saved.root, origin: 'saved', saved });
+    }
+  }
+
+  const order: Record<StoreOrigin, number> = { root: 0, below: 1, above: 2, worktree: 3, saved: 4 };
   return found.sort((a, b) => order[a.origin] - order[b.origin] || a.root.localeCompare(b.root));
 }
 
@@ -92,6 +117,16 @@ function walked(top: string, dir: string): boolean {
   if (rel === '') return true;
   if (rel.startsWith('..') || isAbsolute(rel)) return false;
   return rel.split(sep).every((part) => !part.startsWith('.') && !SKIPPED.has(part));
+}
+
+/** The folders holding a store, at and below `dir` (the same walk as for a project). */
+export async function storesUnder(
+  dir: string,
+  env: Record<string, string | undefined> = process.env,
+): Promise<string[]> {
+  const stores: string[] = [];
+  await walk(resolve(dir), env, stores, []);
+  return stores.sort();
 }
 
 /** Stores (and git repositories: folders holding a `.git`) at and below `dir`. */
@@ -135,6 +170,8 @@ export interface StoreHistory extends ProjectStore {
   /** Size of their journals, in bytes. */
   bytes: number;
   states: StateCounts;
+  /** Deleted threads by reason. */
+  deletions: DeletionCounts;
   warnings: string[];
 }
 
@@ -146,6 +183,7 @@ export interface ProjectHistory {
   threads: number;
   bytes: number;
   states: StateCounts;
+  deletions: DeletionCounts;
 }
 
 /**
@@ -158,21 +196,33 @@ export async function projectHistory(
 ): Promise<ProjectHistory> {
   const env = opts.env ?? process.env;
   const sinceMs = opts.since ? opts.since.getTime() : null;
-  const stores = await Promise.all(
-    (await projectStores(root, env)).map(async (s): Promise<StoreHistory> => {
-      const { threads, warnings } = await storeAt(s.root, env).loadHistory();
+  const loaded = await Promise.all(
+    (await projectStores(root, env)).map(async (s) => ({
+      s,
+      ...(await (s.saved ? new Store(s.root, s.saved.dir) : storeAt(s.root, env)).loadHistory()),
+    })),
+  );
+  // A thread saved from a worktree that still exists is in both stores: the longer journal is the
+  // more recent one (journals only grow); on a tie, the live store, listed first.
+  const best = new Map<string, ThreadHistory>();
+  for (const { threads } of loaded)
+    for (const t of threads) if (t.bytes > (best.get(t.id)?.bytes ?? -1)) best.set(t.id, t);
+  const stores = loaded
+    // A saved copy whose threads are all still in their worktree adds nothing.
+    .filter(({ s, threads }) => !s.saved || threads.some((t) => best.get(t.id) === t))
+    .map(({ s, threads, warnings }): StoreHistory => {
       const kept = threads
-        .filter((t) => activeSince(t, sinceMs))
+        .filter((t) => best.get(t.id) === t && activeSince(t, sinceMs))
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
       return {
         ...s,
         threads: kept,
         bytes: kept.reduce((n, t) => n + t.bytes, 0),
         states: countStates(kept),
+        deletions: countDeletions(kept),
         warnings,
       };
-    }),
-  );
+    });
   const all = stores.flatMap((s) => s.threads);
   return {
     root: root === LOOSE_ROOT ? root : resolve(root),
@@ -181,5 +231,6 @@ export async function projectHistory(
     threads: all.length,
     bytes: stores.reduce((n, s) => n + s.bytes, 0),
     states: countStates(all),
+    deletions: countDeletions(all),
   };
 }

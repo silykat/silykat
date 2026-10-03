@@ -3,12 +3,13 @@
 
 // src/retroCli.ts
 var import_node_os3 = require("node:os");
-var import_node_path10 = require("node:path");
+var import_node_path11 = require("node:path");
 var import_node_util = require("node:util");
 
 // ../../packages/core/src/types.ts
 var SCHEMA_VERSION = 1;
 var STORE_DIR = ".local-review";
+var DELETE_REASONS = ["user", "branch-gone"];
 var branchKey = (b) => b ? `${b.repo}#${b.branch}` : "";
 var reviewScopeKey = (s) => s.branch ? branchKey(s.branch) : s.path ? `path:${s.path}` : "";
 
@@ -219,6 +220,8 @@ function threadHistory(events, opts = {}) {
   let branch = first.branch ?? null;
   let status = "open";
   let deletedAt = null;
+  let deletedReason = null;
+  let lastCommentDeletedAt = null;
   const conversation = [];
   const comments = /* @__PURE__ */ new Map();
   const publishedAt = /* @__PURE__ */ new Map();
@@ -260,6 +263,7 @@ function threadHistory(events, opts = {}) {
         if (!c || c.author !== e.by) break;
         if (e.at < publishedAt.get(c.id)) drop(c.id);
         else c.deletedAt ??= e.at;
+        lastCommentDeletedAt = e.at;
         break;
       }
       case "status.changed":
@@ -275,7 +279,14 @@ function threadHistory(events, opts = {}) {
       case "thread.deleted":
         if (deletedAt === null) {
           deletedAt = e.at;
-          conversation.push({ kind: "deleted", by: e.by, ...agentOf(e), at: e.at });
+          deletedReason = knownReason(e.reason) ?? (lastCommentDeletedAt === e.at ? "user" : null);
+          conversation.push({
+            kind: "deleted",
+            by: e.by,
+            ...agentOf(e),
+            at: e.at,
+            ...deletedReason ? { reason: deletedReason } : {}
+          });
         }
         break;
       case "thread.created":
@@ -287,8 +298,10 @@ function threadHistory(events, opts = {}) {
   }
   if (comments.size === 0) return null;
   const all = [...comments.values()];
-  if (deletedAt === null && all.every((c) => c.deletedAt))
+  if (deletedAt === null && all.every((c) => c.deletedAt)) {
     deletedAt = all.map((c) => c.deletedAt).sort().at(-1);
+    deletedReason = "user";
+  }
   const activity = conversation.flatMap(
     (x) => x.kind === "comment" ? [x.publishedAt ?? x.at, x.editedAt ?? "", x.deletedAt ?? ""] : [x.at]
   );
@@ -302,6 +315,7 @@ function threadHistory(events, opts = {}) {
     createdAt: first.at,
     lastActivityAt: activity.reduce((a, b) => b > a ? b : a, first.at),
     deletedAt,
+    deletedReason: deletedAt ? deletedReason : null,
     readOnly: opts.futureVersion ?? false,
     conversation,
     bytes: opts.bytes ?? 0
@@ -314,6 +328,15 @@ function countStates(threads) {
   const counts = Object.fromEntries(HISTORY_STATES.map((s) => [s, 0]));
   for (const t of threads) counts[t.state]++;
   return counts;
+}
+var knownReason = (r) => DELETE_REASONS.includes(r) ? r : null;
+function countDeletions(threads) {
+  const counts = { user: 0, "branch-gone": 0, unknown: 0 };
+  for (const t of threads) if (t.state === "deleted") counts[t.deletedReason ?? "unknown"]++;
+  return counts;
+}
+function deletionLabel(reason) {
+  return reason === "user" ? "removed by the user" : reason === "branch-gone" ? "its branch was deleted" : "reason unknown";
 }
 
 // ../../packages/core/src/store.ts
@@ -574,17 +597,25 @@ var Store = class {
     assertOwnComment(current, commentId, by);
     const at = (/* @__PURE__ */ new Date()).toISOString();
     const events = [{ v: SCHEMA_VERSION, type: "comment.deleted", at, ...who2, commentId }];
-    if (current.comments.length === 1) events.push({ v: SCHEMA_VERSION, type: "thread.deleted", at, ...who2 });
+    if (current.comments.length === 1)
+      events.push({ v: SCHEMA_VERSION, type: "thread.deleted", at, ...who2, reason: "user" });
     return this.appendAndReload(threadId, events);
   }
   /**
-   * Deletes a whole thread, agent replies included. Only the user can. The journal keeps its
-   * history (append-only): the thread is simply never shown again.
+   * Deletes a whole thread, agent replies included. Only the user can (the editor also does it for
+   * them when the thread's branch was deleted: `reason` tells which). The journal keeps its history
+   * (append-only): the thread is simply never shown again.
    */
-  async deleteThread(threadId, by) {
+  async deleteThread(threadId, by, reason = "user") {
     if (by !== "user") throw new Error("Only the user can delete a thread");
     await this.writableThread(threadId, by);
-    const event = { v: SCHEMA_VERSION, type: "thread.deleted", at: (/* @__PURE__ */ new Date()).toISOString(), by };
+    const event = {
+      v: SCHEMA_VERSION,
+      type: "thread.deleted",
+      at: (/* @__PURE__ */ new Date()).toISOString(),
+      by,
+      reason
+    };
     return this.appendAndReload(threadId, [event]);
   }
   /** A thread `by` may write to. Agents never see threads that only hold drafts. */
@@ -650,6 +681,7 @@ var Store = class {
     if (!state) throw new Error("unreachable: freshly created thread failed to fold");
     return state;
   }
+  /** Creates the store's folders and schema version, if missing. */
   async ensureInitialized() {
     await (0, import_promises.mkdir)(this.threadsDir, { recursive: true });
     await (0, import_promises.mkdir)(this.reviewsDir, { recursive: true });
@@ -771,8 +803,44 @@ function realpath2(path) {
 
 // ../../packages/core/src/project.ts
 var import_node_child_process2 = require("node:child_process");
+var import_promises4 = require("node:fs/promises");
+var import_node_path6 = require("node:path");
+
+// ../../packages/core/src/saved.ts
 var import_promises3 = require("node:fs/promises");
 var import_node_path5 = require("node:path");
+var SAVED_DIR = "saved";
+async function savedStores(storeDir) {
+  let slots;
+  try {
+    slots = (await (0, import_promises3.readdir)((0, import_node_path5.join)(storeDir, SAVED_DIR), { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name).sort();
+  } catch {
+    return [];
+  }
+  const found2 = [];
+  for (const slot of slots) {
+    const dir = (0, import_node_path5.join)(storeDir, SAVED_DIR, slot);
+    const origin = parseOrigin(await (0, import_promises3.readFile)((0, import_node_path5.join)(dir, "origin.json"), "utf8").catch(() => ""));
+    if (origin) found2.push({ ...origin, dir });
+  }
+  return found2;
+}
+function parseOrigin(text) {
+  let raw;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (typeof raw !== "object" || raw === null) return null;
+  const o = raw;
+  const str = (k) => typeof o[k] === "string" ? o[k] : null;
+  const [worktree, root, repo, savedAt] = [str("worktree"), str("root"), str("repo"), str("savedAt")];
+  if (!worktree || !root || !repo || !savedAt) return null;
+  return { worktree, root, repo, branch: str("branch"), firstSavedAt: str("firstSavedAt") ?? savedAt, savedAt };
+}
+
+// ../../packages/core/src/project.ts
 var SKIPPED = /* @__PURE__ */ new Set([
   "node_modules",
   "dist",
@@ -788,11 +856,11 @@ var SKIPPED = /* @__PURE__ */ new Set([
 ]);
 async function projectStores(root, env = process.env) {
   if (root === LOOSE_ROOT) return [{ root, origin: "root" }];
-  const top = (0, import_node_path5.resolve)(root);
+  const top = (0, import_node_path6.resolve)(root);
   const found2 = [];
   const seen = /* @__PURE__ */ new Set();
   const add = async (dir, origin) => {
-    const key = await (0, import_promises3.realpath)((0, import_node_path5.join)(dir, STORE_DIR)).catch(() => (0, import_node_path5.join)(dir, STORE_DIR));
+    const key = await (0, import_promises4.realpath)((0, import_node_path6.join)(dir, STORE_DIR)).catch(() => (0, import_node_path6.join)(dir, STORE_DIR));
     if (seen.has(key)) return;
     seen.add(key);
     found2.push({ root: dir, origin });
@@ -808,7 +876,7 @@ async function projectStores(root, env = process.env) {
       repos.push(above);
     }
   }
-  const realTop = await (0, import_promises3.realpath)(top).catch(() => top);
+  const realTop = await (0, import_promises4.realpath)(top).catch(() => top);
   const worktrees = /* @__PURE__ */ new Set();
   for (const list of await Promise.all(repos.map(worktreesOf)))
     for (const wt of list) if (!walked(realTop, wt)) worktrees.add(wt);
@@ -817,33 +885,41 @@ async function projectStores(root, env = process.env) {
     await walk(wt, env, stores, []);
     for (const dir of stores) await add(dir, "worktree");
   }
-  const order = { root: 0, below: 1, above: 2, worktree: 3 };
+  for (const s of [...found2]) {
+    for (const saved of await savedStores((0, import_node_path6.join)(s.root, STORE_DIR))) {
+      const key = await (0, import_promises4.realpath)(saved.dir).catch(() => saved.dir);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      found2.push({ root: saved.root, origin: "saved", saved });
+    }
+  }
+  const order = { root: 0, below: 1, above: 2, worktree: 3, saved: 4 };
   return found2.sort((a, b) => order[a.origin] - order[b.origin] || a.root.localeCompare(b.root));
 }
 function walked(top, dir) {
-  const rel = (0, import_node_path5.relative)(top, dir);
+  const rel = (0, import_node_path6.relative)(top, dir);
   if (rel === "") return true;
-  if (rel.startsWith("..") || (0, import_node_path5.isAbsolute)(rel)) return false;
-  return rel.split(import_node_path5.sep).every((part) => !part.startsWith(".") && !SKIPPED.has(part));
+  if (rel.startsWith("..") || (0, import_node_path6.isAbsolute)(rel)) return false;
+  return rel.split(import_node_path6.sep).every((part) => !part.startsWith(".") && !SKIPPED.has(part));
 }
 async function walk(dir, env, stores, repos) {
   let entries;
   try {
-    entries = await (0, import_promises3.readdir)(dir, { withFileTypes: true });
+    entries = await (0, import_promises4.readdir)(dir, { withFileTypes: true });
   } catch {
     return;
   }
   if (entries.some((e) => e.name === ".git")) repos.push(dir);
   if (entries.some((e) => e.name === STORE_DIR && e.isDirectory()) && isStoreRoot(dir, env)) stores.push(dir);
   const children = entries.filter((e) => e.isDirectory() && !e.name.startsWith(".") && !SKIPPED.has(e.name));
-  await Promise.all(children.map((e) => walk((0, import_node_path5.join)(dir, e.name), env, stores, repos)));
+  await Promise.all(children.map((e) => walk((0, import_node_path6.join)(dir, e.name), env, stores, repos)));
 }
 function worktreesOf(dir) {
   return new Promise(
     (done) => (0, import_node_child_process2.execFile)("git", ["worktree", "list", "--porcelain"], { cwd: dir, timeout: 3e3 }, (err, stdout) => {
       if (err) return done([]);
       const paths = stdout.split("\n").filter((l) => l.startsWith("worktree ")).map((l) => l.slice("worktree ".length));
-      void Promise.all(paths.map((p) => (0, import_promises3.realpath)(p).catch(() => null))).then(
+      void Promise.all(paths.map((p) => (0, import_promises4.realpath)(p).catch(() => null))).then(
         (real) => done(real.filter((p) => p !== null))
       );
     })
@@ -852,33 +928,41 @@ function worktreesOf(dir) {
 async function projectHistory(root, opts = {}) {
   const env = opts.env ?? process.env;
   const sinceMs = opts.since ? opts.since.getTime() : null;
-  const stores = await Promise.all(
-    (await projectStores(root, env)).map(async (s) => {
-      const { threads, warnings } = await storeAt(s.root, env).loadHistory();
-      const kept = threads.filter((t) => activeSince(t, sinceMs)).sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
-      return {
-        ...s,
-        threads: kept,
-        bytes: kept.reduce((n, t) => n + t.bytes, 0),
-        states: countStates(kept),
-        warnings
-      };
-    })
+  const loaded = await Promise.all(
+    (await projectStores(root, env)).map(async (s) => ({
+      s,
+      ...await (s.saved ? new Store(s.root, s.saved.dir) : storeAt(s.root, env)).loadHistory()
+    }))
   );
+  const best = /* @__PURE__ */ new Map();
+  for (const { threads } of loaded)
+    for (const t of threads) if (t.bytes > (best.get(t.id)?.bytes ?? -1)) best.set(t.id, t);
+  const stores = loaded.filter(({ s, threads }) => !s.saved || threads.some((t) => best.get(t.id) === t)).map(({ s, threads, warnings }) => {
+    const kept = threads.filter((t) => best.get(t.id) === t && activeSince(t, sinceMs)).sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+    return {
+      ...s,
+      threads: kept,
+      bytes: kept.reduce((n, t) => n + t.bytes, 0),
+      states: countStates(kept),
+      deletions: countDeletions(kept),
+      warnings
+    };
+  });
   const all = stores.flatMap((s) => s.threads);
   return {
-    root: root === LOOSE_ROOT ? root : (0, import_node_path5.resolve)(root),
+    root: root === LOOSE_ROOT ? root : (0, import_node_path6.resolve)(root),
     since: opts.since ? opts.since.toISOString() : null,
     stores,
     threads: all.length,
     bytes: stores.reduce((n, s) => n + s.bytes, 0),
-    states: countStates(all)
+    states: countStates(all),
+    deletions: countDeletions(all)
   };
 }
 
 // ../../packages/core/src/retro.ts
-var import_promises4 = require("node:fs/promises");
-var import_node_path6 = require("node:path");
+var import_promises5 = require("node:fs/promises");
+var import_node_path7 = require("node:path");
 var RETRO_SCHEMA_VERSION = 1;
 var RETROS_DIR = "retros";
 var FEEDBACK_CATEGORIES = {
@@ -1021,36 +1105,36 @@ function foldPreferences(events) {
 }
 async function retroHome(root, env = process.env) {
   if (root === LOOSE_ROOT) throw new Error("a retro is about a project folder, not the files outside any folder");
-  const dir = (0, import_node_path6.resolve)(root);
+  const dir = (0, import_node_path7.resolve)(root);
   if (isStoreRoot(dir, env)) return dir;
   return await worktreeTopOf(dir) ?? dir;
 }
 var RetroBook = class {
   constructor(home) {
     this.home = home;
-    this.dir = (0, import_node_path6.join)(home, STORE_DIR, RETROS_DIR);
+    this.dir = (0, import_node_path7.join)(home, STORE_DIR, RETROS_DIR);
   }
   home;
   dir;
   retroFile(id) {
     if (!RETRO_ID.test(id)) throw new Error(`Invalid retro id: ${id}`);
-    return (0, import_node_path6.join)(this.dir, `${id}.jsonl`);
+    return (0, import_node_path7.join)(this.dir, `${id}.jsonl`);
   }
   /** A folder for the files a retro writes for its agents. */
   async workDir(id) {
     if (!RETRO_ID.test(id)) throw new Error(`Invalid retro id: ${id}`);
-    const dir = (0, import_node_path6.join)(this.dir, id);
-    await (0, import_promises4.mkdir)(dir, { recursive: true });
+    const dir = (0, import_node_path7.join)(this.dir, id);
+    await (0, import_promises5.mkdir)(dir, { recursive: true });
     return dir;
   }
   get preferencesFile() {
-    return (0, import_node_path6.join)(this.dir, "preferences.jsonl");
+    return (0, import_node_path7.join)(this.dir, "preferences.jsonl");
   }
   /** Every retro of this book, oldest first. */
   async list() {
     let files;
     try {
-      files = (await (0, import_promises4.readdir)(this.dir)).filter((f) => RETRO_ID.test(f.replace(/\.jsonl$/, "")) && f.endsWith(".jsonl"));
+      files = (await (0, import_promises5.readdir)(this.dir)).filter((f) => RETRO_ID.test(f.replace(/\.jsonl$/, "")) && f.endsWith(".jsonl"));
     } catch (err) {
       if (err.code === "ENOENT") return [];
       throw err;
@@ -1061,7 +1145,7 @@ var RetroBook = class {
   async read(id) {
     let text;
     try {
-      text = await (0, import_promises4.readFile)(this.retroFile(id), "utf8");
+      text = await (0, import_promises5.readFile)(this.retroFile(id), "utf8");
     } catch (err) {
       if (err.code === "ENOENT") return null;
       throw err;
@@ -1077,13 +1161,13 @@ var RetroBook = class {
   }
   /** The last finished retro of the project folder `root`, if any. */
   async lastFinished(root) {
-    const done = (await this.list()).filter((r) => r.finishedAt !== null && r.root === (0, import_node_path6.resolve)(root));
+    const done = (await this.list()).filter((r) => r.finishedAt !== null && r.root === (0, import_node_path7.resolve)(root));
     return done.at(-1) ?? null;
   }
   async preferences() {
     let text;
     try {
-      text = await (0, import_promises4.readFile)(this.preferencesFile, "utf8");
+      text = await (0, import_promises5.readFile)(this.preferencesFile, "utf8");
     } catch (err) {
       if (err.code === "ENOENT") return [];
       throw err;
@@ -1110,7 +1194,7 @@ var RetroBook = class {
   /** Every preference id ever given, removed ones included: an id is never reused. */
   async allPreferenceIds() {
     try {
-      const text = await (0, import_promises4.readFile)(this.preferencesFile, "utf8");
+      const text = await (0, import_promises5.readFile)(this.preferencesFile, "utf8");
       return parseLines(text, "preferences", PREFERENCE_EVENTS).events.map((e) => e.id);
     } catch {
       return [];
@@ -1127,7 +1211,7 @@ var RetroBook = class {
         at: (/* @__PURE__ */ new Date()).toISOString(),
         retroId,
         ...scope,
-        root: (0, import_node_path6.resolve)(scope.root),
+        root: (0, import_node_path7.resolve)(scope.root),
         preferences
       }
     ]);
@@ -1146,8 +1230,8 @@ var RetroBook = class {
     return this.get(id);
   }
   async append(file, events) {
-    await (0, import_promises4.mkdir)(this.dir, { recursive: true });
-    await (0, import_promises4.appendFile)(file, events.map((e) => JSON.stringify(e) + "\n").join(""), { flag: "a" });
+    await (0, import_promises5.mkdir)(this.dir, { recursive: true });
+    await (0, import_promises5.appendFile)(file, events.map((e) => JSON.stringify(e) + "\n").join(""), { flag: "a" });
   }
 };
 
@@ -1157,16 +1241,16 @@ var STOPWORDS = new Set(
 );
 
 // ../../packages/core/src/retroKey.ts
-var import_promises5 = require("node:fs/promises");
+var import_promises6 = require("node:fs/promises");
 var import_node_os2 = require("node:os");
-var import_node_path7 = require("node:path");
+var import_node_path8 = require("node:path");
 function jevKeyFile(env = process.env) {
-  return (0, import_node_path7.join)(env.HOME?.trim() || (0, import_node_os2.homedir)(), ".config", "local-review", "jev-key");
+  return (0, import_node_path8.join)(env.HOME?.trim() || (0, import_node_os2.homedir)(), ".config", "local-review", "jev-key");
 }
 async function jevKeyStatus(env = process.env) {
   const path = jevKeyFile(env);
   const fromEnv = (env.JEV_API_KEY ?? "").trim() !== "";
-  const st = await (0, import_promises5.stat)(path).catch(() => null);
+  const st = await (0, import_promises6.stat)(path).catch(() => null);
   const exists2 = st?.isFile() === true;
   const status = {
     source: fromEnv ? "env" : exists2 ? "file" : "none",
@@ -1182,7 +1266,7 @@ async function jevKeyStatus(env = process.env) {
   status.mode = (st.mode & 511).toString(8);
   const mine = typeof process.getuid !== "function" || st.uid === process.getuid();
   status.private = (st.mode & 63) === 0 && mine;
-  status.inRepo = await worktreeTopOf((0, import_node_path7.dirname)(path));
+  status.inRepo = await worktreeTopOf((0, import_node_path8.dirname)(path));
   if (!status.private) status.fixes.push(`chmod 600 "${path}"`);
   if (status.inRepo)
     status.fixes.push(`move it out of the repository ${status.inRepo} (e.g. to the default place, ${jevKeyFile(env)})`);
@@ -1191,8 +1275,8 @@ async function jevKeyStatus(env = process.env) {
 }
 
 // ../../packages/core/src/retroScope.ts
-var import_promises6 = require("node:fs/promises");
-var import_node_path8 = require("node:path");
+var import_promises7 = require("node:fs/promises");
+var import_node_path9 = require("node:path");
 var who = (by, agent) => by === "user" ? "User" : agent ?? "Agent";
 function entryText(e) {
   switch (e.kind) {
@@ -1205,7 +1289,7 @@ function entryText(e) {
     case "status":
       return `(status -> ${e.status} by ${who(e.by, e.agent)}, ${e.at})`;
     case "deleted":
-      return `(thread deleted by ${who(e.by, e.agent)}, ${e.at})`;
+      return `(thread deleted, ${deletionLabel(e.reason)}, ${e.at})`;
   }
 }
 function threadText(t, store) {
@@ -1223,12 +1307,17 @@ async function retroThreads(retro, env = process.env) {
   const wanted = new Set(retro.threads);
   const threads = /* @__PURE__ */ new Map();
   for (const s of history.stores)
-    for (const t of s.threads) if (wanted.has(t.id)) threads.set(t.id, { thread: t, store: s.root });
+    for (const t of s.threads)
+      if (wanted.has(t.id))
+        threads.set(t.id, {
+          thread: t,
+          store: s.saved ? `${s.root} (saved before its git worktree was removed)` : s.root
+        });
   return { history, threads };
 }
 async function writeRetroFile(book, id, name, content) {
-  const file = (0, import_node_path8.join)(await book.workDir(id), name);
-  await (0, import_promises6.writeFile)(file, content);
+  const file = (0, import_node_path9.join)(await book.workDir(id), name);
+  await (0, import_promises7.writeFile)(file, content);
   return file;
 }
 
@@ -1307,7 +1396,7 @@ async function runAudit(root, claudeDir, env, run = runProcess, timeoutMs = AUDI
 }
 
 // src/retroJev.ts
-var import_promises7 = require("node:fs/promises");
+var import_promises8 = require("node:fs/promises");
 var JEV_URL = "https://jevtypesafeai.com/api/v1/decide";
 var INTRO = "Code review thread between a developer and their AI coding agent. ";
 var QUESTIONS = {
@@ -1331,7 +1420,7 @@ async function readJevKey(env = process.env) {
   const s = await jevKeyStatus(env);
   if (!s.exists) throw new Error(`no Jev key: ${s.path} does not exist (lr retro key tells how to add one)`);
   if (!s.ok) throw new Error(`the Jev key file is not safe, fix it first: ${s.fixes.join("; ")}`);
-  const key = (await (0, import_promises7.readFile)(s.path, "utf8")).trim();
+  const key = (await (0, import_promises8.readFile)(s.path, "utf8")).trim();
   if (!key) throw new Error(`the Jev key file ${s.path} is empty`);
   return key;
 }
@@ -1387,19 +1476,19 @@ async function classifyWithJev(threads, rules, deps) {
 }
 
 // src/retroSetup.ts
-var import_promises8 = require("node:fs/promises");
-var import_node_path9 = require("node:path");
+var import_promises9 = require("node:fs/promises");
+var import_node_path10 = require("node:path");
 var FILE_CAP = 24e3;
 var SETUP_BUDGET = 1e5;
 var orNull = (p) => p.catch(() => null);
-var exists = async (p) => await orNull((0, import_promises8.stat)(p)) !== null;
+var exists = async (p) => await orNull((0, import_promises9.stat)(p)) !== null;
 async function markdown(dir, depth = 3) {
   if (depth < 0) return [];
-  const names = await (0, import_promises8.readdir)(dir).catch(() => []);
+  const names = await (0, import_promises9.readdir)(dir).catch(() => []);
   const out = [];
   for (const name of names.sort()) {
-    const p = (0, import_node_path9.join)(dir, name);
-    const st = await orNull((0, import_promises8.stat)(p));
+    const p = (0, import_node_path10.join)(dir, name);
+    const st = await orNull((0, import_promises9.stat)(p));
     if (!st) continue;
     if (st.isDirectory()) out.push(...await markdown(p, depth - 1));
     else if (name.endsWith(".md")) out.push(p);
@@ -1407,18 +1496,18 @@ async function markdown(dir, depth = 3) {
   return out;
 }
 var isInside = (path, dir) => {
-  const rel = (0, import_node_path9.relative)(dir, path);
-  return rel !== "" && !rel.startsWith("..") && !(0, import_node_path9.isAbsolute)(rel);
+  const rel = (0, import_node_path10.relative)(dir, path);
+  return rel !== "" && !rel.startsWith("..") && !(0, import_node_path10.isAbsolute)(rel);
 };
 function projectDirs(root, repos, home) {
   const parents = [];
-  let dir = (0, import_node_path9.dirname)((0, import_node_path9.resolve)(root));
-  const top = (0, import_node_path9.resolve)(home);
-  while (dir !== (0, import_node_path9.dirname)(dir) && isInside(dir, top)) {
+  let dir = (0, import_node_path10.dirname)((0, import_node_path10.resolve)(root));
+  const top = (0, import_node_path10.resolve)(home);
+  while (dir !== (0, import_node_path10.dirname)(dir) && isInside(dir, top)) {
     parents.unshift(dir);
-    dir = (0, import_node_path9.dirname)(dir);
+    dir = (0, import_node_path10.dirname)(dir);
   }
-  return [.../* @__PURE__ */ new Set([...parents, (0, import_node_path9.resolve)(root), ...repos.map((r) => (0, import_node_path9.resolve)(r))])];
+  return [.../* @__PURE__ */ new Set([...parents, (0, import_node_path10.resolve)(root), ...repos.map((r) => (0, import_node_path10.resolve)(r))])];
 }
 async function found(root, repos, home, claudeDir) {
   const files = [];
@@ -1428,20 +1517,20 @@ async function found(root, repos, home, claudeDir) {
   const dirs = projectDirs(root, repos, home);
   for (const d of dirs)
     for (const name of ["CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md"])
-      await add((0, import_node_path9.join)(d, name), "rules", "project");
-  await add((0, import_node_path9.join)(claudeDir, "CLAUDE.md"), "rules", "user");
+      await add((0, import_node_path10.join)(d, name), "rules", "project");
+  await add((0, import_node_path10.join)(claudeDir, "CLAUDE.md"), "rules", "user");
   const setupOf = async (claude, agents, scope) => {
-    for (const f of await markdown((0, import_node_path9.join)(claude, "rules"))) await add(f, "rules", scope);
-    for (const f of await markdown((0, import_node_path9.join)(claude, "skills"), 2))
-      if ((0, import_node_path9.basename)(f) === "SKILL.md") await add(f, "skill", scope);
-    for (const f of await markdown((0, import_node_path9.join)(claude, "commands"))) await add(f, "command", scope);
-    for (const f of await markdown((0, import_node_path9.join)(claude, "agents"))) await add(f, "agent", scope);
-    for (const name of ["settings.json", "settings.local.json"]) await add((0, import_node_path9.join)(claude, name), "hooks", scope);
+    for (const f of await markdown((0, import_node_path10.join)(claude, "rules"))) await add(f, "rules", scope);
+    for (const f of await markdown((0, import_node_path10.join)(claude, "skills"), 2))
+      if ((0, import_node_path10.basename)(f) === "SKILL.md") await add(f, "skill", scope);
+    for (const f of await markdown((0, import_node_path10.join)(claude, "commands"))) await add(f, "command", scope);
+    for (const f of await markdown((0, import_node_path10.join)(claude, "agents"))) await add(f, "agent", scope);
+    for (const name of ["settings.json", "settings.local.json"]) await add((0, import_node_path10.join)(claude, name), "hooks", scope);
     for (const f of await markdown(agents)) await add(f, "other", scope);
   };
-  for (const d of [(0, import_node_path9.resolve)(root), ...repos.map((r) => (0, import_node_path9.resolve)(r))])
-    await setupOf((0, import_node_path9.join)(d, ".claude"), (0, import_node_path9.join)(d, ".agents"), "project");
-  await setupOf(claudeDir, (0, import_node_path9.join)(home, ".agents"), "user");
+  for (const d of [(0, import_node_path10.resolve)(root), ...repos.map((r) => (0, import_node_path10.resolve)(r))])
+    await setupOf((0, import_node_path10.join)(d, ".claude"), (0, import_node_path10.join)(d, ".agents"), "project");
+  await setupOf(claudeDir, (0, import_node_path10.join)(home, ".agents"), "user");
   return files;
 }
 function header(text) {
@@ -1459,13 +1548,13 @@ function hooksOf(text) {
     return null;
   }
 }
-async function collectSetup(root, repos, home, claudeDir = (0, import_node_path9.join)(home, ".claude"), budget = SETUP_BUDGET) {
+async function collectSetup(root, repos, home, claudeDir = (0, import_node_path10.join)(home, ".claude"), budget = SETUP_BUDGET) {
   const out = [];
   let used = 0;
   const all = await found(root, repos, home, claudeDir);
   const order = (f) => (f.kind === "rules" || f.kind === "hooks" ? 0 : 1) + (f.scope === "user" ? 2 : 0);
   for (const f of [...all].sort((a, b) => order(a) - order(b))) {
-    const raw = await orNull((0, import_promises8.readFile)(f.path, "utf8"));
+    const raw = await orNull((0, import_promises9.readFile)(f.path, "utf8"));
     if (raw === null) continue;
     let content = f.kind === "hooks" ? hooksOf(raw) : raw;
     if (content === null) continue;
@@ -1492,8 +1581,8 @@ var TITLES = {
 };
 function renderSetup(root, home, files) {
   const label = (p) => {
-    if (isInside(p, (0, import_node_path9.resolve)(root))) return (0, import_node_path9.relative)(root, p);
-    if (isInside(p, (0, import_node_path9.resolve)(home))) return "~/" + (0, import_node_path9.relative)(home, p);
+    if (isInside(p, (0, import_node_path10.resolve)(root))) return (0, import_node_path10.relative)(root, p);
+    if (isInside(p, (0, import_node_path10.resolve)(home))) return "~/" + (0, import_node_path10.relative)(home, p);
     return p;
   };
   const lines = [
@@ -1549,7 +1638,7 @@ async function runRetroCli(args, io) {
     const book = new RetroBook(await retroHome(root, io.env));
     const retro = await book.get(id);
     const home = io.env.HOME?.trim() || (0, import_node_os3.homedir)();
-    const claudeDir = io.env.CLAUDE_CONFIG_DIR?.trim() || (0, import_node_path10.join)(home, ".claude");
+    const claudeDir = io.env.CLAUDE_CONFIG_DIR?.trim() || (0, import_node_path11.join)(home, ".claude");
     const repos = retro.stores.map((s) => s.root);
     if (action === "setup") {
       const files = await collectSetup(retro.root, repos, home, claudeDir);

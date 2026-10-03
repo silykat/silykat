@@ -1,4 +1,11 @@
-import { SCHEMA_VERSION, type Anchor, type Author, type BranchRef, type ThreadStatus } from './types';
+import {
+  SCHEMA_VERSION,
+  type Anchor,
+  type Author,
+  type BranchRef,
+  type DeleteReason,
+  type ThreadStatus,
+} from './types';
 
 interface BaseEvent {
   v: number;
@@ -18,7 +25,8 @@ export type ThreadEvent = BaseEvent &
     | { type: 'anchor.updated'; anchor: Anchor }
     /** The branch was renamed (or the thread predates branches). */
     | { type: 'branch.changed'; branch: BranchRef | null }
-    | { type: 'thread.deleted' }
+    /** `reason` is optional: older journals have none (and older versions ignore it). */
+    | { type: 'thread.deleted'; reason?: DeleteReason }
   );
 
 export type ThreadEventType = ThreadEvent['type'];

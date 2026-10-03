@@ -51,6 +51,7 @@ On a Mac with Apple silicon, the container is Linux arm64; the CI runs on x86-64
 - Load your checkout for skills and hooks: `claude --plugin-dir adapters/claude-code/plugin`. The channel, however, only works with the installed plugin (`--dangerously-load-development-channels plugin:local-review@local-review`): add your checkout as a local marketplace (`claude plugin marketplace add /path/to/local-review`), then `claude plugin update local-review@local-review` after each change.
 - After any change to `core`, the CLI or the adapter, run `npm run build:claude-plugin` and **commit the bundles**: Claude Code installs plugins from git, and `npm test` fails when they are stale.
 - Never bump the plugin version by hand: releases do it (see below). Claude Code only updates a plugin whose version changed.
+- The hook saves the threads of a git worktree before Claude removes it (`PreToolUse`): its parsing of shell commands (`worktreeRemovals`) is unit-tested with fake helpers; to try it for real, run `claude -p --model haiku` in a throwaway repository with a worktree that has a comment, ask it to remove the worktree, then check `lr history`. The setting lives in the machine settings (`lr config`), as the hook runs outside VS Code.
 - The retro (`/local-review:retro`) runs three sub-agents of the plugin (`agents/`: classification, analysis, application), and `bin/lr-retro`, bundled from `adapters/claude-code/src/retroMain.ts`. Its audit (`lr-retro audit`) starts a separate `claude -p`: tests give it a fake runner (`run` of `runRetroCli`), and `LR_CLAUDE_BIN` points it at another `claude` binary. Its Jev classification is tested against a local stub: `LR_JEV_URL` points `lr-retro jev` at another address (tests only). Never use a real key in tests.
 
 ### Without an agent
@@ -86,10 +87,10 @@ Verify technical assumptions (what a hook receives, when a channel message arriv
 - **English everywhere in the repository**: code, comments, docs, commit messages, and the whole user interface.
 - **TypeScript strict**, bundled with esbuild. Prettier (single quotes, 120 columns, trailing commas; version pinned): run `npm run format` before committing. **oxlint** (`.oxlintrc.json`) with type information: `npm run lint` reports nothing.
 - **Lines are 1-based and inclusive** in the stored format and in `lr`; the conversion to VS Code's 0-based ranges happens in the extension only.
-- **Every access to the stored data goes through `core`**. A format change means a schema version bump and a migration in `core`.
+- **Every access to the stored data goes through `core`**. A format change means a schema version bump and a migration in `core`. What older versions safely ignore needs no bump: an optional field of an event (like the `reason` of `thread.deleted`), or a new folder of the store they never read (`retros/`, `saved/`).
 - **No network calls and no telemetry**, anywhere. `npm run package` checks the extension bundle for it.
 - **Tests are named by feature** (`review-mode.test.ts`), never after a ticket, so that a file can take the tests added later on the same feature.
-- Integration tests drive the extension through the API returned by `activate()`. A test file that registers sessions or leaves comments waiting cleans up after itself, and no test relies on the window having the system focus.
+- Integration tests drive the extension through the API returned by `activate()`. A test that needs its own git history (commits, worktrees) uses a throwaway repository rather than the test workspace, whose state the other test files share. A test file that registers sessions or leaves comments waiting cleans up after itself, and no test relies on the window having the system focus.
 
 ## Releases
 

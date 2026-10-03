@@ -33,7 +33,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "Bash|ExitWorktree",
         "hooks": [
           {
             "type": "command",

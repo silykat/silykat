@@ -10,7 +10,11 @@ import {
   localBranches,
   reanchor,
   renamedBranch,
+  saveWorktreeThreads,
   topicOf,
+  worktreeInfo,
+  type WorktreeInfo,
+  type WorktreeSave,
   type Anchor,
   type BranchRef,
   type AnchorSide,
@@ -39,6 +43,8 @@ import { applyChanges, REMOVED } from './tracking';
 import { watchStore } from './watcher';
 
 export const CONTROLLER_ID = 'local-review';
+
+const SAVE_THREADS = 'Save Threads Now';
 
 /** Delay after a document change before trusting its dirty flag. */
 const SETTLE_MS = 300;
@@ -141,6 +147,10 @@ export class ReviewController implements vscode.Disposable {
    */
   publishGate: (root: string, files: string[]) => Promise<boolean> = async () => true;
   choose: ChooseHandler = warningChoice;
+  /** The git worktrees already warned about (kept across restarts by the extension). */
+  worktreeWarnings: { has(path: string): boolean; add(path: string): void } = new Set<string>();
+  /** What git said of each open folder: a linked worktree or not. */
+  private readonly worktreeOf = new Map<string, Promise<WorktreeInfo | null>>();
   private ctx: RenderContext;
 
   constructor(
@@ -190,6 +200,7 @@ export class ReviewController implements vscode.Disposable {
         const threads = await Promise.all(loaded.map((state) => this.withBranch(root, state)));
         threads.forEach((state) => this.render(root, state));
         this.log.info(`${root.path}: ${threads.length} thread(s) loaded`);
+        if (threads.length > 0 && root.isGit) void this.warnIfWorktree(root.path);
         // Files may have changed while VS Code was closed: find the code again.
         await Promise.all(threads.map((state) => this.reanchorFromDisk(root, state.id)));
       } catch (err) {
@@ -234,6 +245,7 @@ export class ReviewController implements vscode.Disposable {
       }
       await this.excludeFromGit(root);
       if (!reviewId) this.published.fire({ root: root.path, kind: 'comment', threadIds: [state.id] });
+      if (root.isGit) void this.warnIfWorktree(root.path);
     } catch (err) {
       this.log.error('Failed to save the comment', err);
       void vscode.window.showErrorMessage(`Local Review: the comment could not be saved (${String(err)}).`);
@@ -1310,7 +1322,7 @@ export class ReviewController implements vscode.Disposable {
     for (const t of this.allThreads().filter((t) => t.root === root && branchKey(t.state.branch) === key)) {
       try {
         if (renamedTo) await root.store.setBranch(t.state.id, renamedTo);
-        else await root.store.deleteThread(t.state.id, 'user');
+        else await root.store.deleteThread(t.state.id, 'user', 'branch-gone');
       } catch (err) {
         this.log.warn(`${root.path}: could not update thread ${t.state.id} of a gone branch`, err);
       }
@@ -1328,6 +1340,73 @@ export class ReviewController implements vscode.Disposable {
     }
     await this.refreshReviews(root);
     this.log.info(`${root.path}: branch ${key} ${renamedTo ? `renamed to ${renamedTo.branch}` : 'deleted'}`);
+  }
+
+  /**
+   * Once per worktree: a linked git worktree with comments loses them when it is removed (`git
+   * worktree remove` deletes its `.local-review/`). Say so, and how to keep them.
+   */
+  async warnIfWorktree(path: string): Promise<void> {
+    if (this.worktreeWarnings.has(path)) return;
+    // Asked once per folder: a folder does not become a worktree, and git runs on every comment otherwise.
+    let pending = this.worktreeOf.get(path);
+    if (!pending) this.worktreeOf.set(path, (pending = worktreeInfo(path).catch(() => null)));
+    const info = await pending;
+    if (!info?.linked || this.worktreeWarnings.has(path)) return;
+    this.worktreeWarnings.add(path);
+    const choice = await this.choose(
+      `Local Review: ${basename(info.worktree)} is a git worktree with comments. Removing it (git worktree remove) ` +
+        'deletes them with it: save its threads to the main repository first, with "Local Review: Save Worktree ' +
+        'Threads" (or lr worktree save). They then stay in the history and in retros.',
+      [SAVE_THREADS],
+    );
+    if (choice === SAVE_THREADS) await this.saveWorktreeThreads(vscode.Uri.file(path));
+  }
+
+  /**
+   * Saves the threads of a git worktree (by default: the open one, or one picked among them) to
+   * the store of the repository's main worktree, so that they outlive the worktree.
+   */
+  async saveWorktreeThreads(target?: vscode.Uri): Promise<WorktreeSave | undefined> {
+    let dir = target?.fsPath;
+    if (!dir) {
+      const roots = this.roots.all().filter((r) => r.isGit && !r.loose);
+      const linked: string[] = [];
+      for (const r of roots) if ((await worktreeInfo(r.path).catch(() => null))?.linked) linked.push(r.path);
+      const active = this.activeEditorUri();
+      const here = active ? this.roots.forFile(active.fsPath)?.path : undefined;
+      dir =
+        here && linked.includes(here)
+          ? here
+          : linked.length > 1
+            ? await vscode.window.showQuickPick(linked, {
+                placeHolder: 'Which git worktree? Its threads are saved to the main repository',
+              })
+            : linked[0];
+      if (!dir) {
+        if (linked.length === 0)
+          void vscode.window.showInformationMessage(
+            'Local Review: none of the open folders is a linked git worktree. Only those are deleted by git worktree remove: the comments of a main repository are safe.',
+          );
+        return undefined;
+      }
+    }
+    try {
+      const saved = await saveWorktreeThreads(dir);
+      const where = saved.branch ? `${basename(saved.worktree)} (${saved.branch})` : basename(saved.worktree);
+      void vscode.window.showInformationMessage(
+        saved.published === 0
+          ? `Local Review: no comment in ${where}, nothing to save.`
+          : `Local Review: ${saved.published} thread${saved.published === 1 ? '' : 's'} of ${where} saved to ${saved.main}. ` +
+              'They stay in the history (lr history) and in retros after the worktree is removed.',
+      );
+      this.log.info(`${dir}: ${saved.threads} thread journal(s) saved to ${saved.main}`);
+      return saved;
+    } catch (err) {
+      this.log.error(`${dir}: failed to save the worktree's threads`, err);
+      void vscode.window.showErrorMessage(`Local Review: the threads could not be saved (${String(err)}).`);
+      return undefined;
+    }
   }
 
   /**

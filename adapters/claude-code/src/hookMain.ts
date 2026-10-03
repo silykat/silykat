@@ -1,4 +1,16 @@
-import { filesChangedSince, gitWorktreeOf, localReviewHome, SessionRegistry, topicOf } from '@local-review/core';
+import { homedir } from 'node:os';
+import {
+  filesChangedSince,
+  gitWorktreeOf,
+  localReviewHome,
+  readConfig,
+  resolveWorktree,
+  saveWorktreeThreads,
+  SessionRegistry,
+  topicOf,
+  worktreeInfo,
+  worktreeThreadCount,
+} from '@local-review/core';
 import { commandLine, findClaudePid, gitBranch, handleHook, type HookInput } from './hook';
 
 // Entry point of the plugin's hooks. It must never get in Claude's way: whatever happens, it
@@ -16,6 +28,14 @@ async function main(): Promise<void> {
     gitWorktreeOf,
     filesChangedSince,
     now: () => new Date(),
+    home: process.env.HOME || homedir(),
+    worktrees: {
+      autoSave: async () => (await readConfig()).autoSaveWorktrees,
+      resolveWorktree,
+      worktreeInfo,
+      save: (dir) => saveWorktreeThreads(dir),
+      threadCount: (dir) => worktreeThreadCount(dir),
+    },
   });
   if (message && input.hook_event_name) {
     process.stdout.write(

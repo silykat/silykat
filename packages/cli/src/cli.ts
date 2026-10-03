@@ -2,12 +2,17 @@ import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import {
   agentView,
+  CONFIG_KEYS,
+  configFile,
   findStoreRoot,
   findStoresBelow,
   localReviewHome,
   processAncestors,
   projectHistory,
+  readConfig,
+  saveWorktreeThreads,
   storeAt,
+  writeConfig,
   SessionRegistry,
   sessionOfProcess,
   branchKey,
@@ -69,6 +74,20 @@ History (every thread, whatever its state: open, addressed, resolved, deleted):
 
 ${RETRO_USAGE}
 
+Git worktrees (git worktree remove deletes a worktree's comments with it):
+  lr worktree save [<dir>] [--format md|json]
+                                          Save the threads of the git worktree of that folder
+                                          (default: the current one) to the store of its main
+                                          worktree, before removing it: they stay in lr history
+                                          and in retros. Saving again refreshes the copy
+
+Settings of this machine:
+  lr config [--format md|json]            Show them
+  lr config set <name> <value>            Change one:
+${Object.entries(CONFIG_KEYS)
+  .map(([name, c]) => `                                            ${name}: ${c.help}`)
+  .join('\n')}
+
 Subscriptions (comments are published to the sessions subscribed to their branch or path):
   lr subscribe [<dir-or-file>] [--path]   Subscribe this session to the branch of that folder
                                           (default: the current one), or to the path itself
@@ -109,6 +128,10 @@ export async function runCli(args: string[], io: Io): Promise<number> {
         return await history(rest, io);
       case 'retro':
         return await retro(rest, io, parseSince);
+      case 'worktree':
+        return await worktree(rest, io);
+      case 'config':
+        return await config(rest, io);
       case 'sessions':
         return await sessions(rest, io);
       case 'session':
@@ -314,6 +337,53 @@ async function history(rest: string[], io: Io): Promise<number> {
   const since = parseSince(str(values.since));
   const h = await projectHistory(resolve(io.cwd, str(values.root) ?? '.'), { since, env: io.env });
   io.out(format === 'json' ? JSON.stringify(historyJson(h), null, 2) : renderHistory(h));
+  return EXIT.OK;
+}
+
+async function worktree(rest: string[], io: Io): Promise<number> {
+  const { values, positionals } = parse(rest, { format: { type: 'string' } });
+  const [action, dir, extra] = positionals;
+  if (action !== 'save') throw new UsageError(`lr worktree takes "save", not "${action ?? ''}"`);
+  if (extra !== undefined) throw new UsageError(`lr worktree save takes one folder at most: "${extra}"`);
+  const result = await saveWorktreeThreads(resolve(io.cwd, dir ?? str(values.root) ?? '.'), io.env);
+  if (str(values.format) === 'json') {
+    io.out(JSON.stringify(result, null, 2));
+    return EXIT.OK;
+  }
+  const branch = result.branch ? ` (branch ${result.branch})` : '';
+  io.out(
+    result.copies.length === 0
+      ? `No comment in the worktree ${result.worktree}${branch}: nothing to save.`
+      : `Saved ${result.published} thread${result.published === 1 ? '' : 's'} of the worktree ${result.worktree}${branch} ` +
+          `to the store of ${result.main}:\n${result.copies.map((c) => `  ${c.from} → ${c.dir}`).join('\n')}\n` +
+          'They stay in lr history and in retros after the worktree is removed.',
+  );
+  return EXIT.OK;
+}
+
+async function config(rest: string[], io: Io): Promise<number> {
+  const { values, positionals } = parse(rest, { format: { type: 'string' } });
+  const [action, name, value] = positionals;
+  if (action === 'set') {
+    const setting = name ? CONFIG_KEYS[name] : undefined;
+    if (!setting) throw new UsageError(`unknown setting "${name ?? ''}": ${Object.keys(CONFIG_KEYS).join(', ')}`);
+    if (value !== 'on' && value !== 'off') throw new UsageError(`${name} takes "on" or "off", not "${value ?? ''}"`);
+    await writeConfig({ [setting.key]: value === 'on' }, io.env);
+    io.out(`${name} is now ${value}.`);
+    return EXIT.OK;
+  }
+  if (action !== undefined) throw new UsageError(`lr config takes "set" or nothing, not "${action}"`);
+  const current = await readConfig(io.env);
+  if (str(values.format) === 'json') {
+    io.out(JSON.stringify(current, null, 2));
+    return EXIT.OK;
+  }
+  io.out(
+    [
+      `Settings of this machine (${configFile(io.env)}):`,
+      ...Object.entries(CONFIG_KEYS).map(([n, c]) => `  ${n}: ${current[c.key] ? 'on' : 'off'}`),
+    ].join('\n'),
+  );
   return EXIT.OK;
 }
 

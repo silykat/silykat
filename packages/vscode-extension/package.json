@@ -90,6 +90,11 @@
         "category": "Local Review"
       },
       {
+        "command": "localReview.saveWorktreeThreads",
+        "title": "Save Worktree Threads",
+        "category": "Local Review"
+      },
+      {
         "command": "localReview.reply",
         "title": "Reply"
       },

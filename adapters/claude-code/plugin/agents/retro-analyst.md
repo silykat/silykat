@@ -16,7 +16,7 @@ The prompt gives you the retro id, the project folder and, when it was run, the 
 
 3. The **audit** (`audit: <path>` in the prompt, when there is one): the report of `/doctor prompt-audit`, Claude Code's own audit of the setup (stale, contradictory or duplicated rules, instructions that no longer match the code…), with where each finding is.
 
-Read **these files entirely** (with offset and limit for a long file), every thread included. Finding a problem of setup is **grouping** threads that share a cause: you need all of them at once.
+Read **these files entirely** (with offset and limit for a long file), every thread included. A deleted thread says why: **removed by the user** (the comment was withdrawn: maybe wrong, or no longer relevant) or **its branch was deleted** (the work was merged or dropped: the feedback in it still counts like any other); older ones say "reason unknown". A store marked "saved before its git worktree was removed" holds threads of a worktree that no longer exists: read them like the others. Finding a problem of setup is **grouping** threads that share a cause: you need all of them at once.
 
 ## 2. Find the proposals
 

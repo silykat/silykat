@@ -1,10 +1,12 @@
 import { isAbsolute, relative } from 'node:path';
 import {
+  deletionLabel,
   HISTORY_STATES,
   LOOSE_ROOT,
   topicLabel,
   versionTag,
   type BranchRef,
+  type DeletionCounts,
   type HistoryEntry,
   type ProjectHistory,
   type StateCounts,
@@ -15,10 +17,11 @@ import {
 import { fence } from './digest';
 
 /** A store as people read it: relative to the project folder when inside it. */
-export function storeLabel(store: { root: string }, root: string): string {
+export function storeLabel(store: { root: string; saved?: { savedAt: string } }, root: string): string {
   if (store.root === LOOSE_ROOT) return '/ (files outside any open folder)';
   const rel = relative(root, store.root);
-  return rel === '' ? '.' : rel.startsWith('..') || isAbsolute(rel) ? store.root : rel;
+  const path = rel === '' ? '.' : rel.startsWith('..') || isAbsolute(rel) ? store.root : rel;
+  return store.saved ? `${path} (saved ${store.saved.savedAt.slice(0, 10)})` : path;
 }
 
 export function formatBytes(n: number): string {
@@ -32,11 +35,24 @@ const ORIGIN: Record<StoreOrigin, string> = {
   below: 'subfolder',
   above: 'folder above',
   worktree: 'git worktree',
+  saved: 'saved from a worktree',
 };
 
 const branchLabel = (b: BranchRef | null): string | null => (b ? topicLabel({ kind: 'branch', ...b }) : null);
 
-const states = (c: StateCounts): string => HISTORY_STATES.map((s) => `${c[s]} ${s}`).join(' · ');
+const states = (c: StateCounts, d?: DeletionCounts): string =>
+  HISTORY_STATES.map((s) => `${c[s]} ${s}${s === 'deleted' && d && c.deleted > 0 ? ` (${deletions(d)})` : ''}`).join(
+    ' · ',
+  );
+
+/** Deleted threads by reason, e.g. "2 removed by the user, 1 with their branch". */
+function deletions(d: DeletionCounts): string {
+  const parts = [];
+  if (d.user) parts.push(`${d.user} removed by the user`);
+  if (d['branch-gone']) parts.push(`${d['branch-gone']} with their branch`);
+  if (d.unknown) parts.push(`${d.unknown} reason unknown`);
+  return parts.join(', ');
+}
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
@@ -45,7 +61,7 @@ export function renderHistory(h: ProjectHistory): string {
   const period = h.since ? `Since ${h.since}` : 'Whole history';
   const parts = [
     `# Local Review history — ${h.root}`,
-    `${period} · ${plural(h.threads, 'thread')} · ${formatBytes(h.bytes)} of journals\n\n${states(h.states)}`,
+    `${period} · ${plural(h.threads, 'thread')} · ${formatBytes(h.bytes)} of journals\n\n${states(h.states, h.deletions)}`,
   ];
   if (h.stores.length === 0) {
     parts.push('No comment store in this folder, its subfolders or the worktrees of its repositories.');
@@ -97,7 +113,7 @@ function renderEntry(e: HistoryEntry): string {
     case 'status':
       return `_Status → ${e.status} (${who(e.by, e.agent)}, ${e.at})_`;
     case 'deleted':
-      return `_Thread deleted (${who(e.by, e.agent)}, ${e.at})_`;
+      return `_Thread deleted: ${deletionLabel(e.reason)} (${e.at})_`;
   }
 }
 
@@ -105,6 +121,7 @@ function renderEntry(e: HistoryEntry): string {
 export function renderThreadHistory(t: ThreadHistory, store: string): string {
   const a = t.anchor;
   const facts = [`Store: ${store}`];
+  if (t.state === 'deleted') facts.push(`Deleted: ${deletionLabel(t.deletedReason)}`);
   const branch = branchLabel(t.branch);
   if (branch) facts.push(`Branch: ${branch}`);
   const tag = versionTag(a);
@@ -134,9 +151,12 @@ function entryJson(e: HistoryEntry) {
     case 'status':
       return { type: 'status', status: e.status, by: author(e.by, e.agent), at: e.at };
     case 'deleted':
-      return { type: 'deleted', by: author(e.by, e.agent), at: e.at };
+      return { type: 'deleted', by: author(e.by, e.agent), at: e.at, reason: e.reason ?? null };
   }
 }
+
+const savedJson = (s: StoreHistory) =>
+  s.saved && { worktree: s.saved.worktree, branch: s.saved.branch, savedAt: s.saved.savedAt, copy: s.saved.dir };
 
 function threadJson(t: ThreadHistory, s: StoreHistory) {
   const a = t.anchor;
@@ -156,6 +176,8 @@ function threadJson(t: ThreadHistory, s: StoreHistory) {
     createdAt: t.createdAt,
     lastActivityAt: t.lastActivityAt,
     deletedAt: t.deletedAt,
+    deletedReason: t.deletedReason,
+    ...(s.saved ? { savedFrom: savedJson(s) } : {}),
     ...(t.readOnly ? { readOnly: true } : {}),
     bytes: t.bytes,
     conversation: t.conversation.map(entryJson),
@@ -171,6 +193,7 @@ export function historyJson(h: ProjectHistory) {
       threads: h.threads,
       bytes: h.bytes,
       states: h.states,
+      deletions: h.deletions,
       stores: h.stores.map((s) => ({
         root: s.root,
         label: storeLabel(s, h.root),
@@ -178,6 +201,8 @@ export function historyJson(h: ProjectHistory) {
         threads: s.threads.length,
         bytes: s.bytes,
         states: s.states,
+        deletions: s.deletions,
+        ...(s.saved ? { savedFrom: savedJson(s) } : {}),
         ...(s.warnings.length > 0 ? { warnings: s.warnings } : {}),
       })),
     },

@@ -86,7 +86,7 @@ describe('lr history', () => {
     expect(code).toBe(EXIT.OK);
     expect(out).toContain(`# Local Review history — ${base}`);
     expect(out).toMatch(/Whole history · 3 threads · [\d.]+ KB of journals/);
-    expect(out).toContain('0 open · 1 needs-info · 0 addressed · 1 resolved · 1 deleted');
+    expect(out).toContain('0 open · 1 needs-info · 0 addressed · 1 resolved · 1 deleted (1 removed by the user)');
     expect(out).toContain('| Store | Found as | Threads | open | needs-info | addressed | resolved | deleted | Size |');
     expect(out).toMatch(/\| api \| subfolder \| 2 \| 0 \| 0 \| 0 \| 1 \| 1 \| [\d.]+ KB \|/);
     expect(out).toMatch(/\| web \| subfolder \| 1 \| 0 \| 1 \| 0 \| 0 \| 0 \|/);
@@ -98,7 +98,8 @@ describe('lr history', () => {
     expect(out).toMatch(/_Status → addressed \(Claude, [^)]+\)_/);
     expect(out).toMatch(/_Status → resolved \(User, [^)]+\)_/);
     expect(out).toContain(`### ${deleted.id} — src/find.ts:1-2 · deleted`);
-    expect(out).toMatch(/_Thread deleted \(User, [^)]+\)_/);
+    expect(out).toMatch(/_Thread deleted: removed by the user \([^)]+\)_/);
+    expect(out).toContain('Store: api · Deleted: removed by the user');
     expect(out).toContain(`### ${whole.id} — README.md (whole file) · needs-info`);
     expect(out).toContain('Store: web');
   });
@@ -143,7 +144,9 @@ describe('lr history', () => {
     const d = h.threads.find((t: { id: string }) => t.id === deleted.id);
     expect(d.state).toBe('deleted');
     expect(d.deletedAt).toEqual(expect.any(String));
-    expect(d.conversation.at(-1)).toMatchObject({ type: 'deleted', by: 'user' });
+    expect(d.deletedReason).toBe('user');
+    expect(d.conversation.at(-1)).toMatchObject({ type: 'deleted', by: 'user', reason: 'user' });
+    expect(h.summary.deletions).toEqual({ user: 1, 'branch-gone': 0, unknown: 0 });
   });
 
   it('keeps the threads active since a date', async () => {
