@@ -49,6 +49,9 @@ var THREAD_EVENT_TYPES = /* @__PURE__ */ new Set([
   "thread.archived",
   "thread.unarchived"
 ]);
+function eventVersion(type) {
+  return type === "thread.archived" || type === "thread.unarchived" ? ARCHIVE_VERSION : FIRST_VERSION;
+}
 var FIRST_VERSION = 1;
 var ARCHIVE_VERSION = 2;
 var REVIEW_EVENT_TYPES = /* @__PURE__ */ new Set([
@@ -250,6 +253,7 @@ function threadHistory(events, opts = {}) {
   const conversation = [];
   const comments = /* @__PURE__ */ new Map();
   const publishedAt = /* @__PURE__ */ new Map();
+  const drafts = /* @__PURE__ */ new Set();
   const drop = (id) => {
     comments.delete(id);
     const i = conversation.findIndex((x) => x.kind === "comment" && x.id === id);
@@ -260,7 +264,10 @@ function threadHistory(events, opts = {}) {
     switch (e.type) {
       case "comment.added": {
         const at = published(e.reviewId, e.at);
-        if (at === null) break;
+        if (at === null) {
+          if (e.reviewId !== null && reviews.get(e.reviewId)?.state === "active") drafts.add(e.commentId);
+          break;
+        }
         const session = e.by === "agent" ? sessionRefOf(e.session) : void 0;
         const c = {
           kind: "comment",
@@ -286,6 +293,7 @@ function threadHistory(events, opts = {}) {
         break;
       }
       case "comment.deleted": {
+        drafts.delete(e.commentId);
         const c = comments.get(e.commentId);
         if (!c || c.author !== e.by) break;
         if (e.at < publishedAt.get(c.id)) drop(c.id);
@@ -351,6 +359,7 @@ function threadHistory(events, opts = {}) {
     deletedAt,
     archivedAt,
     resolvedAt,
+    hasDrafts: drafts.size > 0,
     deletedReason: deletedAt ? deletedReason : null,
     readOnly: opts.futureVersion ?? false,
     conversation,
@@ -672,6 +681,10 @@ var Store = class {
   async archiveThread(threadId) {
     const current = await this.writableThread(threadId, "user", { archived: true });
     if (current.archived) return current;
+    if (current.comments.some((c) => c.isDraft))
+      throw new Error(
+        `Thread ${threadId} has a draft reply in a review in progress: submit or discard the review before archiving it`
+      );
     return this.appendArchiveEvent(threadId, "thread.archived");
   }
   /** Brings an archived thread back. Unarchiving a thread that is not archived does nothing. */
@@ -682,7 +695,7 @@ var Store = class {
   }
   async appendArchiveEvent(threadId, type) {
     await this.ensureInitialized();
-    return this.appendAndReload(threadId, [{ v: ARCHIVE_VERSION, type, at: (/* @__PURE__ */ new Date()).toISOString(), by: "user" }]);
+    return this.appendAndReload(threadId, [{ v: eventVersion(type), type, at: (/* @__PURE__ */ new Date()).toISOString(), by: "user" }]);
   }
   /**
    * Deletes a thread's journal for good: unlike `deleteThread`, nothing is left, not even in the

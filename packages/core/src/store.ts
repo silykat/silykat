@@ -1,7 +1,7 @@
 import { appendFile, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
-  ARCHIVE_VERSION,
+  eventVersion,
   FIRST_VERSION,
   parseJournal,
   parseReviewJournal,
@@ -386,6 +386,11 @@ export class Store {
   async archiveThread(threadId: string): Promise<ThreadState> {
     const current = await this.writableThread(threadId, 'user', { archived: true });
     if (current.archived) return current;
+    // Archived, its draft reply would be published out of sight when the review is submitted.
+    if (current.comments.some((c) => c.isDraft))
+      throw new Error(
+        `Thread ${threadId} has a draft reply in a review in progress: submit or discard the review before archiving it`,
+      );
     return this.appendArchiveEvent(threadId, 'thread.archived');
   }
 
@@ -402,7 +407,7 @@ export class Store {
   ): Promise<ThreadState> {
     // These events need the format version that added them: the store says so first.
     await this.ensureInitialized();
-    return this.appendAndReload(threadId, [{ v: ARCHIVE_VERSION, type, at: new Date().toISOString(), by: 'user' }]);
+    return this.appendAndReload(threadId, [{ v: eventVersion(type), type, at: new Date().toISOString(), by: 'user' }]);
   }
 
   /**

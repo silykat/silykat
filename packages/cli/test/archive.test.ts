@@ -100,7 +100,12 @@ describe('lr archive and lr unarchive', () => {
     );
     // An explicit id, any state; the agent's view follows.
     const one = await lr(['archive', recent.id, '--format', 'json'], join(base, 'api'));
-    expect(JSON.parse(one.out)).toEqual({ done: [recent.id], failed: [] });
+    expect(JSON.parse(one.out)).toEqual({ done: [recent.id], unchanged: [], failed: [] });
+    // Nothing to do: said as such, not as done.
+    const again = await lr(['archive', recent.id], join(base, 'api'));
+    expect(again).toMatchObject({ code: EXIT.OK, out: '1 thread was already archived.\n' });
+    const notArchived = await lr(['unarchive', oldResolved.id], join(base, 'api'));
+    expect(notArchived.out).toBe('1 thread was not archived: nothing to do.\n');
   });
 
   it('says when nothing matches, and refuses unknown threads and mixed modes', async () => {
@@ -146,7 +151,9 @@ describe('lr purge', () => {
     expect(preview.out).toContain(oldResolved.id);
     expect(preview.out).toContain(oldDeleted.id);
     expect(preview.out).not.toContain(recent.id);
-    expect(preview.out).toContain('1 thread as old is still in progress (open, needs-info or addressed): kept.');
+    expect(preview.out).toContain(
+      '1 thread as old is still in progress (open, needs-info, addressed, or with a draft reply in your review): kept.',
+    );
     expect(preview.out).toContain('lr purge --before 2026-09-15 --yes --count 2');
     expect((await lr(['history', '--root', 'api', '--format', 'json'])).out).toContain(oldResolved.id);
 

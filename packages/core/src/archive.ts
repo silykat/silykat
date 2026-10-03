@@ -80,10 +80,13 @@ export function parseDateArg(value: string, now = Date.now()): Date | null {
 
 const before = (at: string | null, date: Date): boolean => at !== null && Date.parse(at) < date.getTime();
 
-/** The resolved threads, not archived yet, that were resolved before `date`. */
+/**
+ * The resolved threads, not archived yet, that were resolved before `date`. A thread holding a draft
+ * reply of the user's review in progress is left out: it is about to be reopened.
+ */
 export function resolvedBefore(threads: readonly ProjectThread[], date: Date): ProjectThread[] {
   return threads.filter(
-    ({ thread: t }) => t.state === 'resolved' && t.archivedAt === null && before(t.resolvedAt, date),
+    ({ thread: t }) => t.state === 'resolved' && t.archivedAt === null && !t.hasDrafts && before(t.resolvedAt, date),
   );
 }
 
@@ -101,23 +104,28 @@ export const isFinished = (t: ThreadHistory): boolean =>
 export interface PurgePlan {
   /** Finished threads where nothing was published since the date: deleted for good if confirmed. */
   threads: ProjectThread[];
-  /** Threads also quiet since the date but still in progress (open, needs-info, addressed): kept. */
+  /**
+   * Threads also quiet since the date but still in progress (open, needs-info, addressed, or with a
+   * draft reply of the user's review in progress): kept.
+   */
   inProgress: ProjectThread[];
-  /** Size of the journals to delete (every copy), in bytes. */
+  /** Size of the threads to delete, in bytes (one journal each: copies saved from worktrees are not counted). */
   bytes: number;
 }
 
 /**
  * What a purge before `date` would delete: the finished threads (resolved, archived or deleted)
  * where nothing was published since `date`. Threads still in progress are never purged, however
- * old: the user resolves or deletes them first.
+ * old: the user resolves or deletes them first. Nor are threads holding a draft of the user's
+ * review in progress: deleting them would lose that draft.
  */
 export function purgePlan(threads: readonly ProjectThread[], date: Date): PurgePlan {
   const quiet = threads.filter((t) => before(t.thread.lastActivityAt, date));
-  const purged = quiet.filter((t) => isFinished(t.thread));
+  const purgeable = (t: ProjectThread) => isFinished(t.thread) && !t.thread.hasDrafts;
+  const purged = quiet.filter(purgeable);
   return {
     threads: purged,
-    inProgress: quiet.filter((t) => !isFinished(t.thread)),
+    inProgress: quiet.filter((t) => !purgeable(t)),
     bytes: purged.reduce((n, t) => n + t.thread.bytes, 0),
   };
 }
@@ -125,6 +133,8 @@ export function purgePlan(threads: readonly ProjectThread[], date: Date): PurgeP
 export interface BatchResult {
   /** Threads changed (in at least one of their stores). */
   done: string[];
+  /** Threads left as they were: already archived (when archiving), or not archived (when unarchiving). */
+  unchanged: string[];
   /** Threads that could not be changed, with why. */
   failed: { id: string; error: string }[];
 }
@@ -135,12 +145,20 @@ export interface BatchResult {
  * is archived there.
  */
 export function archiveThreads(threads: readonly ProjectThread[]): Promise<BatchResult> {
-  return inStores(threads, false, (store, id) => store.archiveThread(id));
+  return inStores(threads, false, async (store, id) => {
+    const was = (await store.loadThread(id)).state?.archived;
+    await store.archiveThread(id);
+    return was === false;
+  });
 }
 
 /** Brings archived threads back, where they live (as `archiveThreads`). */
 export function unarchiveThreads(threads: readonly ProjectThread[]): Promise<BatchResult> {
-  return inStores(threads, false, (store, id) => store.unarchiveThread(id));
+  return inStores(threads, false, async (store, id) => {
+    const was = (await store.loadThread(id)).state?.archived;
+    await store.unarchiveThread(id);
+    return was === true;
+  });
 }
 
 /** Deletes threads for good: every journal of each, copies saved from worktrees included. Nothing is left of them. */
@@ -148,24 +166,30 @@ export function purgeThreads(threads: readonly ProjectThread[]): Promise<BatchRe
   return inStores(threads, true, (store, id) => store.purgeThread(id));
 }
 
+/**
+ * Runs `action` on the stores of each thread. `action` says whether it changed the thread there;
+ * a thread changed nowhere, without error, is `unchanged`.
+ */
 async function inStores(
   threads: readonly ProjectThread[],
   everyCopy: boolean,
-  action: (store: Store, id: string) => Promise<unknown>,
+  action: (store: Store, id: string) => Promise<boolean>,
 ): Promise<BatchResult> {
-  const result: BatchResult = { done: [], failed: [] };
+  const result: BatchResult = { done: [], unchanged: [], failed: [] };
   for (const { thread, copies, live } of threads) {
     const errors: string[] = [];
+    let changed = false;
     const stores = everyCopy || live === 0 ? copies : copies.slice(0, live);
     for (const store of stores) {
       try {
-        await action(store, thread.id);
+        if (await action(store, thread.id)) changed = true;
       } catch (err) {
         errors.push(err instanceof Error ? err.message : String(err));
       }
     }
-    if (errors.length < stores.length) result.done.push(thread.id);
-    else result.failed.push({ id: thread.id, error: errors[0] ?? 'unknown error' });
+    if (changed) result.done.push(thread.id);
+    else if (errors.length === 0) result.unchanged.push(thread.id);
+    else result.failed.push({ id: thread.id, error: errors[0]! });
   }
   return result;
 }

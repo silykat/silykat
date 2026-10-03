@@ -77,6 +77,9 @@ var THREAD_EVENT_TYPES = /* @__PURE__ */ new Set([
   "thread.archived",
   "thread.unarchived"
 ]);
+function eventVersion(type) {
+  return type === "thread.archived" || type === "thread.unarchived" ? ARCHIVE_VERSION : FIRST_VERSION;
+}
 var FIRST_VERSION = 1;
 var ARCHIVE_VERSION = 2;
 var REVIEW_EVENT_TYPES = /* @__PURE__ */ new Set([
@@ -278,6 +281,7 @@ function threadHistory(events, opts = {}) {
   const conversation = [];
   const comments = /* @__PURE__ */ new Map();
   const publishedAt = /* @__PURE__ */ new Map();
+  const drafts = /* @__PURE__ */ new Set();
   const drop = (id) => {
     comments.delete(id);
     const i = conversation.findIndex((x) => x.kind === "comment" && x.id === id);
@@ -288,7 +292,10 @@ function threadHistory(events, opts = {}) {
     switch (e.type) {
       case "comment.added": {
         const at = published(e.reviewId, e.at);
-        if (at === null) break;
+        if (at === null) {
+          if (e.reviewId !== null && reviews.get(e.reviewId)?.state === "active") drafts.add(e.commentId);
+          break;
+        }
         const session2 = e.by === "agent" ? sessionRefOf(e.session) : void 0;
         const c = {
           kind: "comment",
@@ -314,6 +321,7 @@ function threadHistory(events, opts = {}) {
         break;
       }
       case "comment.deleted": {
+        drafts.delete(e.commentId);
         const c = comments.get(e.commentId);
         if (!c || c.author !== e.by) break;
         if (e.at < publishedAt.get(c.id)) drop(c.id);
@@ -379,6 +387,7 @@ function threadHistory(events, opts = {}) {
     deletedAt,
     archivedAt,
     resolvedAt,
+    hasDrafts: drafts.size > 0,
     deletedReason: deletedAt ? deletedReason : null,
     readOnly: opts.futureVersion ?? false,
     conversation,
@@ -703,6 +712,10 @@ var Store = class {
   async archiveThread(threadId) {
     const current = await this.writableThread(threadId, "user", { archived: true });
     if (current.archived) return current;
+    if (current.comments.some((c) => c.isDraft))
+      throw new Error(
+        `Thread ${threadId} has a draft reply in a review in progress: submit or discard the review before archiving it`
+      );
     return this.appendArchiveEvent(threadId, "thread.archived");
   }
   /** Brings an archived thread back. Unarchiving a thread that is not archived does nothing. */
@@ -713,7 +726,7 @@ var Store = class {
   }
   async appendArchiveEvent(threadId, type) {
     await this.ensureInitialized();
-    return this.appendAndReload(threadId, [{ v: ARCHIVE_VERSION, type, at: (/* @__PURE__ */ new Date()).toISOString(), by: "user" }]);
+    return this.appendAndReload(threadId, [{ v: eventVersion(type), type, at: (/* @__PURE__ */ new Date()).toISOString(), by: "user" }]);
   }
   /**
    * Deletes a thread's journal for good: unlike `deleteThread`, nothing is left, not even in the
@@ -1640,7 +1653,7 @@ function parseDateArg(value, now = Date.now()) {
 var before = (at, date) => at !== null && Date.parse(at) < date.getTime();
 function resolvedBefore(threads, date) {
   return threads.filter(
-    ({ thread: t }) => t.state === "resolved" && t.archivedAt === null && before(t.resolvedAt, date)
+    ({ thread: t }) => t.state === "resolved" && t.archivedAt === null && !t.hasDrafts && before(t.resolvedAt, date)
   );
 }
 function archivedThreads(threads) {
@@ -1649,36 +1662,47 @@ function archivedThreads(threads) {
 var isFinished = (t) => t.state === "resolved" || t.state === "deleted" || t.archivedAt !== null;
 function purgePlan(threads, date) {
   const quiet = threads.filter((t) => before(t.thread.lastActivityAt, date));
-  const purged = quiet.filter((t) => isFinished(t.thread));
+  const purgeable = (t) => isFinished(t.thread) && !t.thread.hasDrafts;
+  const purged = quiet.filter(purgeable);
   return {
     threads: purged,
-    inProgress: quiet.filter((t) => !isFinished(t.thread)),
+    inProgress: quiet.filter((t) => !purgeable(t)),
     bytes: purged.reduce((n, t) => n + t.thread.bytes, 0)
   };
 }
 function archiveThreads(threads) {
-  return inStores(threads, false, (store, id) => store.archiveThread(id));
+  return inStores(threads, false, async (store, id) => {
+    const was = (await store.loadThread(id)).state?.archived;
+    await store.archiveThread(id);
+    return was === false;
+  });
 }
 function unarchiveThreads(threads) {
-  return inStores(threads, false, (store, id) => store.unarchiveThread(id));
+  return inStores(threads, false, async (store, id) => {
+    const was = (await store.loadThread(id)).state?.archived;
+    await store.unarchiveThread(id);
+    return was === true;
+  });
 }
 function purgeThreads(threads) {
   return inStores(threads, true, (store, id) => store.purgeThread(id));
 }
 async function inStores(threads, everyCopy, action) {
-  const result = { done: [], failed: [] };
+  const result = { done: [], unchanged: [], failed: [] };
   for (const { thread, copies, live } of threads) {
     const errors = [];
+    let changed = false;
     const stores = everyCopy || live === 0 ? copies : copies.slice(0, live);
     for (const store of stores) {
       try {
-        await action(store, thread.id);
+        if (await action(store, thread.id)) changed = true;
       } catch (err) {
         errors.push(err instanceof Error ? err.message : String(err));
       }
     }
-    if (errors.length < stores.length) result.done.push(thread.id);
-    else result.failed.push({ id: thread.id, error: errors[0] ?? "unknown error" });
+    if (changed) result.done.push(thread.id);
+    else if (errors.length === 0) result.unchanged.push(thread.id);
+    else result.failed.push({ id: thread.id, error: errors[0] });
   }
   return result;
 }
@@ -3118,7 +3142,8 @@ async function archive(rest, io, dateOption) {
   const result = await archiveThreads(selected);
   return report(io, format, result, selected, root, {
     none: date ? `No resolved thread to archive: none was resolved before ${resolvedOption} in ${root}.` : "Nothing to archive.",
-    done: (n) => `Archived ${plural2(n, "thread")}: ${n === 1 ? "it is" : "they are"} no longer shown in the editor nor in lr list, and stay in lr history and in retros (lr unarchive <id> brings one back).`
+    done: (n) => `Archived ${plural2(n, "thread")}: ${n === 1 ? "it is" : "they are"} no longer shown in the editor nor in lr list, and ${n === 1 ? "stays" : "stay"} in lr history and in retros (lr unarchive <id> brings one back).`,
+    unchanged: (n) => `${plural2(n, "thread")} ${n === 1 ? "was" : "were"} already archived.`
   });
 }
 async function unarchive(rest, io) {
@@ -3130,7 +3155,8 @@ async function unarchive(rest, io) {
   const result = await unarchiveThreads(selected);
   return report(io, format, result, selected, root, {
     none: "Nothing to unarchive.",
-    done: (n) => `Unarchived ${plural2(n, "thread")}: back in the editor and in lr list.`
+    done: (n) => `Unarchived ${plural2(n, "thread")}: back in the editor and in lr list.`,
+    unchanged: (n) => `${plural2(n, "thread")} ${n === 1 ? "was" : "were"} not archived: nothing to do.`
   });
 }
 async function purge(rest, io, dateOption) {
@@ -3167,7 +3193,7 @@ async function purge(rest, io, dateOption) {
       return OK;
     }
     const kept = plan.inProgress.length > 0 ? `
-${plural2(plan.inProgress.length, "thread")} as old ${plan.inProgress.length === 1 ? "is" : "are"} still in progress (open, needs-info or addressed): kept.` : "";
+${plural2(plan.inProgress.length, "thread")} as old ${plan.inProgress.length === 1 ? "is" : "are"} still in progress (open, needs-info, addressed, or with a draft reply in your review): kept.` : "";
     io.out(
       n === 0 ? `No finished thread without activity since ${beforeOption} in ${root}: nothing to delete.${kept}` : [
         `${plural2(n, "thread")} would be deleted for good (finished, nothing published since ${beforeOption}; ${formatBytes(plan.bytes)}):`,
@@ -3199,7 +3225,10 @@ function byIds(threads, ids2, root) {
 function report(io, format, result, selected, root, text2) {
   if (format === "json") io.out(JSON.stringify(result, null, 2));
   else {
-    const lines = [selected.length === 0 ? text2.none : result.done.length > 0 ? text2.done(result.done.length) : ""];
+    const lines = [
+      selected.length === 0 ? text2.none : result.done.length > 0 ? text2.done(result.done.length) : "",
+      text2.unchanged && result.unchanged.length > 0 ? text2.unchanged(result.unchanged.length) : ""
+    ];
     for (const f of result.failed) {
       const t = selected.find((x) => x.thread.id === f.id);
       lines.push(`Failed: ${t ? threadLine(t, root) : f.id}: ${f.error}`);

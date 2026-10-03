@@ -84,7 +84,8 @@ export async function archive(rest: string[], io: Io, dateOption: DateOption): P
       : 'Nothing to archive.',
     done: (n) =>
       `Archived ${plural(n, 'thread')}: ${n === 1 ? 'it is' : 'they are'} no longer shown in the editor nor in lr list, ` +
-      'and stay in lr history and in retros (lr unarchive <id> brings one back).',
+      `and ${n === 1 ? 'stays' : 'stay'} in lr history and in retros (lr unarchive <id> brings one back).`,
+    unchanged: (n) => `${plural(n, 'thread')} ${n === 1 ? 'was' : 'were'} already archived.`,
   });
 }
 
@@ -99,6 +100,7 @@ export async function unarchive(rest: string[], io: Io): Promise<number> {
   return report(io, format, result, selected, root, {
     none: 'Nothing to unarchive.',
     done: (n) => `Unarchived ${plural(n, 'thread')}: back in the editor and in lr list.`,
+    unchanged: (n) => `${plural(n, 'thread')} ${n === 1 ? 'was' : 'were'} not archived: nothing to do.`,
   });
 }
 
@@ -139,7 +141,7 @@ export async function purge(rest: string[], io: Io, dateOption: DateOption): Pro
     }
     const kept =
       plan.inProgress.length > 0
-        ? `\n${plural(plan.inProgress.length, 'thread')} as old ${plan.inProgress.length === 1 ? 'is' : 'are'} still in progress (open, needs-info or addressed): kept.`
+        ? `\n${plural(plan.inProgress.length, 'thread')} as old ${plan.inProgress.length === 1 ? 'is' : 'are'} still in progress (open, needs-info, addressed, or with a draft reply in your review): kept.`
         : '';
     io.out(
       n === 0
@@ -184,11 +186,14 @@ function report(
   result: BatchResult,
   selected: ProjectThread[],
   root: string,
-  text: { none: string; done: (n: number) => string },
+  text: { none: string; done: (n: number) => string; unchanged?: (n: number) => string },
 ): number {
   if (format === 'json') io.out(JSON.stringify(result, null, 2));
   else {
-    const lines = [selected.length === 0 ? text.none : result.done.length > 0 ? text.done(result.done.length) : ''];
+    const lines = [
+      selected.length === 0 ? text.none : result.done.length > 0 ? text.done(result.done.length) : '',
+      text.unchanged && result.unchanged.length > 0 ? text.unchanged(result.unchanged.length) : '',
+    ];
     for (const f of result.failed) {
       const t = selected.find((x) => x.thread.id === f.id);
       lines.push(`Failed: ${t ? threadLine(t, root) : f.id}: ${f.error}`);

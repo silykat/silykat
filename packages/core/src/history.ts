@@ -64,6 +64,11 @@ export interface ThreadHistory {
   /** When it was resolved, if its status is `resolved`. */
   resolvedAt: string | null;
   /**
+   * Whether the user has draft comments in it, in a review in progress: the thread is about to get
+   * a reply, so it is neither archived nor deleted for good. The drafts themselves are not in it.
+   */
+  hasDrafts: boolean;
+  /**
    * Why it was deleted: removed by the user, or its branch was deleted. `null` when it is not deleted,
    * or when its journal predates reasons and none can be told.
    */
@@ -109,6 +114,8 @@ export function threadHistory(events: readonly ThreadEvent[], opts: HistoryOptio
   const comments = new Map<string, Extract<HistoryEntry, { kind: 'comment' }>>();
   /** When each comment became visible: at once, or when its review was submitted. */
   const publishedAt = new Map<string, string>();
+  /** The user's drafts in a review in progress (not discarded, not submitted yet). */
+  const drafts = new Set<string>();
   const drop = (id: string) => {
     comments.delete(id);
     const i = conversation.findIndex((x) => x.kind === 'comment' && x.id === id);
@@ -120,7 +127,10 @@ export function threadHistory(events: readonly ThreadEvent[], opts: HistoryOptio
     switch (e.type) {
       case 'comment.added': {
         const at = published(e.reviewId, e.at);
-        if (at === null) break;
+        if (at === null) {
+          if (e.reviewId !== null && reviews.get(e.reviewId)?.state === 'active') drafts.add(e.commentId);
+          break;
+        }
         const session = e.by === 'agent' ? sessionRefOf(e.session) : undefined;
         const c: Extract<HistoryEntry, { kind: 'comment' }> = {
           kind: 'comment',
@@ -147,6 +157,7 @@ export function threadHistory(events: readonly ThreadEvent[], opts: HistoryOptio
         break;
       }
       case 'comment.deleted': {
+        drafts.delete(e.commentId);
         const c = comments.get(e.commentId);
         if (!c || c.author !== e.by) break;
         // Deleted while still a draft: it was never published, so it never was in the conversation.
@@ -220,6 +231,7 @@ export function threadHistory(events: readonly ThreadEvent[], opts: HistoryOptio
     deletedAt,
     archivedAt,
     resolvedAt,
+    hasDrafts: drafts.size > 0,
     deletedReason: deletedAt ? deletedReason : null,
     readOnly: opts.futureVersion ?? false,
     conversation,

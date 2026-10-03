@@ -219,7 +219,9 @@ describe('managing the threads of a project', () => {
     const threads = await projectThreads([base], env());
     const selected = resolvedBefore(threads, new Date(at(20)));
     expect(selected.map((t) => t.thread.id)).toEqual([old.id]);
-    expect(await archiveThreads(selected)).toEqual({ done: [old.id], failed: [] });
+    expect(await archiveThreads(selected)).toEqual({ done: [old.id], unchanged: [], failed: [] });
+    // Archiving it again changes nothing, and says so.
+    expect(await archiveThreads(selected)).toEqual({ done: [], unchanged: [old.id], failed: [] });
 
     const after = await projectThreads([base], env());
     expect(archivedThreads(after).map((t) => t.thread.id)).toEqual([old.id]);
@@ -237,8 +239,9 @@ describe('managing the threads of a project', () => {
     expect(json.threads.find((t) => t.id === old.id)).toMatchObject({ archivedAt: expect.any(String) });
     expect(json.threads.find((t) => t.id === open.id)).toMatchObject({ archivedAt: null, resolvedAt: null });
 
-    expect(await unarchiveThreads(archivedThreads(after))).toEqual({ done: [old.id], failed: [] });
+    expect(await unarchiveThreads(archivedThreads(after))).toEqual({ done: [old.id], unchanged: [], failed: [] });
     expect((await store.loadAll()).threads).toHaveLength(3);
+    expect(await unarchiveThreads(archivedThreads(after))).toEqual({ done: [], unchanged: [old.id], failed: [] });
   });
 
   it('reports a thread it could not change', async () => {
@@ -248,6 +251,7 @@ describe('managing the threads of a project', () => {
     await store.deleteThread(t.id, 'user');
     expect(await archiveThreads([found!])).toEqual({
       done: [],
+      unchanged: [],
       failed: [{ id: t.id, error: `Thread not found: ${t.id}` }],
     });
   });
@@ -326,6 +330,37 @@ describe('managing the threads of a project', () => {
     expect(both[0]!.copies).toHaveLength(2);
     expect((await purgeThreads(both)).done).toEqual([t.id]);
     expect(await projectThreads([main], env())).toEqual([]);
+  });
+});
+
+describe('threads holding a draft reply of a review in progress', () => {
+  it('are neither archived nor purged, so that the draft is not published out of sight or lost', async () => {
+    const store = new Store(base);
+    const t = await comment(base, 'Rename this');
+    await store.setStatus(t.id, 'resolved', 'user');
+    await backdate(store, t.id, 3);
+    const review = await store.startReview();
+    const draft = await store.addComment(t.id, { author: 'user', body: 'One more thing', reviewId: review.id });
+    const reply = draft.comments.at(-1)!;
+
+    const threads = await projectThreads([base], env());
+    expect(threads[0]!.thread).toMatchObject({ hasDrafts: true, state: 'resolved' });
+    expect(resolvedBefore(threads, new Date(at(20)))).toEqual([]);
+    const plan = purgePlan(threads, new Date(at(20)));
+    expect(plan.threads).toEqual([]);
+    expect(plan.inProgress.map((x) => x.thread.id)).toEqual([t.id]);
+    await expect(store.archiveThread(t.id)).rejects.toThrow(/draft reply in a review in progress/);
+    expect((await archiveThreads(threads)).failed.map((f) => f.id)).toEqual([t.id]);
+
+    // Once the draft is deleted (or the review discarded or submitted), the thread can go.
+    await store.deleteComment(t.id, reply.id, 'user');
+    const now = await projectThreads([base], env());
+    expect(now[0]!.thread.hasDrafts).toBe(false);
+    expect(resolvedBefore(now, new Date(at(20)))).toHaveLength(1);
+    expect(purgePlan(now, new Date(at(20))).threads).toHaveLength(1);
+    await store.addComment(t.id, { author: 'user', body: 'Again', reviewId: review.id });
+    await store.discardReview(review.id);
+    expect((await projectThreads([base], env()))[0]!.thread.hasDrafts).toBe(false);
   });
 });
 

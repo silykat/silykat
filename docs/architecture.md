@@ -73,6 +73,7 @@ A thread's history (`threadHistory` in `core/src/history.ts`) is a second fold o
 `core/src/archive.ts` manages the threads of one or more projects (`projectThreads`: the history's threads, each once, with every store holding its journal), for `lr archive`, `lr unarchive`, `lr purge` and the extension's commands alike:
 
 - `resolvedBefore`: the resolved threads, not archived yet, resolved before a date; `archivedThreads`: the archived ones;
+- a thread holding a draft reply of the user's review in progress is neither archived (`Store.archiveThread` refuses: the reply would be published out of sight) nor purged (the draft would be lost): `hasDrafts` in its history;
 - `purgePlan`: the **finished** threads (resolved, archived or deleted) where nothing was published since a date, and, apart, those as quiet but still in progress (never purged);
 - `archiveThreads` and `unarchiveThreads` write where the thread lives (a copy saved from a worktree keeps the state of when it was saved, unless the thread is left only there); `purgeThreads` deletes every journal of each thread, saved copies included. Review journals are kept: other threads' drafts depend on them.
 

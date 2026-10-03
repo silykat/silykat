@@ -22,6 +22,7 @@ const thread = (over: Partial<ThreadHistory> = {}): ThreadHistory => ({
   deletedAt: null,
   archivedAt: null,
   resolvedAt: '2026-09-02T10:00:00.000Z',
+  hasDrafts: false,
   deletedReason: null,
   readOnly: false,
   conversation: [
