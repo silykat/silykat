@@ -9,12 +9,12 @@ Local Review has one rule: **everything specific to an agent lives in an adapter
 ```mermaid
 flowchart LR
   subgraph neutral["Agent-neutral"]
-    core["packages/core<br/>model, journals, stores,<br/>re-anchoring, sessions, topics"]
+    core["packages/core<br/>model, journals, stores,<br/>re-anchoring, sessions, topics,<br/>history, retros"]
     cli["packages/cli<br/>lr, the agents' entry point"]
     ext["packages/vscode-extension<br/>the VS Code UI"]
   end
   subgraph claude["adapters/claude-code"]
-    plugin["plugin: skill, commands,<br/>hooks, channel server,<br/>bundled lr"]
+    plugin["plugin: skills, sub-agents,<br/>commands, hooks, channel server,<br/>bundled lr and lr-retro"]
   end
   cli --> core
   ext --> core
@@ -22,12 +22,12 @@ flowchart LR
   plugin --> cli
 ```
 
-| Folder                      | Purpose                                                                                                          | May depend on |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------- | ------------- |
-| `packages/core`             | Data model, append-only journals, stores, re-anchoring, session registry, topics and routing. No VS Code import. | nothing       |
-| `packages/cli`              | `lr`: what agents run to read and answer threads, read a project's history, and subscribe.                       | `core`        |
-| `packages/vscode-extension` | Comment threads in the editor, reviews, diffs, deliveries to agent sessions.                                     | `core`        |
-| `adapters/claude-code`      | The Claude Code plugin (skill, commands, hooks, channel server) and their TypeScript sources.                    | `core`, `cli` |
+| Folder                      | Purpose                                                                                                                           | May depend on |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| `packages/core`             | Data model, append-only journals, stores, re-anchoring, session registry, topics and routing, history, retros. No VS Code import. | nothing       |
+| `packages/cli`              | `lr`: what agents run to read and answer threads, read a project's history, run a retro, and subscribe.                           | `core`        |
+| `packages/vscode-extension` | Comment threads in the editor, reviews, diffs, deliveries to agent sessions.                                                      | `core`        |
+| `adapters/claude-code`      | The Claude Code plugin (skills, sub-agents, commands, hooks, channel server) and their TypeScript sources.                        | `core`, `cli` |
 
 `scripts/check-boundaries.mjs` (run by `npm test`) fails when a package imports what it must not.
 
@@ -44,6 +44,9 @@ The root is the git top level of an open folder (or the folder itself outside gi
   schema-version            the format version (1)
   threads/<thread-id>.jsonl one append-only journal per thread
   reviews/<review-id>.jsonl one append-only journal per review
+  retros/<retro-id>.jsonl   one append-only journal per retro (see "Retros")
+  retros/preferences.jsonl  the user's retro preferences (append-only)
+  retros/<retro-id>/        what a retro wrote for its agents (regenerated)
 ```
 
 A thread journal is a list of events: `thread.created` (with its anchor and branch), `comment.added`, `comment.edited`, `comment.deleted`, `status.changed`, `anchor.updated`, `branch.changed`, `thread.deleted`. The state of a thread is the fold of its events (`core/src/fold.ts`). Appending is atomic enough for several writers (the editor and agents), a line cut by a crash is ignored, and nothing is ever rewritten: deleting a thread is an event too.
@@ -70,6 +73,38 @@ A thread's history (`threadHistory` in `core/src/history.ts`) is a second fold o
   sessions/<id>.inbox.jsonl     its message queue (append-only)
   sessions/<id>.note-*          small notes an adapter keeps between two hooks
 ```
+
+## Retros
+
+A retro looks back at the review feedback of a period and turns it into changes to the agent's setup, decided with the user. The data, the journal, the preferences and the guard rails are agent-neutral (`core`, `lr retro`); the conversation, the sub-agents and the files changed are the agent's (for Claude Code: the `retro` skill, the `retro-classifier` and `retro-analyst` sub-agents, and `lr-retro`).
+
+```mermaid
+sequenceDiagram
+  participant U as You
+  participant S as Retro session (skill)
+  participant L as lr retro
+  participant C as Classifier sub-agent
+  participant A as Analyst sub-agent
+  S->>L: scope (period since the last retro, stores, size, time)
+  S->>U: feedback on the last retro, then the scope to confirm
+  S->>L: start (the period's thread ids are recorded)
+  S->>C: classify (Jev through lr-retro jev, or itself)
+  C->>L: input --for classify, then classification
+  S->>A: analyse (fresh context)
+  A->>L: input --for analysis + lr-retro setup, then check and propose
+  L->>L: guard rails, numbers of each proposal
+  S->>L: show
+  S->>U: one proposal at a time
+  U->>S: accept, modify, exclude, change the target
+  S->>L: decide, then applied (files changed), then finish
+```
+
+- **Where**: the store of the project folder when it has one, or when it is outside git; else the store at the top of its git worktree (`retroHome`). Creating that store at the top of a repository adds `.local-review/` to `.git/info/exclude` first. Older versions never read `retros/`, so the store's format version is unchanged; retro events carry their own `v`.
+- **The journal** (`RetroBook`, `core/src/retro.ts`): `retro.started` (project folder, period, stores, thread ids, preferences in force), `retro.feedback`, `retro.classified` (labels, possibly in several passes), `retro.proposed` (proposals, watch list, what the guard rails left out), `retro.decided`, `retro.applied` (files changed), `retro.finished`. The next retro starts just after the `until` of the last finished one of the same folder.
+- **The inputs** (`core/src/retroScope.ts`): `lr retro input` writes, in `retros/<id>/`, the threads with their conversation (`threadText`), and, for the analysis, the preferences, the previous retros (decisions, exclusions, watch list) and statistics computed without a model (reopened threads, questions of the agent, back-and-forth, deleted). The agent writes its answer as a JSON file next to it, and records it with one plain `lr` command.
+- **The guard rails** (`checkProposals`, `core/src/retroGuards.ts`), applied by `lr retro check` and `lr retro propose` whatever the agent: at least 2 threads of the period (a single one goes to the watch list); a "keep" whose rule had to be enforced (cited in `enforcedIn`, or classified as an ignored rule) becomes "improve"; one cause per proposal; a new rule's target is asked unless a thread supports it; a subject excluded earlier (same reference, similar wording, or 2 of its threads) comes back only with 2 new threads. Each proposal's numbers are computed from its threads.
+- **The classification**: the labels (one of 14 categories, plus two scores: a project rule missing from the rules files, an existing rule ignored) feed the statistics and the "keep" guard rail. With a key, `lr-retro jev` asks [Jev](https://jevtypesafeai.com/), 4 requests at a time: the only network call of Local Review, in the adapter, never in `core`, `lr` or the extension. The key (`~/.config/local-review/jev-key`, or `$JEV_API_KEY`) is checked without being read by `lr retro key` (owner only, in no repository), and read only by `lr-retro jev`, which never prints it.
+- **The setup** (`lr-retro setup`, `adapters/claude-code/src/retroSetup.ts`): the rules files (`CLAUDE.md` of the folder, its parents and repositories, `CLAUDE.local.md`, `~/.claude/CLAUDE.md`), then the `.claude/` and `.agents/` folders of the project and of the user (`$CLAUDE_CONFIG_DIR` when set): rules, skills, commands, sub-agents, and only the `hooks` of the settings files (the rest may hold secrets). Rules and hooks are given in full; skills, commands and sub-agents too until about 100 KB, then by their header only.
 
 ## Agent sessions
 
@@ -109,11 +144,13 @@ The message only points at threads; the agent always reads their current content
 
 | Part                                              | Role                                                                                                                                                                                                                                         |
 | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `skills/review/SKILL.md`                          | How Claude handles a review: read, act, reply with `--rev`, subscriptions, special cases.                                                                                                                                                    |
+| `skills/review/SKILL.md`                          | How Claude handles a review: read, act, reply with `--rev`, subscriptions, special cases, the history.                                                                                                                                       |
+| `skills/retro/SKILL.md`, `agents/retro-*.md`      | `/local-review:retro`: the retro's conversation, and its two sub-agents (classification with Haiku, analysis with Sonnet).                                                                                                                   |
 | `commands/subscribe.md`, `unsubscribe.md`         | `/local-review:subscribe` and `/local-review:unsubscribe`.                                                                                                                                                                                   |
 | `hooks/hooks.json` → `hooks/local-review-hook.js` | `SessionStart` (register, subscribe to the worktree of launch), `PreToolUse`/`PostToolUse` (subscribe on file changes, including shell commands via `git status`), `SessionEnd`. A new subscription is told to Claude (`additionalContext`). |
 | `.mcp.json` → `channel/local-review-channel.js`   | The channel server: a minimal MCP server over stdio (no SDK), serving the session of the Claude Code process that started it.                                                                                                                |
 | `bin/lr`                                          | The bundled command line, on Claude's `PATH`.                                                                                                                                                                                                |
+| `bin/lr-retro`                                    | What is Claude Code's in a retro: its setup files (`setup`) and the classification by Jev (`jev`).                                                                                                                                           |
 
 The bundles are built by `adapters/claude-code/build.mjs` and **committed**, because Claude Code installs plugins from git. `scripts/check-plugin-bundle.mjs` (run by `npm test`) rebuilds them elsewhere and fails when the committed ones are stale.
 

@@ -2,7 +2,7 @@
 
 **A GitHub-style code review between you and your AI coding agent, 100% local.**
 
-Select lines in VS Code, leave comments like on a pull request, and your agent reads them, changes the code and answers in the threads. No pull request, no server, no account: comments live next to your code, and nothing ever leaves your machine.
+Select lines in VS Code, leave comments like on a pull request, and your agent reads them, changes the code and answers in the threads. No pull request, no server, no account: comments live next to your code, and nothing leaves your machine (unless you opt in to an online classifier for your retros).
 
 Local Review is agent-agnostic by design; **Claude Code** is the first supported agent.
 
@@ -23,6 +23,7 @@ Local Review is agent-agnostic by design; **Claude Code** is the first supported
 - [Quick start](#quick-start)
 - [Using Local Review](#using-local-review)
 - [Working with agents](#working-with-agents)
+- [Retros](#retros)
 - [Settings](#settings)
 - [The `lr` command line](#the-lr-command-line)
 - [Where your data lives](#where-your-data-lives)
@@ -40,7 +41,8 @@ Local Review is agent-agnostic by design; **Claude Code** is the first supported
 - **The right agent gets it**: with several agent sessions in parallel (one per git worktree, a reviewer next to a developer…), each comment goes to the sessions working on its branch.
 - **Safe while the agent works**: edit or delete a comment at any time; the agent never answers an outdated version.
 - **Your whole history**: read back every thread of a project, resolved and deleted ones included, across its repositories and worktrees (`lr history`).
-- **100% local**: no network calls, no telemetry, plain files you can read.
+- **Retros with your agent**: look back at your feedback with Claude, and decide together what to keep, remove or improve in its setup (`CLAUDE.md`, skills, hooks…); Claude applies what you validate (`/local-review:retro`).
+- **100% local**: no network calls, no telemetry, plain files you can read. The one exception is opt-in: the classification of a retro by Jev, only if you give it a key.
 
 ## Requirements
 
@@ -174,6 +176,29 @@ Editing or deleting a published comment tells the subscribed sessions too. Claud
 
 A session started without the channel (plain `claude`, or the Claude Code panel of VS Code) still receives the comments, but only sees them when you ask it (`/local-review:review`). VS Code tells you once, with the command to relaunch it, and marks the session with ⚠ in the status bar. To send nothing to the sessions at all, turn off `localReview.pushToAgents`.
 
+## Retros
+
+A retro is a look back at the review feedback you gave your agent since the last retro, to improve its setup from what really happened, like a sprint retro with your agent. It is a discussion: nothing changes without your say-so, and what you validate, Claude applies.
+
+### Running a retro
+
+In a Claude Code session started in your working folder (the **project**: that folder, its subfolders, every repository in it and their git worktrees), run **`/local-review:retro`**, or ask for a retro. Then:
+
+1. **The last retro** (from the second one on): Claude asks whether you noticed the improvements decided then, and whether you want to change anything in the retro itself (what it looks at, its level of detail, subjects to ignore…). Your wishes become the **retro preferences** of the project, applied from now on.
+2. **The scope**: the period (since the last retro; for a first one, Claude proposes the last 7 days, 30 days or everything), the comment stores found, the number of threads, the size of the data and an estimate of the time. You confirm.
+3. **The analysis**, in two sub-agents with a fresh context, so that the session keeps its own for the discussion: one **classifies** the threads (Jev with a key, else Haiku), the other **analyses** all the threads together with your setup (rules files, skills, commands, sub-agents, hooks of the project and of `~/.claude`), the classification, statistics and the previous retros.
+4. **The proposals**, in three columns, **To keep**, **To remove** and **To improve**. Each one shows its source (the threads, with an excerpt), its numbers (threads, reopened, questions, back-and-forth), the rule or file concerned, why, the change, its target and its confidence. Preferences seen in a single thread are kept **to watch**. For stale or contradictory rules, Claude suggests `/doctor prompt-audit` (Claude Code 2.1.283 or later).
+5. **The discussion**, one proposal at a time: accept, modify, exclude, or change its target: **project, shared** (the repository's `CLAUDE.md` or `.claude/`, for the team), **project, personal** (`CLAUDE.local.md`, yours only) or **you, everywhere** (`~/.claude/`). You can also just talk it through.
+6. **Claude applies** what you validated, one change per subject, and ends with the list of files changed.
+
+Guard rails are checked by program (in `lr`, whatever the agent): a proposal needs at least 2 threads; a rule you had to enforce during the period is never proposed as "keep"; one subject per proposal; the target is asked when nothing in your threads tells it; a subject you excluded comes back only if new feedback raises it.
+
+Each retro is recorded in `.local-review/retros/` at the top of the project (or of its repository): the period, the threads read, the proposals, your decisions, exclusions and preferences. The next retro starts from it. `lr retro list` and `lr retro show <id>` read them back.
+
+### The Jev key (optional)
+
+[Jev](https://jevtypesafeai.com/) classifies the threads faster and cheaper than a model of your subscription; without a key, Haiku does it. At your first retro, Claude offers to set it up: it proposes `~/.config/local-review/jev-key` and gives you a command to run **in your own terminal**, which asks for the key without showing it and saves it in a file only you can read. The key never goes through the conversation, and is never written in a journal or an output. Claude then checks, without reading it, that the file is readable by you only and is in no repository (`lr retro key`). `JEV_API_KEY` works too. This classification is the only network call of Local Review, made only during a retro, and only with a key.
+
 ## Settings
 
 | Setting                          | Default      | Description                                                                                                                                  |
@@ -197,6 +222,7 @@ Agents read and answer the threads with `lr`, an agent-neutral command line; the
 | `lr subscribe [<folder>] [--path]`, `lr unsubscribe`     | Subscribe the session `lr` runs in to a branch or a path, or stop  |
 | `lr subscriptions`, `lr sessions`                        | What this session is subscribed to; the running sessions           |
 | `lr history [--since <date>]`                            | Every thread of the project, whatever its state, in full           |
+| `lr retro scope`, `lr retro show <id>`, `lr retro list`  | What a retro would cover; a retro and its proposals; past retros   |
 
 Add `--root <folder>` to target a project from elsewhere (`--root /` for files outside the open folders), and `--format json` for tools. `lr --help` has the full reference.
 
@@ -208,9 +234,10 @@ Add `--root <folder>` to target a project from elsewhere (`--root /` for files o
 
 - **Comments** of a project: `.local-review/` at its root (the git top level, or the open folder), as plain append-only JSON Lines journals. Git ignores it through `.git/info/exclude`.
 - **Comments of files outside the open folders**: `~/.local-review/files/`.
+- **Retros** of a project: `.local-review/retros/` at its top (one journal per retro, plus your retro preferences).
 - **Agent sessions**, their subscriptions and message queues: `~/.local-review/sessions/`.
 
-`$LOCAL_REVIEW_HOME` moves `~/.local-review/` elsewhere. Local Review makes no network call and collects no telemetry.
+`$LOCAL_REVIEW_HOME` moves `~/.local-review/` elsewhere. Local Review collects no telemetry, and makes no network call, except the optional classification of a retro by Jev when you set up its key.
 
 ## Known limitations
 
@@ -218,6 +245,7 @@ Add `--root <folder>` to target a project from elsewhere (`--root /` for files o
 - **The Claude Code panel of VS Code** cannot be launched with a channel: use Claude Code in a terminal, or ask `/local-review:review` in the panel.
 - **Files outside the open folders** have no git features (comments on a diff side, following a rename with git).
 - **A rebase in progress**: threads follow the branch being rebased, but commenting during a rebase is not supported yet.
+- **Retros** are run by Claude Code for now; the time announced is a rough estimate, to be refined on real retros.
 - **Other agents** (e.g. Codex) are planned: the storage, the `lr` command line and the session registry are agent-neutral.
 
 ## Contributing

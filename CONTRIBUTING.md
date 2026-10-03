@@ -51,6 +51,7 @@ On a Mac with Apple silicon, the container is Linux arm64; the CI runs on x86-64
 - Load your checkout for skills and hooks: `claude --plugin-dir adapters/claude-code/plugin`. The channel, however, only works with the installed plugin (`--dangerously-load-development-channels plugin:local-review@local-review`): add your checkout as a local marketplace (`claude plugin marketplace add /path/to/local-review`), then `claude plugin update local-review@local-review` after each change.
 - After any change to `core`, the CLI or the adapter, run `npm run build:claude-plugin` and **commit the bundles**: Claude Code installs plugins from git, and `npm test` fails when they are stale.
 - Never bump the plugin version by hand: releases do it (see below). Claude Code only updates a plugin whose version changed.
+- The retro (`/local-review:retro`) runs two sub-agents of the plugin (`agents/`), and `bin/lr-retro`, bundled from `adapters/claude-code/src/retroMain.ts`. Its Jev classification is tested against a local stub: `LR_JEV_URL` points `lr-retro jev` at another address (tests only). Never use a real key in tests.
 
 ### Without an agent
 
@@ -61,6 +62,7 @@ On a Mac with Apple silicon, the container is Linux arm64; the CI runs on x86-64
 Unit and integration tests do not run Claude. For behaviour that depends on Claude Code (hooks, channel, skill), check it for real, cheaply:
 
 - `claude -p --model haiku …` in a throwaway git repository, with a private `LOCAL_REVIEW_HOME`, so that nothing mixes with your real sessions;
+- a retro asks questions: in `claude -p`, give the answers in the prompt, and use `--permission-mode acceptEdits` so that it can only change files of the throwaway folder (its sub-agents run with the model of their file: Haiku and Sonnet);
 - `SessionEnd` unregisters the session when `claude -p` exits: watch the registry while it runs;
 - `--debug` writes a log to `~/.claude/debug/<session-id>.txt` (hooks, MCP servers).
 
