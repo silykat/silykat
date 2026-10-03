@@ -95,6 +95,11 @@
         "category": "Local Review"
       },
       {
+        "command": "localReview.showRetroReminder",
+        "title": "When Is the Next Retro?",
+        "category": "Local Review"
+      },
+      {
         "command": "localReview.reply",
         "title": "Reply"
       },
@@ -388,6 +393,44 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "Send what you publish (comments, replies, reviews, edits, deletions) to the agent sessions subscribed to it, so that they handle it on their own. When off, nothing is sent: ask the agent yourself (e.g. `/local-review:review`), and no warning is shown about sessions."
+        },
+        "localReview.retroReminder.days": {
+          "type": "integer",
+          "default": 7,
+          "minimum": 1,
+          "markdownDescription": "A retro (looking back at your review comments with your agent, e.g. `/local-review:retro`) is due this many days after the last one. Also used by the agent's reminder at the start of a session (machine setting `retro-reminder-days` of `lr config`, updated when you change it here)."
+        },
+        "localReview.retroReminder.sizeKB": {
+          "type": "integer",
+          "default": 1000,
+          "minimum": 1,
+          "markdownDescription": "Or sooner, once the review threads since the last retro weigh this many kilobytes (1000 = 1 MB): a retro reads them all, and reads less finely when there are too many. Machine setting `retro-reminder-size`."
+        },
+        "localReview.retroReminder.maxDays": {
+          "type": "integer",
+          "default": 25,
+          "minimum": 1,
+          "markdownDescription": "And never later than this many days, whatever the setting above: agents delete their conversations after a while (Claude Code: 30 days by default), and the retro reads back those linked to replies. Machine setting `retro-reminder-max-days`."
+        },
+        "localReview.retroReminder.statusBar": {
+          "type": "string",
+          "enum": [
+            "always",
+            "whenDue",
+            "never"
+          ],
+          "enumDescriptions": [
+            "Show the days and size of the threads since the last retro, and \"Retro due\" once a retro is due.",
+            "Show it only once a retro is due.",
+            "Never show it."
+          ],
+          "default": "always",
+          "description": "The retro reminder in the status bar (hidden while there is nothing new since the last retro)."
+        },
+        "localReview.retroReminder.agentMessage": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "When a retro is due, the agent says so once at the start of a session (Claude Code). Machine setting `retro-reminder` of `lr config`, updated when you change it here."
         }
       }
     },

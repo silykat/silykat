@@ -5,6 +5,7 @@ import { simulateAgentReply, type SimulateArgs } from './dev/simulateAgentReply'
 import { DeliveriesUi, type NoSubscriberPrompt, type Warner } from './deliveries';
 import { createLog } from './log';
 import type { LrComment } from './render';
+import { RetroReminderUi, type ReminderPrompt } from './retroReminder';
 import { ReviewUi, type SummaryPrompt } from './review';
 import { SessionsUi } from './sessions';
 
@@ -45,6 +46,10 @@ export interface LocalReviewApi {
   forgetWorktreeWarnings(): Promise<void>;
   /** Tests only: answer "publish without subscribers?" without showing it. */
   setNoSubscriberPrompt(prompt: NoSubscriberPrompt | undefined): void;
+  /** Tests only: measure the retro cadence now; the retro status bar text, `undefined` when hidden. */
+  refreshRetroReminder(): Promise<{ statusText: string | undefined; due: string[] }>;
+  /** Tests only: answer the retro reminder message without showing it. */
+  setRetroReminderPrompt(prompt: ReminderPrompt | undefined): void;
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<LocalReviewApi> {
@@ -54,7 +59,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
   const agentReplies = new AgentRepliesUi(review);
   const sessions = new SessionsUi();
   const deliveries = new DeliveriesUi(review, log);
-  context.subscriptions.push(log, review, reviewUi, agentReplies, sessions, deliveries);
+  const retroReminder = new RetroReminderUi(review.onDidChange);
+  context.subscriptions.push(log, review, reviewUi, agentReplies, sessions, deliveries, retroReminder);
 
   context.subscriptions.push(
     vscode.commands.registerCommand('localReview.commentSelection', () =>
@@ -113,6 +119,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
   const defaultNotifier = agentReplies.notify;
   const defaultWarner = deliveries.warn;
   const defaultNoSubscriberPrompt = deliveries.askNoSubscriber;
+  const defaultRetroPrompt = retroReminder.prompt;
   await review.reload();
   log.info('Local Review activated');
 
@@ -145,6 +152,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
     reviewContext: () => ({ ...review.reviewContext }),
     setNoSubscriberPrompt: (prompt) => {
       deliveries.askNoSubscriber = prompt ?? defaultNoSubscriberPrompt;
+    },
+    refreshRetroReminder: async () => {
+      await retroReminder.refresh();
+      return {
+        statusText: retroReminder.statusText,
+        due: retroReminder.cadences.filter((c) => c.due).map((c) => c.root),
+      };
+    },
+    setRetroReminderPrompt: (prompt) => {
+      retroReminder.prompt = prompt ?? defaultRetroPrompt;
     },
     warnIfWorktree: (path) => review.warnIfWorktree(path),
     forgetWorktreeWarnings: () => Promise.resolve(context.globalState.update('localReview.warnedWorktrees', undefined)),
