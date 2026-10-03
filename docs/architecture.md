@@ -74,7 +74,8 @@ The editor neither reads nor watches `saved/`: the copies are never shown, nor c
 
 ```text
 ~/.local-review/
-  config.json                   the settings of this machine (lr config), read by the agent hooks
+  config.json                   the settings of this machine (lr config), read by the agent hooks;
+                                the extension writes the retro reminder settings set in VS Code
   files/                        the store of files outside any open folder (rooted at "/")
   sessions/<id>.json            a running agent session
   sessions/<id>.subscriptions.jsonl   what it is subscribed to (append-only)
@@ -100,8 +101,9 @@ sequenceDiagram
   C->>L: input --for classify, then classification
   S->>A: analyse (fresh context)
   A->>L: input --for analysis + lr-retro setup, then check and propose
-  L->>L: guard rails, numbers of each proposal
+  L->>L: guard rails, numbers of each proposal, check of the last retro's changes
   S->>L: show
+  S->>U: did the last retro's changes help? (numbers, next to the user's feeling)
   S->>U: one proposal at a time
   U->>S: accept, modify, exclude, change the target
   S->>L: decide, then applied (files changed), then finish
@@ -111,6 +113,8 @@ sequenceDiagram
 - **The journal** (`RetroBook`, `core/src/retro.ts`): `retro.started` (project folder, period, stores, thread ids, preferences in force), `retro.feedback`, `retro.classified` (labels, possibly in several passes), `retro.proposed` (proposals, watch list, what the guard rails left out), `retro.decided`, `retro.applied` (files changed), `retro.finished`. The next retro starts just after the `until` of the last finished one of the same folder.
 - **The inputs** (`core/src/retroScope.ts`): `lr retro input` writes, in `retros/<id>/`, the threads with their conversation (`threadText`), and, for the analysis, the preferences, the previous retros (decisions, exclusions, watch list) and statistics computed without a model (reopened threads, questions of the agent, back-and-forth, deleted: by the user, or with their branch). Threads saved from a removed worktree are read like the others, their store marked as saved. The agent writes its answer as a JSON file next to it, and records it with one plain `lr` command.
 - **The guard rails** (`checkProposals`, `core/src/retroGuards.ts`), applied by `lr retro check` and `lr retro propose` whatever the agent: at least 2 threads of the period (a single one goes to the watch list); a "keep" whose rule had to be enforced (cited in `enforcedIn`, or classified as an ignored rule) becomes "improve"; one cause per proposal; a new rule's target is asked unless a thread supports it; a subject excluded earlier (same reference, similar wording, or 2 of its threads) comes back only with 2 new threads, neither proposed nor watched before that. Each proposal's numbers are computed from its threads.
+- **The check of the last retro's changes** (`adoptedChanges`, `verdictOf`): the changes adopted at the last finished retro of the same folder (to improve or remove; accepted, modified or retargeted) are listed in the analysis input, with their numbers then. The analyst names, for each one, the threads of the new period with the same cause (`verify`); `checkProposals` computes the share of threads on the subject before (its evidence, out of the threads that retro read) and after, and the verdict: `stopped` (none), `decreased` (a smaller share) or `not-decreased`. A change left unchecked is rejected, and one that did not decrease with 2 threads or more needs a proposal that revises it (`revisits`). The check is recorded in `retro.proposed` (`verifications`), and `lr retro show` puts it first, next to the user's feedback.
+- **The cadence** (`retroCadence`, `core/src/cadence.ts`): the days since the end of the last finished retro of the folder or of a folder above it (`lastRetroCovering`, looking up for `.local-review/retros/`), else since the first thread, and the size of the threads with activity since then (`projectHistory`, as the next retro would read them). Due when there is at least one thread and the days reach `min(days, maxDays)` or the size reaches its threshold (machine settings `retroReminderDays`, `retroReminderSizeKB`, `retroReminderMaxDays`: 7, 1,000 KB, 25 by default). `lr retro cadence` prints it; the extension shows it in the status bar, and the Claude Code `SessionStart` hook has Claude mention it (see below). The root of the file system is no project: no cadence there.
 - **The classification**: the labels (one of 14 categories, plus two scores: a project rule missing from the rules files, an existing rule ignored) feed the statistics and the "keep" guard rail. With a key, `lr-retro jev` asks [Jev](https://jevtypesafeai.com/), 4 requests at a time: the only network call of Local Review, in the adapter, never in `core`, `lr` or the extension. The key (`~/.config/local-review/jev-key`, or `$JEV_API_KEY`) is checked without being read by `lr retro key` (owner only, in no repository), and read only by `lr-retro jev`, which never prints it.
 - **The agent's conversations** (`lr-retro conversation`, see below): for an ambiguous thread whose replies are linked to a conversation, the analyst reads it back; `retro.conversation` records whether it was still available, and `lr retro show` lists them.
 - **The setup** (`lr-retro setup`, `adapters/claude-code/src/retroSetup.ts`): the rules files (`CLAUDE.md` of the folder, its parents and repositories, `CLAUDE.local.md`, `~/.claude/CLAUDE.md`), then the `.claude/` and `.agents/` folders of the project and of the user (`$CLAUDE_CONFIG_DIR` when set): rules, skills, commands, sub-agents, and only the `hooks` of the settings files (the rest may hold secrets). Rules and hooks are given in full; skills, commands and sub-agents too until about 100 KB, then by their header only.
@@ -171,6 +175,8 @@ The bundles are built by `adapters/claude-code/build.mjs` and **committed**, bec
 
 **Before a worktree is removed**: `PreToolUse` runs before the tool, and Claude Code waits for it. On `Bash`, the hook reads the command (`worktreeRemovals` in `adapters/claude-code/src/hook.ts`, a best effort: simple commands split on `&&`, `;`, `|`…, quotes, `cd`, `git -C`; not globs nor variables) for `git worktree remove <path>` (a path, or the end of a worktree's path, as git allows) and `rm -r <path>` of a worktree's top folder; on `ExitWorktree` with `action: "remove"`, the session's own worktree. For each linked worktree found, it saves its threads, unless `autoSaveWorktrees` is off in the machine settings (`config.json`, on by default); then it only tells Claude that they will be lost. The hook never blocks the command.
 
+**The retro reminder**: on `SessionStart` of a new conversation (`source` other than `resume` and `compact`), when the `retroReminder` machine setting is on, the hook measures the cadence of the session's folder and, when a retro is due, asks Claude (`additionalContext`) to say so once in its first reply and suggest `/local-review:retro`, without starting it. The measure is given up after 3 seconds, and any failure is silent: a session never waits for it.
+
 Whether a session was launched with the channel cannot be asked to Claude Code: the `SessionStart` hook reads the command line of the `claude` process instead. `lr` finds the session it runs in by walking up its parent processes to a registered process id.
 
 ## The VS Code extension
@@ -179,6 +185,7 @@ Whether a session was launched with the channel cannot be asked to Claude Code: 
 - `deliveries.ts`: publishing to subscribed sessions, the "nobody is subscribed" prompt, `pushToAgents`.
 - `branches.ts`: which branch is checked out where (polled every 2 s).
 - `sessions.ts`, `agentReplies.ts`, `review.ts`: the status bar items and their menus.
+- `retroReminder.ts` (texts in `retroStatus.ts`, without `vscode`): the retro reminder in the status bar, measured for each workspace folder at start, every 2 minutes, 10 seconds after comments change and when the window gets the focus back; the folder most due is shown. The `localReview.retroReminder.*` settings set in VS Code win over the machine settings, and the user-level ones are written to `config.json` when they change (and at start when not mirrored yet), for the agent hooks.
 - `roots.ts`: stores of the open folders, plus the machine store as the last resort.
 - Worktrees (`controller.ts`): the first time an open linked git worktree has comments (at load, or on a new comment), a message says that removing it deletes them, with **Save Threads Now**; each worktree is warned once (remembered in the extension's global state). **Save Worktree Threads** saves the open worktree (or one picked among them). A branch deleted while VS Code runs deletes its threads with the reason `branch-gone`.
 - `watcher.ts`: stores are watched for writes by agents, with Node's watcher (VS Code's misses some writes of other processes on Linux). A store that does not exist yet, or was removed, is waited for from its parent folder.

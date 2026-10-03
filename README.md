@@ -41,7 +41,7 @@ Local Review is agent-agnostic by design; **Claude Code** is the first supported
 - **The right agent gets it**: with several agent sessions in parallel (one per git worktree, a reviewer next to a developer…), each comment goes to the sessions working on its branch.
 - **Safe while the agent works**: edit or delete a comment at any time; the agent never answers an outdated version.
 - **Your whole history**: read back every thread of a project, resolved and deleted ones included, across its repositories and worktrees (`lr history`). It tells a thread you removed from one gone with its branch, and keeps the threads of a git worktree after you remove it, once saved (automatically when your agent removes it).
-- **Retros with your agent**: look back at your feedback with Claude, and decide together what to keep, remove or improve in its setup (`CLAUDE.md`, skills, hooks…); Claude applies what you validate (`/local-review:retro`).
+- **Retros with your agent**: look back at your feedback with Claude, and decide together what to keep, remove or improve in its setup (`CLAUDE.md`, skills, hooks…); Claude applies what you validate (`/local-review:retro`). The next retro checks whether the changes helped, and the status bar tells you when a retro is due.
 - **100% local**: no network calls, no telemetry, plain files you can read. The one exception is opt-in: the classification of a retro by Jev, only if you give it a key.
 
 ## Requirements
@@ -195,13 +195,23 @@ In a Claude Code session started in your working folder (the **project**: that f
 1. **The last retro** (from the second one on): Claude asks whether you noticed the improvements decided then, and whether you want to change anything in the retro itself (what it looks at, its level of detail, subjects to ignore…). Your wishes become the **retro preferences** of the project, applied from now on.
 2. **The scope**: the period (since the last retro; for a first one, Claude proposes the last 7 days, 30 days or everything), the comment stores found, the number of threads, the size of the data and an estimate of the time. You confirm.
 3. **The analysis**, in two sub-agents with a fresh context, so that the session keeps its own for the discussion: one **classifies** the threads (Jev with a key, else Haiku), the other **analyses** all the threads together with your setup (rules files, skills, commands, sub-agents, hooks of the project and of `~/.claude`), the classification, statistics and the previous retros. When a thread is ambiguous (why did Claude do that?), it reads back the conversation where Claude replied: the request, the files read, the commands and edits, the skill in use. Claude Code deletes its conversations after 30 days by default (the `cleanupPeriodDays` setting): an older one is no longer available, and the retro says so and does without it. The retro tells you which conversations it read back.
-4. **The proposals**, in three columns, **To keep**, **To remove** and **To improve**. Each one shows its source (the threads, with an excerpt), its numbers (threads, reopened, questions, back-and-forth), the rule or file concerned, why, the change, its target and its confidence. Preferences seen in a single thread are kept **to watch**. For stale or contradictory rules, Claude suggests `/doctor prompt-audit` (Claude Code 2.1.283 or later).
-5. **The discussion**, one proposal at a time: accept, modify, exclude, or change its target: **project, shared** (the repository's `CLAUDE.md` or `.claude/`, for the team), **project, personal** (`CLAUDE.local.md`, yours only) or **you, everywhere** (`~/.claude/`). You can also just talk it through.
-6. **Claude applies** what you validated, one change per subject, and ends with the list of files changed.
+4. **Did last time's changes help?** (from the second retro on): for each change you adopted at the last retro, the analysis names the threads of the new period with the same cause, and `lr` computes the numbers: the threads on its subject out of all the threads, before and since. The feedback **stopped** or **decreased**: the change is kept. It **did not decrease**: the retro proposes to revise it (reword the rule, move it up, make it a hook, or remove it). Claude shows it first, next to what you said you felt.
+5. **The proposals**, in three columns, **To keep**, **To remove** and **To improve**. Each one shows its source (the threads, with an excerpt), its numbers (threads, reopened, questions, back-and-forth), the rule or file concerned, why, the change, its target and its confidence. Preferences seen in a single thread are kept **to watch**. For stale or contradictory rules, Claude suggests `/doctor prompt-audit` (Claude Code 2.1.283 or later).
+6. **The discussion**, one proposal at a time (those that revise a change of the last retro first): accept, modify, exclude, or change its target: **project, shared** (the repository's `CLAUDE.md` or `.claude/`, for the team), **project, personal** (`CLAUDE.local.md`, yours only) or **you, everywhere** (`~/.claude/`). You can also just talk it through.
+7. **Claude applies** what you validated, one change per subject, and ends with the list of files changed.
 
-Guard rails are checked by program (in `lr`, whatever the agent): a proposal needs at least 2 threads; a rule you had to enforce during the period is never proposed as "keep"; one subject per proposal; the target is asked when nothing in your threads tells it; a subject you excluded comes back only if new feedback raises it.
+Guard rails are checked by program (in `lr`, whatever the agent): a proposal needs at least 2 threads; a rule you had to enforce during the period is never proposed as "keep"; one subject per proposal; the target is asked when nothing in your threads tells it; a subject you excluded comes back only if new feedback raises it; every change adopted at the last retro is checked, and one that did not reduce the feedback (with 2 threads or more) gets a proposal to revise it.
 
 Each retro is recorded in `.local-review/retros/` at the top of the project (or of its repository): the period, the threads read, the proposals, your decisions, exclusions and preferences. The next retro starts from it. `lr retro list` and `lr retro show <id>` read them back.
+
+### When to run a retro
+
+A retro is worth it about once a week: with too little feedback there is not much to learn, with too much the analysis reads it less finely. Local Review keeps count of the **days** since the last retro and the **size** of the review threads since then (the threads it would read), and reminds you:
+
+- in the **status bar** of VS Code, e.g. `Retro: 6 d · 640.0 KB`, which becomes `Retro due: 8 d · 1.2 MB` once a retro is due; click it to see how to run one (and copy `/local-review:retro`). It is hidden while there is nothing new since the last retro;
+- in **Claude's first reply** of a new session started in the project, once: Claude tells you a retro is due and suggests `/local-review:retro` (it does not start it on its own).
+
+A retro is due after **7 days**, or sooner once the threads weigh **1 MB**, and never later than **25 days**, so that the retro can still read back the conversations linked to replies (Claude Code deletes them after 30 days by default). The count starts after the last retro of the folder, or of a folder above it (a retro covers the subfolders); before any retro, it starts at the first thread. Change these thresholds in the settings below; `lr retro cadence` tells where things stand.
 
 ### The Jev key (optional)
 
@@ -209,30 +219,38 @@ Each retro is recorded in `.local-review/retros/` at the top of the project (or 
 
 ## Settings
 
-| Setting                          | Default      | Description                                                                                                                                  |
-| -------------------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `localReview.userName`           | _(empty)_    | Name shown on your comments. Empty: `git config user.name`, else your OS user name.                                                          |
-| `localReview.commentShortcut`    | `ctrl+cmd+c` | Shortcut of **Comment on Selection**: `ctrl+cmd+c`, `ctrl+alt+c`, `cmd+alt+m` or `none` (then bind `localReview.commentSelection` yourself). |
-| `localReview.notifyOnAgentReply` | `true`       | Notify when the agent replies. The status bar counter of threads waiting for your reply is always shown.                                     |
-| `localReview.excludeFromGit`     | `true`       | Add `.local-review/` to `.git/info/exclude` on the first comment. Never touches `.gitignore`.                                                |
-| `localReview.pushToAgents`       | `true`       | Send what you publish to the subscribed agent sessions. Off: nothing is sent, and no session warnings are shown.                             |
+| Setting                                  | Default      | Description                                                                                                                                  |
+| ---------------------------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `localReview.userName`                   | _(empty)_    | Name shown on your comments. Empty: `git config user.name`, else your OS user name.                                                          |
+| `localReview.commentShortcut`            | `ctrl+cmd+c` | Shortcut of **Comment on Selection**: `ctrl+cmd+c`, `ctrl+alt+c`, `cmd+alt+m` or `none` (then bind `localReview.commentSelection` yourself). |
+| `localReview.notifyOnAgentReply`         | `true`       | Notify when the agent replies. The status bar counter of threads waiting for your reply is always shown.                                     |
+| `localReview.excludeFromGit`             | `true`       | Add `.local-review/` to `.git/info/exclude` on the first comment. Never touches `.gitignore`.                                                |
+| `localReview.pushToAgents`               | `true`       | Send what you publish to the subscribed agent sessions. Off: nothing is sent, and no session warnings are shown.                             |
+| `localReview.retroReminder.days`         | `7`          | A retro is due this many days after the last one.                                                                                            |
+| `localReview.retroReminder.sizeKB`       | `1000`       | Or sooner, once the review threads since the last retro weigh this many KB (1000 = 1 MB).                                                    |
+| `localReview.retroReminder.maxDays`      | `25`         | And never later than this many days, whatever `days` says.                                                                                   |
+| `localReview.retroReminder.statusBar`    | `always`     | The retro reminder in the status bar: `always`, `whenDue` or `never`.                                                                        |
+| `localReview.retroReminder.agentMessage` | `true`       | When a retro is due, Claude says so once at the start of a session.                                                                          |
+
+The agent's reminder runs outside VS Code: when you change a `retroReminder` setting in your user settings, the extension also writes it to the settings of the machine (`lr config`), which the agent reads. Without VS Code, set them with `lr config set retro-reminder-days 10` (and `retro-reminder-size`, `retro-reminder-max-days`, `retro-reminder on|off`). A value set in VS Code wins over one set with `lr config`.
 
 ## The `lr` command line
 
 Agents read and answer the threads with `lr`, an agent-neutral command line; the Claude Code plugin puts it on Claude's `PATH`. You rarely need it yourself, but it is handy to see what the agent sees:
 
-| Command                                                  | What it does                                                       |
-| -------------------------------------------------------- | ------------------------------------------------------------------ |
-| `lr status`                                              | How many threads wait for the agent, and for you                   |
-| `lr list [--all] [--thread <id>]…`                       | The threads waiting for the agent, with their current code         |
-| `lr show <thread-id>`                                    | One thread in full                                                 |
-| `lr reply <thread-id> --agent <name> --rev <v> --body -` | Reply (body on stdin), optionally `--status addressed\|needs-info` |
-| `lr subscribe [<folder>] [--path]`, `lr unsubscribe`     | Subscribe the session `lr` runs in to a branch or a path, or stop  |
-| `lr subscriptions`, `lr sessions`                        | What this session is subscribed to; the running sessions           |
-| `lr history [--since <date>]`                            | Every thread of the project, whatever its state, in full           |
-| `lr worktree save [<folder>]`                            | Save a git worktree's threads before removing the worktree         |
-| `lr config`, `lr config set <name> on\|off`              | The settings of this machine (`auto-save-worktrees`)               |
-| `lr retro scope`, `lr retro show <id>`, `lr retro list`  | What a retro would cover; a retro and its proposals; past retros   |
+| Command                                                  | What it does                                                         |
+| -------------------------------------------------------- | -------------------------------------------------------------------- |
+| `lr status`                                              | How many threads wait for the agent, and for you                     |
+| `lr list [--all] [--thread <id>]…`                       | The threads waiting for the agent, with their current code           |
+| `lr show <thread-id>`                                    | One thread in full                                                   |
+| `lr reply <thread-id> --agent <name> --rev <v> --body -` | Reply (body on stdin), optionally `--status addressed\|needs-info`   |
+| `lr subscribe [<folder>] [--path]`, `lr unsubscribe`     | Subscribe the session `lr` runs in to a branch or a path, or stop    |
+| `lr subscriptions`, `lr sessions`                        | What this session is subscribed to; the running sessions             |
+| `lr history [--since <date>]`                            | Every thread of the project, whatever its state, in full             |
+| `lr worktree save [<folder>]`                            | Save a git worktree's threads before removing the worktree           |
+| `lr config`, `lr config set <name> <value>`              | The settings of this machine (`auto-save-worktrees`, retro reminder) |
+| `lr retro scope`, `lr retro show <id>`, `lr retro list`  | What a retro would cover; a retro and its proposals; past retros     |
+| `lr retro cadence`                                       | Is a retro due? Days and size of the threads since the last retro    |
 
 Add `--root <folder>` to target a project from elsewhere (`--root /` for files outside the open folders), and `--format json` for tools. `lr --help` has the full reference.
 
@@ -246,7 +264,7 @@ Add `--root <folder>` to target a project from elsewhere (`--root /` for files o
 - **Comments of files outside the open folders**: `~/.local-review/files/`.
 - **Retros** of a project: `.local-review/retros/` at its top (one journal per retro, plus your retro preferences).
 - **Threads saved from git worktrees**: `.local-review/saved/` of the main repository (one folder per worktree store: its journals as they were, and where they come from).
-- **Settings of this machine** (read by the agent hooks, which run outside VS Code): `~/.local-review/config.json`, changed with `lr config`.
+- **Settings of this machine** (read by the agent hooks, which run outside VS Code): `~/.local-review/config.json`, changed with `lr config` (and by the extension for the retro reminder).
 - **Agent sessions**, their subscriptions and message queues: `~/.local-review/sessions/`.
 
 `$LOCAL_REVIEW_HOME` moves `~/.local-review/` elsewhere. Local Review collects no telemetry, and makes no network call, except the optional classification of a retro by Jev when you set up its key.
