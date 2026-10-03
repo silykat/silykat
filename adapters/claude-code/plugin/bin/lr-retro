@@ -1007,6 +1007,7 @@ var RETRO_EVENTS = /* @__PURE__ */ new Set([
   "retro.proposed",
   "retro.decided",
   "retro.applied",
+  "retro.undone",
   "retro.conversation",
   "retro.finished"
 ]);
@@ -1103,6 +1104,10 @@ function foldRetro(events, warnings = [], future = false) {
         break;
       case "retro.applied":
         r.applied[e.proposal] = [.../* @__PURE__ */ new Set([...r.applied[e.proposal] ?? [], ...e.files])];
+        break;
+      case "retro.undone":
+        delete r.decisions[e.proposal];
+        delete r.applied[e.proposal];
         break;
       case "retro.conversation":
         if (!r.conversations[e.thread]?.available)
@@ -1363,6 +1368,80 @@ var DEFAULT_CONFIG = {
 var DEFAULT_CADENCE = thresholdsOf(DEFAULT_CONFIG);
 function thresholdsOf(c) {
   return { days: c.retroReminderDays, bytes: c.retroReminderSizeKB * 1e3, maxDays: c.retroReminderMaxDays };
+}
+
+// src/retroAudit.ts
+var import_node_child_process3 = require("node:child_process");
+var AUDIT_COMMAND = "/doctor prompt-audit";
+var AUDIT_MIN_VERSION = [2, 1, 283];
+var AUDIT_MODEL = "opus";
+var AUDIT_TIMEOUT_MS = 15 * 6e4;
+var runProcess = (command, args, { cwd, env, timeoutMs }) => new Promise((resolve6) => {
+  (0, import_node_child_process3.execFile)(command, args, { cwd, env, timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
+    const e = err;
+    resolve6({
+      stdout,
+      stderr,
+      code: e ? typeof e.code === "number" ? e.code : null : 0,
+      timedOut: Boolean(e?.killed)
+    });
+  });
+});
+function auditArgs(claudeDir) {
+  return [
+    "-p",
+    AUDIT_COMMAND,
+    "--model",
+    AUDIT_MODEL,
+    "--permission-mode",
+    "default",
+    "--disallowedTools",
+    "Bash",
+    "Edit",
+    "Write",
+    "NotebookEdit",
+    "--add-dir",
+    claudeDir,
+    "--output-format",
+    "json"
+  ];
+}
+var parseVersion = (text) => {
+  const m = /(\d+)\.(\d+)\.(\d+)/.exec(text);
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+};
+var atLeast = (v, min) => {
+  for (let i = 0; i < min.length; i++) if (v[i] !== min[i]) return v[i] > min[i];
+  return true;
+};
+async function runAudit(root, claudeDir, env, run = runProcess, timeoutMs = AUDIT_TIMEOUT_MS) {
+  const claude = env.LR_CLAUDE_BIN?.trim() || "claude";
+  const v = await run(claude, ["--version"], { cwd: root, env, timeoutMs: 3e4 });
+  const version = v.code === 0 ? parseVersion(v.stdout) : null;
+  if (!version) return { kind: "skipped", reason: "Claude Code was not found" };
+  if (!atLeast(version, AUDIT_MIN_VERSION))
+    return {
+      kind: "skipped",
+      reason: `${AUDIT_COMMAND} needs Claude Code ${AUDIT_MIN_VERSION.join(".")} or later (here ${version.join(".")})`
+    };
+  const r = await run(claude, auditArgs(claudeDir), { cwd: root, env, timeoutMs });
+  if (r.timedOut) return { kind: "failed", reason: `it took more than ${Math.round(timeoutMs / 6e4)} min` };
+  let out;
+  try {
+    out = JSON.parse(r.stdout);
+  } catch {
+    const why = (r.stderr || r.stdout).trim().split("\n").at(-1) ?? "";
+    return { kind: "failed", reason: `Claude Code ended with code ${r.code ?? "?"}${why ? `: ${why}` : ""}` };
+  }
+  const report = typeof out.result === "string" ? out.result.trim() : "";
+  if (out.is_error === true || !report)
+    return { kind: "failed", reason: report ? report.split("\n")[0] : "the audit gave no report" };
+  return {
+    kind: "done",
+    report,
+    costUsd: typeof out.total_cost_usd === "number" ? out.total_cost_usd : null,
+    durationMs: typeof out.duration_ms === "number" ? out.duration_ms : null
+  };
 }
 
 // src/retroJev.ts
@@ -1800,6 +1879,10 @@ var RETRO_CLI_USAGE = `lr-retro \u2014 the Claude Code part of Local Review's re
                                              of the retro, for its analysis
   lr-retro jev <retro-id> [--root <dir>]     Classify the retro's threads with Jev (needs a key:
                                              lr retro key), and record the labels
+  lr-retro audit <retro-id> [--root <dir>]   Audit the setup with /doctor prompt-audit (a separate,
+                                             read-only Claude Code; several minutes), in a file of
+                                             the retro, for its analysis
+
   lr-retro conversation <retro-id> <thread-id> [--root <dir>]
                                              Read back Claude Code's conversation where the agent
                                              replied in that thread (the steps that led to each
@@ -1814,7 +1897,7 @@ async function runRetroCli(args, io) {
       allowPositionals: true
     });
     const [action, id, threadId] = positionals;
-    if (action !== "setup" && action !== "jev" && action !== "conversation") {
+    if (action !== "setup" && action !== "jev" && action !== "audit" && action !== "conversation") {
       io.out(RETRO_CLI_USAGE);
       return action === void 0 || action === "help" ? 0 : 1;
     }
@@ -1846,6 +1929,35 @@ async function runRetroCli(args, io) {
         `Written: ${file}
 ${files.length} setup files (${files.filter((f) => f.kind === "rules").length} rules files)` + (header2 ? `, ${header2} shown by their header only (over the size budget: read them if needed)` : "") + "."
       );
+      return 0;
+    }
+    if (action === "audit") {
+      const outcome = await runAudit(retro.root, claudeDir, io.env, io.run);
+      if (outcome.kind === "skipped") {
+        io.out(`Audit skipped: ${outcome.reason}.`);
+        return 0;
+      }
+      if (outcome.kind === "failed") {
+        io.err(`lr-retro: the audit failed: ${outcome.reason}.`);
+        return 1;
+      }
+      const file = await writeRetroFile(
+        book,
+        retro.id,
+        "audit.md",
+        [
+          `# Audit of the setup \u2014 ${AUDIT_COMMAND}`,
+          "",
+          `Run for the retro ${retro.id} in ${retro.root}, read-only (no shell, no edit), with access to ${claudeDir}.`,
+          "",
+          outcome.report,
+          ""
+        ].join("\n")
+      );
+      const minutes = outcome.durationMs === null ? "" : ` in ${Math.max(1, Math.round(outcome.durationMs / 6e4))} min`;
+      const cost = outcome.costUsd === null ? "" : ` (about $${outcome.costUsd.toFixed(2)})`;
+      io.out(`Written: ${file}
+The audit of the setup is done${minutes}${cost}.`);
       return 0;
     }
     const key = await readJevKey(io.env);

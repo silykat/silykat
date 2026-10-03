@@ -97,8 +97,17 @@ export interface Proposal {
   convertedFromKeep?: { threads: string[] };
   /** A subject the user excluded in an earlier retro, proposed again for new feedback. */
   reopens?: { retro: string; proposal: string; at: string; newThreads: string[] };
+  /** A finding of the agent's own audit of its setup (stale, contradictory rules…), when it comes from one. */
+  audit?: AuditFinding;
   /** A change adopted at the last retro that did not reduce the feedback on its subject: revised here. */
   revisits?: { retro: string; proposal: string; verdict: Verdict };
+}
+
+/** A finding of an audit of the agent's setup: where, and what is wrong there. */
+export interface AuditFinding {
+  /** The file, with its lines when known: `CLAUDE.md:2-3`. */
+  location: string;
+  finding: string;
 }
 
 /**
@@ -231,6 +240,8 @@ export type RetroEvent = BaseRetroEvent &
       }
     | { type: 'retro.decided'; proposal: string; decision: Decision; target?: Target; note?: string }
     | { type: 'retro.applied'; proposal: string; files: string[] }
+    /** A decision recorded by mistake (e.g. on the wrong proposal): undone, with its files changed. */
+    | { type: 'retro.undone'; proposal: string }
     /**
      * The analysis read back the agent's conversation of a thread (`available`), or found it gone
      * (agents delete their conversations after a while).
@@ -249,6 +260,7 @@ const RETRO_EVENTS: ReadonlySet<string> = new Set<RetroEvent['type']>([
   'retro.proposed',
   'retro.decided',
   'retro.applied',
+  'retro.undone',
   'retro.conversation',
   'retro.finished',
 ]);
@@ -398,6 +410,10 @@ export function foldRetro(events: readonly RetroEvent[], warnings: string[] = []
         break;
       case 'retro.applied':
         r.applied[e.proposal] = [...new Set([...(r.applied[e.proposal] ?? []), ...e.files])];
+        break;
+      case 'retro.undone':
+        delete r.decisions[e.proposal];
+        delete r.applied[e.proposal];
         break;
       case 'retro.conversation':
         // Read once is enough: a later failure to find it again does not undo it.
