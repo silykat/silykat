@@ -14,7 +14,7 @@ The prompt gives you the retro id and the project folder. Pass `--root <project>
 1. `lr retro input <retro-id> --root <project> --for analysis`: it writes a file and prints its path. It holds the user's **retro preferences** (apply them), the **previous retros** (decisions, excluded subjects, subjects to watch), **statistics** computed without a model, and **every thread of the period** with its classification (indicative) and signals.
 2. `lr-retro setup <retro-id> --root <project>`: it writes the **setup** of Claude Code for this project: the rules files (`CLAUDE.md` of the folder, its parents and repositories, `CLAUDE.local.md`, `~/.claude/CLAUDE.md`), skills, commands, sub-agents, rules and hooks of the project and of the user. Files over the size budget only show their header: read them when a proposal concerns them.
 
-Read **both files entirely** (with offset and limit for a long file), every thread included. Finding a problem of setup is **grouping** threads that share a cause: you need all of them at once.
+Read **both files entirely** (with offset and limit for a long file), every thread included. A deleted thread says why: **removed by the user** (the comment was withdrawn: maybe wrong, or no longer relevant) or **its branch was deleted** (the work was merged or dropped: the feedback in it still counts like any other); older ones say "reason unknown". A store marked "saved before its git worktree was removed" holds threads of a worktree that no longer exists: read them like the others. Finding a problem of setup is **grouping** threads that share a cause: you need all of them at once.
 
 ## 2. Find the proposals
 

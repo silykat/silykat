@@ -69,8 +69,12 @@ Whenever a subscription changes, say so in your reply, in one short sentence. Be
 
 ## 5. The history of the comments
 
-When the user asks for the **history** of their review comments (e.g. "show me this week's comments", "what did I comment on lately?"), run `lr history` yourself right away (never ask the user to run it), with `--since <date>` for a period (`2026-10-01`, or `7d` for the last 7 days). It reads the whole project, from the current folder (or `--root <dir>`): its subfolders, every repository in it, and their git worktrees, even those kept outside the folder. It shows **every** thread, whatever its state (open, addressed, resolved, deleted), with its whole conversation, after a summary per state and per comment store. Use `--format json` to process it. Then answer from what it printed: the counts, and the threads that matter for the question. It only reads: never reply in these threads unless the user asks.
+When the user asks for the **history** of their review comments (e.g. "show me this week's comments", "what did I comment on lately?"), run `lr history` yourself right away (never ask the user to run it), with `--since <date>` for a period (`2026-10-01`, or `7d` for the last 7 days). It reads the whole project, from the current folder (or `--root <dir>`): its subfolders, every repository in it, and their git worktrees, even those kept outside the folder. It shows **every** thread, whatever its state (open, addressed, resolved, deleted), with its whole conversation, after a summary per state and per comment store. A deleted thread says why: **removed by the user**, or **its branch was deleted** (the work was done, not a comment withdrawn). Threads of a git worktree removed since are there too, once saved (store "saved from a worktree"). Use `--format json` to process it. Then answer from what it printed: the counts, and the threads that matter for the question. It only reads: never reply in these threads unless the user asks.
 
-## 6. Finish
+## 6. Git worktrees
+
+Removing a git worktree (`git worktree remove`, `rm -r` of it) deletes the user's comments in it. Before you remove one, the plugin's hook saves its threads to the main repository's store and tells you: pass it on to the user in one short sentence. If it says saving is turned off, tell the user that the comments will be lost, and offer `lr worktree save <worktree>` first. When the user asks to keep or save the comments of a worktree, run `lr worktree save <worktree>` yourself.
+
+## 7. Finish
 
 Run `lr status` to check that nothing is left, then give the user a short summary: threads addressed, questions asked, files changed.
