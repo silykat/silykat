@@ -334,12 +334,12 @@ function renderToVerify(changes: readonly AdoptedChange[]): string[] {
   const out = [
     '## Changes adopted at the last retro: did they help?',
     '',
-    'For EACH change below, list in "verify" the threads of this period whose feedback has the same cause (the change did not prevent it), [] when none: { "change": "<ref>", "threads": [...], "note": "what you saw, in a sentence" }. The numbers and the verdict are computed by program: stopped (no thread), decreased (a smaller share of the threads than before) or not decreased. A change that did not reduce the feedback, with 2 threads or more, needs a proposal to revise it, with "revisits": "<ref>" (reword it, move it up, make it a hook, or remove it).',
+    'For EACH change below, list in "verify" the threads of this period whose feedback has the same cause (the change did not prevent it), [] when none: { "change": "<ref>", "threads": [...], "note": "what you saw, in a sentence" }. The numbers and the verdict are computed by program: stopped (no thread), decreased (a smaller share of the threads than before) or not decreased. A change that did not reduce the feedback, with 2 threads or more, needs a proposal to revise it, with "revisits": "<ref>" (reword it, move it up, make it a hook, or remove it); its "target" defaults to the one of the change it revises.',
     '',
   ];
   for (const c of changes) {
     out.push(
-      `- ${changeRef(c)} [${c.column}] ${c.title} (${c.kind}, ${c.decision}${c.files.length ? `, changed: ${c.files.join(', ')}` : ', no file recorded as changed'}): ${c.subject}`,
+      `- ${changeRef(c)} [${c.column}] ${c.title} (${c.kind}, ${c.decision}${c.target ? `, target ${c.target}` : ''}${c.files.length ? `, changed: ${c.files.join(', ')}` : ', no file recorded as changed'}): ${c.subject}`,
       `  before: ${c.before.threads} of the ${c.before.total} threads of that retro` +
         (c.change ? `; change: ${c.change.replace(/\s+/g, ' ').slice(0, 300)}` : '') +
         (c.note ? `; note of the user: ${c.note}` : ''),

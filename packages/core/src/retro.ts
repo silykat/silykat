@@ -119,6 +119,8 @@ export interface AdoptedChange {
   change: string;
   decision: Decision;
   note?: string;
+  /** Where it was made: the target decided, else the one proposed (missing in older records). */
+  target?: Target;
   /** The files changed for it, as recorded. */
   files: string[];
   /** In that retro's period: the threads on its subject, out of all the threads read. */

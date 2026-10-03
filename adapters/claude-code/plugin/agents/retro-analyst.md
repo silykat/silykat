@@ -100,7 +100,7 @@ Write the proposals as JSON, in the developer's language for the texts:
 ```
 
 - `kind`: rule, hook, skill, command, agent, doc, setting or other. `file`: the file of the existing rule, or where the change goes. `rule`: the existing rule word for word (required for keep and remove; `null` for a new one). `change`: the exact text to add or the exact edit (empty for keep). `targetEvidence`: the threads that show where it belongs (e.g. "the whole team does it"), empty when nothing tells. `recommendation`: accepted, modified or excluded, your advice.
-- `verify`: one item per change adopted at the last retro (`change` is its reference, as listed in the input); omit it when the input lists none. `revisits`, on a proposal: the reference of the change it revises.
+- `verify`: one item per change adopted at the last retro (`change` is its reference, as listed in the input); omit it when the input lists none. `revisits`, on a proposal: the reference of the change it revises (its `target` may then be left out: it stays where that change was made).
 - Cite thread ids exactly as written in the input, with a short excerpt that shows the point.
 
 Write this JSON with the Write tool in the file `lr retro input` named (`…/proposals.json`), then check it with the command it printed:

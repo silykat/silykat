@@ -158,6 +158,7 @@ export function adoptedChanges(r: RetroState): AdoptedChange[] {
         change: p.change,
         decision: d.decision,
         ...(d.note ? { note: d.note } : {}),
+        target: d.target ?? p.target,
         files: r.applied[p.id] ?? [],
         before: { threads: p.figures.threads, total: r.threads.length },
         evidence: p.evidence,
@@ -305,6 +306,7 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
 
   const verifications = verify(input.verify, ctx, result);
   const revisable = new Map(verifications.map((v) => [changeRef(v), v]));
+  const revisionsRejected = new Set<string>();
 
   input.proposals.forEach((raw, i) => {
     const index = i + 1;
@@ -319,7 +321,10 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
       .toLowerCase()
       .replace(/^to\s+/, '') as Column;
     if (!COLUMNS.includes(column)) reasons.push(`"column" must be one of ${COLUMNS.join(', ')}`);
-    const target = text(raw.target) as Target;
+    const revisitRef = text(raw.revisits);
+    const revisited = revisitRef ? revisable.get(revisitRef) : undefined;
+    // A change that revises one adopted at the last retro stays where that one was made.
+    const target = (text(raw.target) || revisited?.target || '') as Target;
     if (!TARGETS.includes(target)) reasons.push(`"target" must be one of ${TARGETS.join(', ')}`);
     const kind = (text(raw.kind) || 'rule') as ProposalKind;
     if (!PROPOSAL_KINDS.includes(kind)) reasons.push(`"kind" must be one of ${PROPOSAL_KINDS.join(', ')}`);
@@ -339,14 +344,14 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
     if (!(confidence >= 0 && confidence <= 1)) reasons.push('"confidence" must be a number from 0 to 1');
     const recommendation = (text(raw.recommendation) || 'accepted') as Decision;
     if (!DECISIONS.includes(recommendation)) reasons.push(`"recommendation" must be one of ${DECISIONS.join(', ')}`);
-    const revisitRef = text(raw.revisits);
-    const revisited = revisitRef ? revisable.get(revisitRef) : undefined;
     if (revisitRef && !revisited)
       reasons.push(
         `"revisits" names "${revisitRef}", which is not a change adopted at the last retro (${[...revisable.keys()].join(', ') || 'none'})`,
       );
     if (reasons.length > 0) {
       result.rejected.push({ index, subject, reasons });
+      // Its own rejection says what to fix: no need to ask for a revision again.
+      if (revisited) revisionsRejected.add(revisitRef);
       return;
     }
 
@@ -448,6 +453,7 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
   for (const v of verifications) {
     if (v.verdict !== 'not-decreased' || v.after.threads < 2) continue;
     if (result.proposals.some((p) => p.revisits && changeRef(p.revisits) === changeRef(v))) continue;
+    if (revisionsRejected.has(changeRef(v))) continue;
     result.rejected.push({
       index: 0,
       subject: `check of ${changeRef(v)}`,
