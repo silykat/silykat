@@ -28,7 +28,8 @@ export function userRevision(comments: readonly CommentState[]): string {
 }
 
 export function agentView(thread: ThreadState): AgentThreadView | null {
-  if (thread.deleted) return null;
+  // An archived thread is finished: agents only find it in the history.
+  if (thread.deleted || thread.archived) return null;
   const comments = thread.comments.filter((c) => !c.isDraft);
   if (comments.length === 0) return null; // only drafts: invisible to agents
   const last = comments[comments.length - 1]!;

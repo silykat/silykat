@@ -1,6 +1,14 @@
-import { appendFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { parseJournal, parseReviewJournal, serializeEvents, type ReviewEvent, type ThreadEvent } from './events';
+import {
+  ARCHIVE_VERSION,
+  FIRST_VERSION,
+  parseJournal,
+  parseReviewJournal,
+  serializeEvents,
+  type ReviewEvent,
+  type ThreadEvent,
+} from './events';
 import { foldReview, foldThread } from './fold';
 import { threadHistory, type ThreadHistory } from './history';
 import { newCommentId, newReviewId, newThreadId } from './ids';
@@ -84,14 +92,17 @@ export class Store {
     return THREAD_ID.test(id) ? id : null;
   }
 
-  /** Loads every non-deleted thread and every review. A missing store is simply empty: reading never creates it. */
+  /**
+   * Loads every thread in use (neither deleted nor archived) and every review. A missing store is
+   * simply empty: reading never creates it.
+   */
   async loadAll(): Promise<LoadResult> {
     const { reviews, warnings } = await this.loadReviews();
     const threads: ThreadState[] = [];
     for (const file of await listJournals(this.threadsDir)) {
       const { state, warnings: w } = await this.readJournal(join(this.threadsDir, file), `threads/${file}`, reviews);
       warnings.push(...w);
-      if (state && !state.deleted) threads.push(state);
+      if (state && !state.deleted && !state.archived) threads.push(state);
     }
     return { threads, reviews: [...reviews.values()], warnings };
   }
@@ -176,7 +187,7 @@ export class Store {
     await this.ensureInitialized();
     const reviewId = newReviewId();
     const event: ReviewEvent = {
-      v: SCHEMA_VERSION,
+      v: FIRST_VERSION,
       type: 'review.started',
       at: new Date().toISOString(),
       by: 'user',
@@ -191,7 +202,7 @@ export class Store {
   async setReviewBranch(reviewId: string, branch: BranchRef | null): Promise<void> {
     await this.assertActiveReview(reviewId);
     const event: ReviewEvent = {
-      v: SCHEMA_VERSION,
+      v: FIRST_VERSION,
       type: 'review.branch.changed',
       at: new Date().toISOString(),
       by: 'user',
@@ -205,7 +216,7 @@ export class Store {
     const { threads: before } = await this.loadAll();
     const text = summary?.trim();
     const event: ReviewEvent = {
-      v: SCHEMA_VERSION,
+      v: FIRST_VERSION,
       type: 'review.submitted',
       at: new Date().toISOString(),
       by: 'user',
@@ -225,7 +236,7 @@ export class Store {
   async discardReview(reviewId: string): Promise<ReviewState> {
     await this.assertActiveReview(reviewId);
     const event: ReviewEvent = {
-      v: SCHEMA_VERSION,
+      v: FIRST_VERSION,
       type: 'review.discarded',
       at: new Date().toISOString(),
       by: 'user',
@@ -256,7 +267,7 @@ export class Store {
     const session = c.author === 'agent' ? sessionRefOf(c.session) : undefined;
     const events: ThreadEvent[] = [
       {
-        v: SCHEMA_VERSION,
+        v: FIRST_VERSION,
         type: 'comment.added',
         at,
         ...who,
@@ -266,7 +277,7 @@ export class Store {
         ...(session ? { session } : {}),
       },
     ];
-    if (status) events.push({ v: SCHEMA_VERSION, type: 'status.changed', at, ...who, status });
+    if (status) events.push({ v: FIRST_VERSION, type: 'status.changed', at, ...who, status });
     return this.appendAndReload(threadId, events);
   }
 
@@ -275,7 +286,7 @@ export class Store {
     const who = actor(by, agent);
     await this.writableThread(threadId, by);
     const event: ThreadEvent = {
-      v: SCHEMA_VERSION,
+      v: FIRST_VERSION,
       type: 'status.changed',
       at: new Date().toISOString(),
       ...who,
@@ -289,7 +300,7 @@ export class Store {
     const who = actor(by, agent);
     await this.writableThread(threadId, by);
     const event: ThreadEvent = {
-      v: SCHEMA_VERSION,
+      v: FIRST_VERSION,
       type: 'anchor.updated',
       at: new Date().toISOString(),
       ...who,
@@ -302,7 +313,7 @@ export class Store {
   async setBranch(threadId: string, branch: BranchRef | null): Promise<ThreadState> {
     await this.writableThread(threadId, 'user');
     const event: ThreadEvent = {
-      v: SCHEMA_VERSION,
+      v: FIRST_VERSION,
       type: 'branch.changed',
       at: new Date().toISOString(),
       by: 'user',
@@ -327,11 +338,11 @@ export class Store {
     const comment = current.comments.find((c) => c.id === commentId)!;
     if (comment.body === text) return current;
     const at = new Date().toISOString();
-    const events: ThreadEvent[] = [{ v: SCHEMA_VERSION, type: 'comment.edited', at, ...who, commentId, body: text }];
+    const events: ThreadEvent[] = [{ v: FIRST_VERSION, type: 'comment.edited', at, ...who, commentId, body: text }];
     // The user changed a published request the agent had handled: it is the agent's turn again.
     const handled = current.status === 'addressed' || current.status === 'needs-info';
     if (by === 'user' && !comment.isDraft && handled)
-      events.push({ v: SCHEMA_VERSION, type: 'status.changed', at, ...who, status: 'open' });
+      events.push({ v: FIRST_VERSION, type: 'status.changed', at, ...who, status: 'open' });
     return this.appendAndReload(threadId, events);
   }
 
@@ -344,9 +355,9 @@ export class Store {
     const current = await this.writableThread(threadId, by);
     assertOwnComment(current, commentId, by);
     const at = new Date().toISOString();
-    const events: ThreadEvent[] = [{ v: SCHEMA_VERSION, type: 'comment.deleted', at, ...who, commentId }];
+    const events: ThreadEvent[] = [{ v: FIRST_VERSION, type: 'comment.deleted', at, ...who, commentId }];
     if (current.comments.length === 1)
-      events.push({ v: SCHEMA_VERSION, type: 'thread.deleted', at, ...who, reason: 'user' });
+      events.push({ v: FIRST_VERSION, type: 'thread.deleted', at, ...who, reason: 'user' });
     return this.appendAndReload(threadId, events);
   }
 
@@ -359,7 +370,7 @@ export class Store {
     if (by !== 'user') throw new Error('Only the user can delete a thread');
     await this.writableThread(threadId, by);
     const event: ThreadEvent = {
-      v: SCHEMA_VERSION,
+      v: FIRST_VERSION,
       type: 'thread.deleted',
       at: new Date().toISOString(),
       by,
@@ -368,12 +379,58 @@ export class Store {
     return this.appendAndReload(threadId, [event]);
   }
 
-  /** A thread `by` may write to. Agents never see threads that only hold drafts. */
-  private async writableThread(threadId: string, by: Author): Promise<ThreadState> {
+  /**
+   * Archives a thread (the user only, e.g. through the editor or an agent asked to): it leaves the
+   * editor and what agents see, and stays in the history. Archiving an archived thread does nothing.
+   */
+  async archiveThread(threadId: string): Promise<ThreadState> {
+    const current = await this.writableThread(threadId, 'user', { archived: true });
+    if (current.archived) return current;
+    return this.appendArchiveEvent(threadId, 'thread.archived');
+  }
+
+  /** Brings an archived thread back. Unarchiving a thread that is not archived does nothing. */
+  async unarchiveThread(threadId: string): Promise<ThreadState> {
+    const current = await this.writableThread(threadId, 'user', { archived: true });
+    if (!current.archived) return current;
+    return this.appendArchiveEvent(threadId, 'thread.unarchived');
+  }
+
+  private async appendArchiveEvent(
+    threadId: string,
+    type: 'thread.archived' | 'thread.unarchived',
+  ): Promise<ThreadState> {
+    // These events need the format version that added them: the store says so first.
+    await this.ensureInitialized();
+    return this.appendAndReload(threadId, [{ v: ARCHIVE_VERSION, type, at: new Date().toISOString(), by: 'user' }]);
+  }
+
+  /**
+   * Deletes a thread's journal for good: unlike `deleteThread`, nothing is left, not even in the
+   * history. Returns whether there was one.
+   */
+  async purgeThread(threadId: string): Promise<boolean> {
+    try {
+      await rm(this.threadFile(threadId));
+      return true;
+    } catch (err) {
+      if (isNotFound(err)) return false;
+      throw err;
+    }
+  }
+
+  /**
+   * A thread `by` may write to. Agents never see threads that only hold drafts, nor archived ones;
+   * the user must unarchive a thread before changing it (`archived`: archiving or unarchiving it).
+   */
+  private async writableThread(threadId: string, by: Author, opts: { archived?: boolean } = {}): Promise<ThreadState> {
     const { state } = await this.loadThread(threadId);
-    if (!state || state.deleted || (by === 'agent' && !state.hasPublished)) {
+    if (!state || state.deleted || (by === 'agent' && (!state.hasPublished || state.archived))) {
       throw new Error(`Thread not found: ${threadId}`);
     }
+    if (opts.archived && !state.hasPublished) throw new Error(`Thread not found: ${threadId} (only drafts)`);
+    if (state.archived && !opts.archived && !state.readOnly)
+      throw new Error(`Thread ${threadId} is archived: unarchive it first`);
     if (state.readOnly)
       throw new Error(
         `Thread ${threadId} was written by a newer version of Local Review, so it is read-only: update Local Review to change it`,
@@ -420,9 +477,9 @@ export class Store {
     const threadId = newThreadId();
     const at = new Date().toISOString();
     const events: ThreadEvent[] = [
-      { v: SCHEMA_VERSION, type: 'thread.created', at, ...who, threadId, anchor, ...(branch ? { branch } : {}) },
+      { v: FIRST_VERSION, type: 'thread.created', at, ...who, threadId, anchor, ...(branch ? { branch } : {}) },
       {
-        v: SCHEMA_VERSION,
+        v: FIRST_VERSION,
         type: 'comment.added',
         at,
         ...who,
@@ -439,15 +496,34 @@ export class Store {
     return state;
   }
 
-  /** Creates the store's folders and schema version, if missing. */
+  /**
+   * Creates the store's folders and schema version, if missing, and migrates an older store: the
+   * journals of version 1 are valid in version 2 as they are (version 2 only adds the archive
+   * events), so migrating only records the new version. A newer version is never lowered.
+   */
   async ensureInitialized(): Promise<void> {
     await mkdir(this.threadsDir, { recursive: true });
     await mkdir(this.reviewsDir, { recursive: true });
+    const file = join(this.dir, 'schema-version');
     try {
-      await writeFile(join(this.dir, 'schema-version'), `${SCHEMA_VERSION}\n`, { flag: 'wx' });
+      await writeFile(file, `${SCHEMA_VERSION}\n`, { flag: 'wx' });
+      return;
     } catch (err) {
       if (!isAlreadyExists(err)) throw err;
     }
+    const version = await this.schemaVersion();
+    if (version !== null && version >= SCHEMA_VERSION) return;
+    // Written aside then renamed: a reader never sees a half-written version.
+    const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
+    await writeFile(tmp, `${SCHEMA_VERSION}\n`);
+    await rename(tmp, file);
+  }
+
+  /** The format version recorded by the store; `null` when there is none (or it is unreadable). */
+  async schemaVersion(): Promise<number | null> {
+    const text = await readFile(join(this.dir, 'schema-version'), 'utf8').catch(() => '');
+    const n = Number.parseInt(text.trim(), 10);
+    return Number.isInteger(n) && n > 0 ? n : null;
   }
 }
 

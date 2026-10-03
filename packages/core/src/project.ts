@@ -5,6 +5,7 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { findStoreRoot, isStoreRoot } from './agentView';
 import {
   activeSince,
+  countArchived,
   countDeletions,
   countStates,
   type DeletionCounts,
@@ -172,6 +173,8 @@ export interface StoreHistory extends ProjectStore {
   states: StateCounts;
   /** Deleted threads by reason. */
   deletions: DeletionCounts;
+  /** Archived threads (whatever their state). */
+  archived: number;
   warnings: string[];
 }
 
@@ -184,6 +187,7 @@ export interface ProjectHistory {
   bytes: number;
   states: StateCounts;
   deletions: DeletionCounts;
+  archived: number;
 }
 
 /**
@@ -220,6 +224,7 @@ export async function projectHistory(
         bytes: kept.reduce((n, t) => n + t.bytes, 0),
         states: countStates(kept),
         deletions: countDeletions(kept),
+        archived: countArchived(kept),
         warnings,
       };
     });
@@ -232,5 +237,6 @@ export async function projectHistory(
     bytes: stores.reduce((n, s) => n + s.bytes, 0),
     states: countStates(all),
     deletions: countDeletions(all),
+    archived: countArchived(all),
   };
 }

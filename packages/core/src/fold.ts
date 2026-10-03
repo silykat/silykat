@@ -23,6 +23,8 @@ export function foldThread(events: readonly ThreadEvent[], opts: FoldOptions = {
     comments: [],
     createdAt: first.at,
     deleted: false,
+    archived: false,
+    archivedAt: null,
     readOnly: opts.futureVersion ?? false,
     lastAuthor: null,
     lastAgentName: null,
@@ -77,6 +79,19 @@ export function foldThread(events: readonly ThreadEvent[], opts: FoldOptions = {
         break;
       case 'thread.deleted':
         state.deleted = true;
+        break;
+      // Only the user archives: an event by anyone else is not valid.
+      case 'thread.archived':
+        if (e.by === 'user') {
+          state.archived = true;
+          state.archivedAt = e.at;
+        }
+        break;
+      case 'thread.unarchived':
+        if (e.by === 'user') {
+          state.archived = false;
+          state.archivedAt = null;
+        }
         break;
       case 'thread.created':
         // A second creation event is invalid; ignore it.

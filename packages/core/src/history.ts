@@ -57,6 +57,13 @@ export interface ThreadHistory {
   lastActivityAt: string;
   deletedAt: string | null;
   /**
+   * When the user archived it, if it is archived (archiving is not activity: it changes nothing of
+   * the conversation). An archived thread keeps its state: archived is not a state of its own.
+   */
+  archivedAt: string | null;
+  /** When it was resolved, if its status is `resolved`. */
+  resolvedAt: string | null;
+  /**
    * Why it was deleted: removed by the user, or its branch was deleted. `null` when it is not deleted,
    * or when its journal predates reasons and none can be told.
    */
@@ -94,6 +101,8 @@ export function threadHistory(events: readonly ThreadEvent[], opts: HistoryOptio
   let status: ThreadStatus = 'open';
   let deletedAt: string | null = null;
   let deletedReason: DeleteReason | null = null;
+  let archivedAt: string | null = null;
+  let resolvedAt: string | null = null;
   /** When the user last deleted a comment of the thread: a deletion in the same write removed its last one. */
   let lastCommentDeletedAt: string | null = null;
   const conversation: HistoryEntry[] = [];
@@ -148,6 +157,7 @@ export function threadHistory(events: readonly ThreadEvent[], opts: HistoryOptio
       }
       case 'status.changed':
         status = e.status;
+        resolvedAt = e.status === 'resolved' ? e.at : null;
         conversation.push({ kind: 'status', status: e.status, by: e.by, ...agentOf(e), at: e.at });
         break;
       case 'anchor.updated':
@@ -170,6 +180,12 @@ export function threadHistory(events: readonly ThreadEvent[], opts: HistoryOptio
             ...(deletedReason ? { reason: deletedReason } : {}),
           });
         }
+        break;
+      case 'thread.archived':
+        if (e.by === 'user') archivedAt = e.at;
+        break;
+      case 'thread.unarchived':
+        if (e.by === 'user') archivedAt = null;
         break;
       case 'thread.created':
         break; // a second creation event is invalid
@@ -202,6 +218,8 @@ export function threadHistory(events: readonly ThreadEvent[], opts: HistoryOptio
     createdAt: first.at,
     lastActivityAt: activity.reduce((a, b) => (b > a ? b : a), first.at),
     deletedAt,
+    archivedAt,
+    resolvedAt,
     deletedReason: deletedAt ? deletedReason : null,
     readOnly: opts.futureVersion ?? false,
     conversation,
@@ -225,6 +243,10 @@ export function countStates(threads: readonly ThreadHistory[]): StateCounts {
 
 const knownReason = (r: unknown): DeleteReason | null =>
   DELETE_REASONS.includes(r as DeleteReason) ? (r as DeleteReason) : null;
+
+/** How many threads are archived (whatever their state). */
+export const countArchived = (threads: readonly ThreadHistory[]): number =>
+  threads.filter((t) => t.archivedAt !== null).length;
 
 /** Deleted threads by reason (`unknown`: older journals, which do not tell). */
 export type DeletionCounts = Record<DeleteReason | 'unknown', number>;

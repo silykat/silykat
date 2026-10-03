@@ -211,7 +211,7 @@ describe('Store', () => {
     expect(lines.map((l) => l.type)).toEqual(['thread.created', 'comment.added']);
     expect(lines[0].anchor.range).toEqual({ startLine: 10, endLine: 12 });
     expect(lines[1]).toMatchObject({ by: 'user', body: 'Hello **world**', reviewId: null });
-    expect(await readFile(join(root, '.local-review', 'schema-version'), 'utf8')).toBe('1\n');
+    expect(await readFile(join(root, '.local-review', 'schema-version'), 'utf8')).toBe('2\n');
   });
 
   it('reloads what it wrote', async () => {
