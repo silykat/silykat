@@ -41,7 +41,7 @@ The root is the git top level of an open folder (or the folder itself outside gi
 
 ```text
 .local-review/
-  schema-version            the format version (1)
+  schema-version            the format version (2)
   threads/<thread-id>.jsonl one append-only journal per thread
   reviews/<review-id>.jsonl one append-only journal per review
   retros/<retro-id>.jsonl   one append-only journal per retro (see "Retros")
@@ -50,7 +50,11 @@ The root is the git top level of an open folder (or the folder itself outside gi
   saved/<slot>/             threads saved from a git worktree before its removal (see below)
 ```
 
-A thread journal is a list of events: `thread.created` (with its anchor and branch), `comment.added`, `comment.edited`, `comment.deleted`, `status.changed`, `anchor.updated`, `branch.changed`, `thread.deleted`. The state of a thread is the fold of its events (`core/src/fold.ts`). Appending is atomic enough for several writers (the editor and agents), a line cut by a crash is ignored, and nothing is ever rewritten: deleting a thread is an event too. `thread.deleted` carries an optional `reason`: `user` (the user deleted the thread, or its last comment) or `branch-gone` (the editor deleted it because its git branch was deleted). It is an optional field, so the format version is unchanged; journals written before have none (the history says "reason unknown", except when the last comment was deleted in the same write, which can only be the user). In the same way, an agent's `comment.added` carries an optional `session`: `{ id, message? }`, the agent's conversation it was written in (see "The link to the agent's conversation").
+A thread journal is a list of events: `thread.created` (with its anchor and branch), `comment.added`, `comment.edited`, `comment.deleted`, `status.changed`, `anchor.updated`, `branch.changed`, `thread.deleted`, `thread.archived`, `thread.unarchived`. The state of a thread is the fold of its events (`core/src/fold.ts`). Appending is atomic enough for several writers (the editor and agents), a line cut by a crash is ignored, and nothing is ever rewritten: deleting a thread is an event too. `thread.deleted` carries an optional `reason`: `user` (the user deleted the thread, or its last comment) or `branch-gone` (the editor deleted it because its git branch was deleted). It is an optional field, so the format version is unchanged; journals written before have none (the history says "reason unknown", except when the last comment was deleted in the same write, which can only be the user). In the same way, an agent's `comment.added` carries an optional `session`: `{ id, message? }`, the agent's conversation it was written in (see "The link to the agent's conversation").
+
+**Format versions.** Each event says in `v` which format it needs, and `schema-version` the newest format the store was written with. Version 2 added the two archive events (written by the user only): they carry `v: 2`, while every other event keeps `v: 1`, so that an older version still reads and changes every thread that was never archived. An older version that meets an archived thread skips the events it does not know, shows the thread read-only, and says to update Local Review (the same as for any newer format). Migrating a store from version 1 changes no journal (a version 1 journal is a valid version 2 journal): the first write of this version records `2` in `schema-version` (written aside, then renamed), and a newer number is never lowered.
+
+**Archived threads** (`Store.archiveThread`, `unarchiveThread`) are finished threads kept out of the way: `loadAll` (what the editor shows), `agentView` (what `lr list` and `lr show` give agents) and every write but unarchiving skip them, while the history keeps them, with `archivedAt` (archiving is not activity: a thread's period does not change). `Store.purgeThread` deletes a journal for good, the only removal of a file in the store.
 
 A review journal holds `review.started`, `review.branch.changed`, then `review.submitted` or `review.discarded`. A review is about a branch, or, for files not tracked by git (outside git, or ignored), about a folder: the direct parent of the files (`path`, relative to the root). There is at most one review in progress per branch, and per folder. A draft is a comment whose `reviewId` is a review in progress. Reviews started off any branch by earlier versions have no folder: they cover no file, and can still be submitted or discarded.
 
@@ -63,6 +67,16 @@ A thread's **branch** (`repo`, `branch`) is the branch of its file when it was c
 `lr history` (`projectHistory` in `core/src/project.ts`) reads every store of a **project**: a folder, its subfolders (hidden folders, dependencies, build outputs and the macOS `Library` and `Applications` folders skipped), and the git worktrees of the repositories found there (`git worktree list`), even outside the folder. When the folder itself has no store, the closest one above it counts too, as for the other `lr` commands. Each store is read once (by its real path). There is no index: finding the stores and folding a few hundred threads takes well under a second.
 
 A thread's history (`threadHistory` in `core/src/history.ts`) is a second fold of its journal, next to `foldThread`: it keeps everything published, in order (comments with their edits and deletions, status changes, the thread's deletion), and leaves out the drafts of reviews in progress or discarded, as well as what was deleted or reworded while still a draft of a review submitted later. A thread is active in a period when something was published in it then; moving its code is not activity.
+
+### Archive and clean-up
+
+`core/src/archive.ts` manages the threads of one or more projects (`projectThreads`: the history's threads, each once, with every store holding its journal), for `lr archive`, `lr unarchive`, `lr purge` and the extension's commands alike:
+
+- `resolvedBefore`: the resolved threads, not archived yet, resolved before a date; `archivedThreads`: the archived ones;
+- `purgePlan`: the **finished** threads (resolved, archived or deleted) where nothing was published since a date, and, apart, those as quiet but still in progress (never purged);
+- `archiveThreads` and `unarchiveThreads` write where the thread lives (a copy saved from a worktree keeps the state of when it was saved, unless the thread is left only there); `purgeThreads` deletes every journal of each thread, saved copies included. Review journals are kept: other threads' drafts depend on them.
+
+`lr purge` without `--yes` only says what would go; `--count <n>` makes the deletion refuse if the number changed since it was announced. The extension computes the plan once, shows its number in the confirmation, and deletes exactly those threads. An export is the history in JSON (`historyJson` in `core/src/historyJson.ts`): `lr history --format json --out <file>`, or one history per project of the open folders from the extension.
 
 ### Threads saved from git worktrees
 
@@ -187,5 +201,6 @@ Whether a session was launched with the channel cannot be asked to Claude Code: 
 - `sessions.ts`, `agentReplies.ts`, `review.ts`: the status bar items and their menus.
 - `retroReminder.ts` (texts in `retroStatus.ts`, without `vscode`): the retro reminder in the status bar, measured for each workspace folder at start, every 2 minutes, 10 seconds after comments change and when the window gets the focus back; the folder most due is shown. The `localReview.retroReminder.*` settings set in VS Code win over the machine settings, and the user-level ones are written to `config.json` when they change (and at start when not mirrored yet), for the agent hooks.
 - `roots.ts`: stores of the open folders, plus the machine store as the last resort.
+- `archive.ts`: **Archive Resolved Threads…**, **Show Archived Threads** (pick the ones to unarchive), **Export Threads (JSON)…** and **Delete Old Threads Permanently…**, on the projects of the open folders and the machine store, through `core/src/archive.ts`; **Archive Thread** is in the thread header (`controller.ts`). Their prompts are replaceable for the integration tests. Threads archived, unarchived or deleted outside the editor (by `lr`) come and go through the watcher.
 - Worktrees (`controller.ts`): the first time an open linked git worktree has comments (at load, or on a new comment), a message says that removing it deletes them, with **Save Threads Now**; each worktree is warned once (remembered in the extension's global state). **Save Worktree Threads** saves the open worktree (or one picked among them). A branch deleted while VS Code runs deletes its threads with the reason `branch-gone`.
 - `watcher.ts`: stores are watched for writes by agents, with Node's watcher (VS Code's misses some writes of other processes on Linux). A store that does not exist yet, or was removed, is waited for from its parent folder.
