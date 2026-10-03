@@ -35,6 +35,8 @@ lr retro prefs add --root <dir> --body "Show at most 5 proposals, the most impor
 
 Remove the ones they no longer want with `lr retro prefs remove <id> --root <dir>`. **Apply the preferences from now on**, in this retro too. Keep their answer to question 1 for step 4.
 
+When `lr retro scope` says that this retro **will check the changes adopted** last time, tell the user in one sentence: the analysis will measure whether the feedback on their subject went down, and you will show it next to their answer.
+
 ## 3. The scope: first validation
 
 Announce, in a few lines: the project, the comment stores found, the period, the number of threads, the size and the estimated time. For a **first retro**, `lr retro scope` lists periods to choose from: ask which one (the proposed one recommended). Then ask to confirm: "Start the retro" / "Change the period" / "Cancel". For another period, run `lr retro scope --root <dir> --since <date>` (or `--all`) and announce it again.
@@ -68,13 +70,17 @@ Launch the sub-agent **`local-review:retro-analyst`** with this prompt: `Retro <
 
 ## 7. The proposals
 
-Run `lr retro show <id> --root <dir>`. Give an overview first: how many proposals in **To keep**, **To remove** and **To improve**, and the subjects **to watch** (preferences seen in a single thread: not proposed, kept for the next retros). When it lists **the agent's conversations read back**, say in one sentence which ambiguous threads the analysis explained from your conversation where you replied, and which conversations were no longer available (it did without them).
+Run `lr retro show <id> --root <dir>`.
+
+**First, the check of the last retro's changes** (section "The last retro's changes: did they help?", when there is one): for each change adopted last time, give its numbers (the threads on its subject, out of all the threads, before and since) and the verdict: the feedback **stopped** or **decreased** (the change is kept), or **did not decrease** (the retro proposes to revise it: the proposal marked "Revises"). Show it side by side with what the user felt (their answer to question 1 of step 2): say plainly when the numbers and their feeling disagree.
+
+Then give an overview of the proposals: how many proposals in **To keep**, **To remove** and **To improve**, and the subjects **to watch** (preferences seen in a single thread: not proposed, kept for the next retros). When it lists **the agent's conversations read back**, say in one sentence which ambiguous threads the analysis explained from your conversation where you replied, and which conversations were no longer available (it did without them).
 
 For stale or contradictory rules (the **To remove** column), Claude Code has `/doctor prompt-audit` since version 2.1.283: run `claude --version`, and when it is recent enough, suggest that the user runs `/doctor prompt-audit` after the retro (it audits CLAUDE.md files, skills, agents and commands, and proposes edits without applying them).
 
 ## 8. The discussion: second validation, one proposal at a time
 
-Go through the proposals one by one: To improve, then To remove, then To keep. For each one, show:
+Go through the proposals one by one: those that revise a change of the last retro first, then To improve, To remove and To keep. For each one, show:
 
 - its title and column;
 - its **source**: the threads cited, with their excerpt;
@@ -112,4 +118,4 @@ lr retro applied <id> <proposal> --root <dir> --file <path> [--file <path>…]
 
 ## 10. Finish
 
-Run `lr retro finish <id> --root <dir>` and show the user what it printed: **the list of files changed**, and the subjects to watch. Tell them the next retro will start from this one: it will ask whether these changes helped.
+Run `lr retro finish <id> --root <dir>` and show the user what it printed: **the list of files changed**, and the subjects to watch. Tell them the next retro will start from this one: it will check, with numbers, whether these changes reduced the feedback, and ask how they felt about them. Local Review reminds them when it is due (VS Code's status bar, and you at the start of a session).

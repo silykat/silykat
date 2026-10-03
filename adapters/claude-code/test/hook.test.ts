@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { SessionRegistry, topicLabel } from '@local-review/core';
+import { DEFAULT_CADENCE, SessionRegistry, topicLabel, type RetroCadence } from '@local-review/core';
 import { LAUNCH_WITH_CHANNEL } from '../src/channelFlag';
 import { findClaudePid, handleHook, runsClaude, type HookDeps } from '../src/hook';
 
@@ -137,6 +137,64 @@ describe('Claude Code hooks', () => {
     await handleHook({ hook_event_name: 'Stop', session_id: 's1' }, deps);
     await handleHook({ hook_event_name: 'SessionStart' }, deps);
     expect(await registry.list()).toEqual([]);
+  });
+});
+
+describe('the retro reminder at the start of a session', () => {
+  const due: RetroCadence = {
+    root: '/work',
+    lastRetro: { id: 'rt_1', root: '/work', until: '2026-09-18T10:00:00.000Z' },
+    since: '2026-09-18T10:00:00.000Z',
+    days: 8,
+    threads: 45,
+    bytes: 1_200_000,
+    thresholds: DEFAULT_CADENCE,
+    due: true,
+    reasons: ['days', 'size'],
+  };
+  const startAs = (source: string | undefined, cwd = '/work') =>
+    handleHook({ hook_event_name: 'SessionStart', session_id: 's1', cwd, ...(source ? { source } : {}) }, deps);
+
+  it('asks Claude to tell the user once, in a new conversation', async () => {
+    const asked: string[] = [];
+    deps.retroCadence = async (cwd) => (asked.push(cwd), due);
+    const message = await startAs('startup');
+    expect(message).toBe(
+      'Local Review: a retro is due for this project (/work): 8 days and 1.2 MB of review threads (45) since the last retro (2026-09-18)' +
+        ' (8 days since the last retro (reminder at 7); 1.2 MB of threads to look back at (reminder at 1.0 MB)).' +
+        ' In your first reply of this session, tell the user so in one short sentence and suggest `/local-review:retro`' +
+        ' (a retro looks back at their review feedback, to improve your setup with them).' +
+        ' Say it once only, and do not start the retro unless they ask.',
+    );
+    expect(await startAs(undefined)).toContain('a retro is due');
+    expect(await startAs('clear')).toContain('a retro is due');
+    expect(asked).toEqual(['/work', '/work', '/work']);
+    // A resumed or compacted conversation already had it.
+    expect(await startAs('resume')).toBeUndefined();
+    expect(await startAs('compact')).toBeUndefined();
+    expect(asked).toHaveLength(3);
+  });
+
+  it('says it after the subscription of a worktree session', async () => {
+    deps.retroCadence = async () => due;
+    const message = await startAs('startup', '/work/wt-feat');
+    expect(message).toMatch(/now subscribed to app · feat .*\n\nLocal Review: a retro is due/s);
+  });
+
+  it('says nothing when no retro is due, when it fails, or when it takes too long', async () => {
+    deps.retroCadence = async () => ({ ...due, due: false, reasons: [] });
+    expect(await startAs('startup')).toBeUndefined();
+    deps.retroCadence = async () => null; // reminder off
+    expect(await startAs('startup')).toBeUndefined();
+    deps.retroCadence = async () => {
+      throw new Error('unreadable');
+    };
+    expect(await startAs('startup')).toBeUndefined();
+    deps.reminderTimeoutMs = 20;
+    deps.retroCadence = () => new Promise((done) => setTimeout(() => done(due), 1000));
+    const t0 = Date.now();
+    expect(await startAs('startup')).toBeUndefined();
+    expect(Date.now() - t0).toBeLessThan(500);
   });
 });
 

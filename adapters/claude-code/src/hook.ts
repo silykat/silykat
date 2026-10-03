@@ -2,9 +2,12 @@ import { execFile } from 'node:child_process';
 import { realpath } from 'node:fs/promises';
 import { basename, isAbsolute, resolve } from 'node:path';
 import {
+  cadenceSummary,
+  dueReasons,
   expandHome,
   topicKey,
   topicLabel,
+  type RetroCadence,
   type SessionRegistry,
   type Topic,
   type WorktreeInfo,
@@ -19,6 +22,8 @@ import { hasChannel, LAUNCH_WITH_CHANNEL } from './channelFlag';
 export interface HookInput {
   hook_event_name?: string;
   session_id?: string;
+  /** SessionStart: `startup`, `resume`, `clear` or `compact`. */
+  source?: string;
   cwd?: string;
   tool_name?: string;
   tool_use_id?: string;
@@ -52,6 +57,12 @@ export interface HookDeps {
   filesChangedSince(dir: string, sinceMs: number): Promise<string[]>;
   now(): Date;
   worktrees?: WorktreeDeps;
+  /**
+   * Whether a retro of the project is due, `null` when it is not, or when the reminder is off (a
+   * machine setting). Given up after `reminderTimeoutMs`: a session never waits for it.
+   */
+  retroCadence?(cwd: string): Promise<RetroCadence | null>;
+  reminderTimeoutMs?: number;
   /** The user's home folder, for `cd ~` in a command. */
   home?: string;
 }
@@ -82,13 +93,20 @@ export async function handleHook(input: HookInput, deps: HookDeps): Promise<stri
         push,
         pushCommand: push === true ? null : LAUNCH_WITH_CHANNEL,
       });
+      const messages: string[] = [];
       // Started in a git worktree: the session works on its branch.
       const wt = await deps.gitWorktreeOf(cwd);
-      if (!wt) return undefined;
-      const topic: Topic = { kind: 'branch', ...wt };
-      return (await deps.registry.subscribe(id, topic, 'launch'))
-        ? subscribed(topic, 'you were started in its worktree')
-        : undefined;
+      if (wt) {
+        const topic: Topic = { kind: 'branch', ...wt };
+        if (await deps.registry.subscribe(id, topic, 'launch'))
+          messages.push(subscribed(topic, 'you were started in its worktree'));
+      }
+      // A new conversation (not a resumed or compacted one): remind of a retro when one is due.
+      if (input.source !== 'resume' && input.source !== 'compact') {
+        const reminder = await retroReminder(cwd, deps);
+        if (reminder) messages.push(reminder);
+      }
+      return messages.length ? messages.join('\n\n') : undefined;
     }
     case 'SessionEnd':
       await deps.registry.unregister(id);
@@ -128,6 +146,25 @@ export async function handleHook(input: HookInput, deps: HookDeps): Promise<stri
     }
   }
   return undefined;
+}
+
+/** The reminder of a due retro, for Claude to pass on once; nothing when none is due or it takes too long. */
+async function retroReminder(cwd: string, deps: HookDeps): Promise<string | undefined> {
+  if (!deps.retroCadence) return undefined;
+  let timer: NodeJS.Timeout | undefined;
+  const late = new Promise<null>((done) => {
+    timer = setTimeout(() => done(null), deps.reminderTimeoutMs ?? 3000);
+  });
+  const cadence = await Promise.race([deps.retroCadence(cwd).catch(() => null), late]);
+  clearTimeout(timer);
+  if (!cadence?.due) return undefined;
+  return (
+    `Local Review: a retro is due for this project (${cadence.root}): ${cadenceSummary(cadence)}` +
+    ` (${dueReasons(cadence).join('; ')}).` +
+    ' In your first reply of this session, tell the user so in one short sentence and suggest `/local-review:retro`' +
+    ' (a retro looks back at their review feedback, to improve your setup with them).' +
+    ' Say it once only, and do not start the retro unless they ask.'
+  );
 }
 
 /**
