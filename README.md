@@ -39,6 +39,7 @@ Local Review is agent-agnostic by design; **Claude Code** is the first supported
 - **Your agent does the work**: it receives what you publish, changes the code, replies in each thread, and tells you what it did or what it needs.
 - **The right agent gets it**: with several agent sessions in parallel (one per git worktree, a reviewer next to a developer…), each comment goes to the sessions working on its branch.
 - **Safe while the agent works**: edit or delete a comment at any time; the agent never answers an outdated version.
+- **Your whole history**: read back every thread of a project, resolved and deleted ones included, across its repositories and worktrees (`lr history`).
 - **100% local**: no network calls, no telemetry, plain files you can read.
 
 ## Requirements
@@ -195,8 +196,13 @@ Agents read and answer the threads with `lr`, an agent-neutral command line; the
 | `lr reply <thread-id> --agent <name> --rev <v> --body -` | Reply (body on stdin), optionally `--status addressed\|needs-info` |
 | `lr subscribe [<folder>] [--path]`, `lr unsubscribe`     | Subscribe the session `lr` runs in to a branch or a path, or stop  |
 | `lr subscriptions`, `lr sessions`                        | What this session is subscribed to; the running sessions           |
+| `lr history [--since <date>]`                            | Every thread of the project, whatever its state, in full           |
 
 Add `--root <folder>` to target a project from elsewhere (`--root /` for files outside the open folders), and `--format json` for tools. `lr --help` has the full reference.
+
+### The history of your comments
+
+`lr history` reads back **every thread of a project**, whatever its state: open, addressed, resolved or deleted, each with its whole conversation (comments, status changes, dates, comments deleted since), its branch, its file and the commented code. The project is the current folder (or `--root <folder>`), its subfolders, and the git worktrees of the repositories it contains, even when they are kept next to it: run it from the parent folder of several repositories to get them all. `--since 2026-10-01` (or `--since 7d`) keeps the threads active since that date. It starts with a summary: threads per state and per comment store, and the size of the data. `--format json` gives the same to tools. Drafts are never shown: neither those of a review you have not submitted, nor those you deleted before submitting. Ask your agent, e.g. "show me this week's review comments".
 
 ## Where your data lives
 

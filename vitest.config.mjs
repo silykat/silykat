@@ -21,7 +21,7 @@ export default defineConfig({
       // branches. Raise them when the coverage goes up, never lower them. The
       // extension is mostly covered by its integration tests (`npm run coverage:integration`).
       thresholds: {
-        'packages/core/src/**': { statements: 93, branches: 87, functions: 91, lines: 95 },
+        'packages/core/src/**': { statements: 94, branches: 89, functions: 93, lines: 96 },
         'packages/cli/src/**': { statements: 97, branches: 86, functions: 98, lines: 99 },
         'adapters/claude-code/src/**': { statements: 95, branches: 82, functions: 97, lines: 99 },
         'packages/vscode-extension/src/**': { statements: 4, branches: 6, functions: 4, lines: 4 },

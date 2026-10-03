@@ -54,7 +54,7 @@ const LANGUAGES: Record<string, string> = {
   '.swift': 'swift',
 };
 
-function fence(code: string, path: string, startLine: number | null): string {
+export function fence(code: string, path: string, startLine: number | null): string {
   const numbered =
     startLine === null
       ? code
