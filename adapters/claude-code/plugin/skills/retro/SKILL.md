@@ -68,7 +68,7 @@ Launch the sub-agent **`local-review:retro-analyst`** with this prompt: `Retro <
 
 ## 7. The proposals
 
-Run `lr retro show <id> --root <dir>`. Give an overview first: how many proposals in **To keep**, **To remove** and **To improve**, and the subjects **to watch** (preferences seen in a single thread: not proposed, kept for the next retros).
+Run `lr retro show <id> --root <dir>`. Give an overview first: how many proposals in **To keep**, **To remove** and **To improve**, and the subjects **to watch** (preferences seen in a single thread: not proposed, kept for the next retros). When it lists **the agent's conversations read back**, say in one sentence which ambiguous threads the analysis explained from your conversation where you replied, and which conversations were no longer available (it did without them).
 
 For stale or contradictory rules (the **To remove** column), Claude Code has `/doctor prompt-audit` since version 2.1.283: run `claude --version`, and when it is recent enough, suggest that the user runs `/doctor prompt-audit` after the retro (it audits CLAUDE.md files, skills, agents and commands, and proposes edits without applying them).
 

@@ -3,13 +3,19 @@
 
 // src/retroCli.ts
 var import_node_os3 = require("node:os");
-var import_node_path11 = require("node:path");
+var import_node_path12 = require("node:path");
 var import_node_util = require("node:util");
 
 // ../../packages/core/src/types.ts
 var SCHEMA_VERSION = 1;
 var STORE_DIR = ".local-review";
 var DELETE_REASONS = ["user", "branch-gone"];
+function sessionRefOf(raw) {
+  if (typeof raw !== "object" || raw === null) return void 0;
+  const { id, message } = raw;
+  if (typeof id !== "string" || id.trim() === "") return void 0;
+  return typeof message === "string" && message.trim() !== "" ? { id, message } : { id };
+}
 var branchKey = (b) => b ? `${b.repo}#${b.branch}` : "";
 var reviewScopeKey = (s) => s.branch ? branchKey(s.branch) : s.path ? `path:${s.path}` : "";
 
@@ -236,6 +242,7 @@ function threadHistory(events, opts = {}) {
       case "comment.added": {
         const at = published(e.reviewId, e.at);
         if (at === null) break;
+        const session = e.by === "agent" ? sessionRefOf(e.session) : void 0;
         const c = {
           kind: "comment",
           id: e.commentId,
@@ -243,7 +250,8 @@ function threadHistory(events, opts = {}) {
           ...agentOf(e),
           body: e.body,
           at: e.at,
-          ...at !== e.at ? { publishedAt: at } : {}
+          ...at !== e.at ? { publishedAt: at } : {},
+          ...session ? { session } : {}
         };
         comments.set(c.id, c);
         publishedAt.set(c.id, at);
@@ -527,8 +535,18 @@ var Store = class {
     const reopens = c.author === "user" && c.reviewId === null && current.status !== "open";
     const status = opts.status ?? (reopens ? "open" : void 0);
     const at = (/* @__PURE__ */ new Date()).toISOString();
+    const session = c.author === "agent" ? sessionRefOf(c.session) : void 0;
     const events = [
-      { v: SCHEMA_VERSION, type: "comment.added", at, ...who2, commentId: newCommentId(), body, reviewId: c.reviewId }
+      {
+        v: SCHEMA_VERSION,
+        type: "comment.added",
+        at,
+        ...who2,
+        commentId: newCommentId(),
+        body,
+        reviewId: c.reviewId,
+        ...session ? { session } : {}
+      }
     ];
     if (status) events.push({ v: SCHEMA_VERSION, type: "status.changed", at, ...who2, status });
     return this.appendAndReload(threadId, events);
@@ -767,6 +785,7 @@ async function worktreeTopOf(dir) {
 }
 
 // ../../packages/core/src/sessions.ts
+var CALL_MAX_AGE_MS = 15 * 6e4;
 var LOOSE_ROOT = "/";
 function looseStore(env = process.env) {
   return new Store(LOOSE_ROOT, (0, import_node_path3.join)(localReviewHome(env), "files"));
@@ -988,6 +1007,7 @@ var RETRO_EVENTS = /* @__PURE__ */ new Set([
   "retro.proposed",
   "retro.decided",
   "retro.applied",
+  "retro.conversation",
   "retro.finished"
 ]);
 var PREFERENCE_EVENTS = /* @__PURE__ */ new Set([
@@ -1048,6 +1068,7 @@ function foldRetro(events, warnings = [], future = false) {
     dropped: [],
     decisions: {},
     applied: {},
+    conversations: {},
     finishedAt: null,
     readOnly: future,
     warnings
@@ -1080,6 +1101,10 @@ function foldRetro(events, warnings = [], future = false) {
         break;
       case "retro.applied":
         r.applied[e.proposal] = [.../* @__PURE__ */ new Set([...r.applied[e.proposal] ?? [], ...e.files])];
+        break;
+      case "retro.conversation":
+        if (!r.conversations[e.thread]?.available)
+          r.conversations[e.thread] = { sessions: e.sessions, available: e.available, at: e.at };
         break;
       case "retro.finished":
         r.finishedAt ??= e.at;
@@ -1396,20 +1421,232 @@ async function classifyWithJev(threads, rules, deps) {
   return result;
 }
 
-// src/retroSetup.ts
+// src/retroConversation.ts
 var import_promises9 = require("node:fs/promises");
 var import_node_path10 = require("node:path");
+function linkedReplies(t) {
+  return t.conversation.flatMap(
+    (e) => e.kind === "comment" && e.author === "agent" && e.session ? [{ session: e.session.id, ...e.session.message ? { message: e.session.message } : {}, at: e.at }] : []
+  );
+}
+var SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/;
+async function transcriptsOf(claudeDir, session) {
+  if (!SAFE_ID.test(session)) return [];
+  const projects = (0, import_node_path10.join)(claudeDir, "projects");
+  let folders;
+  try {
+    folders = await (0, import_promises9.readdir)(projects);
+  } catch {
+    return [];
+  }
+  const found2 = [];
+  for (const folder of folders.sort()) {
+    const main = (0, import_node_path10.join)(projects, folder, `${session}.jsonl`);
+    if (await readable(main)) found2.push(main);
+    try {
+      const sub = (0, import_node_path10.join)(projects, folder, session, "subagents");
+      for (const f of (await (0, import_promises9.readdir)(sub)).sort()) if (f.endsWith(".jsonl")) found2.push((0, import_node_path10.join)(sub, f));
+    } catch {
+    }
+  }
+  return found2;
+}
+var readable = (file) => (0, import_promises9.stat)(file).then(
+  (s) => s.isFile(),
+  () => false
+);
+function parseTranscript(text) {
+  const entries = [];
+  for (const line of text.split("\n")) {
+    if (line.trim() === "") continue;
+    try {
+      const raw = JSON.parse(line);
+      if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) entries.push(raw);
+    } catch {
+    }
+  }
+  return entries;
+}
+var blocks = (e) => Array.isArray(e.message?.content) ? e.message.content.filter((b) => typeof b === "object" && b !== null) : [];
+var toolUses = (e) => e.type === "assistant" ? blocks(e).filter((b) => b.type === "tool_use") : [];
+function isPrompt(e) {
+  if (e.type !== "user" || e.isMeta) return false;
+  const c = e.message?.content;
+  if (typeof c === "string") return true;
+  const bs = blocks(e);
+  return bs.some((b) => b.type === "text") && !bs.some((b) => b.type === "tool_result");
+}
+var LATE_MS = 6e4;
+function findReply(entries, reply, threadId) {
+  if (reply.message) {
+    const i = entries.findIndex((e) => toolUses(e).some((b) => b.id === reply.message));
+    if (i >= 0) return i;
+  }
+  const until = Date.parse(reply.at) + LATE_MS;
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const e = entries[i];
+    if (Date.parse(e.timestamp ?? "") > until) continue;
+    const named = toolUses(e).some((b) => {
+      const command = b.input?.command;
+      return typeof command === "string" && /\blr\b/.test(command) && command.includes(threadId);
+    });
+    if (named) return i;
+  }
+  return -1;
+}
+var clip = (text, max) => {
+  const t = text.trim();
+  return t.length <= max ? t : `${t.slice(0, max)}\u2026 (${t.length - max} more characters)`;
+};
+var oneLine = (text, max) => clip(text.replace(/\s+/g, " "), max);
+function promptText(e) {
+  const c = e.message?.content;
+  if (typeof c === "string") return c;
+  return blocks(e).filter((b) => b.type === "text").map((b) => b.text ?? "").join("\n");
+}
+function resultText(b) {
+  if (typeof b.content === "string") return b.content;
+  if (Array.isArray(b.content))
+    return b.content.filter((x) => x?.type === "text").map((x) => x.text ?? "").join("\n");
+  return "";
+}
+function toolLine(b) {
+  const input = b.input ?? {};
+  const pick = (k) => typeof input[k] === "string" ? input[k] : void 0;
+  const what = pick("command") ?? pick("file_path") ?? pick("notebook_path") ?? (pick("pattern") ? `${pick("pattern")}${pick("path") ? ` in ${pick("path")}` : ""}` : void 0) ?? pick("description") ?? pick("url") ?? JSON.stringify(input);
+  return `${b.name ?? "tool"}: ${oneLine(what, 400)}`;
+}
+function renderEntry(e, mark) {
+  const at = e.timestamp ? e.timestamp.slice(11, 19) : "";
+  if (isPrompt(e)) return [`- **Prompt** (${at}): ${clip(promptText(e), 2e3)}`];
+  if (e.type === "assistant") {
+    return blocks(e).flatMap((b) => {
+      if (b.type === "text" && b.text?.trim()) return [`- **Claude** (${at}): ${clip(b.text, 1500)}`];
+      if (b.type === "tool_use")
+        return [`- ${mark && b.id === mark ? "**This call wrote the reply** \u2192 " : "\u2192 "}${toolLine(b)}`];
+      return [];
+    });
+  }
+  if (e.type === "user")
+    return blocks(e).filter((b) => b.type === "tool_result").map((b) => `  - ${b.is_error ? "error" : "result"}: ${oneLine(resultText(b), 300) || "(empty)"}`);
+  return [];
+}
+function turnUsage(entries) {
+  const calls = /* @__PURE__ */ new Map();
+  for (const e of entries)
+    if (e.type === "assistant" && e.message?.usage) calls.set(e.message.id ?? String(calls.size), e.message.usage);
+  if (calls.size === 0) return null;
+  let input = 0;
+  let cached = 0;
+  let output = 0;
+  for (const u of calls.values()) {
+    input += (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0);
+    cached += u.cache_read_input_tokens ?? 0;
+    output += u.output_tokens ?? 0;
+  }
+  return `${calls.size} model call(s), ${input} tokens in (${cached} read from the cache), ${output} out`;
+}
+var EXCERPT_BUDGET = 12e3;
+function excerpt(entries, at, budget = EXCERPT_BUDGET) {
+  let start = at;
+  while (start > 0 && !isPrompt(entries[start])) start--;
+  let end = at + 1;
+  let texts = 0;
+  while (end < entries.length && !isPrompt(entries[end]) && texts < 2 && end - at <= 12) {
+    if (blocks(entries[end]).some((b) => b.type === "text" && entries[end].type === "assistant")) texts++;
+    end++;
+  }
+  const mark = toolUses(entries[at]).find(() => true)?.id ?? null;
+  const prompt = isPrompt(entries[start]) ? renderEntry(entries[start], null) : [];
+  const steps = entries.slice(isPrompt(entries[start]) ? start + 1 : start, end).map((e) => renderEntry(e, mark)).filter((s) => s.length > 0);
+  let size = prompt.join("\n").length;
+  let first = steps.length;
+  while (first > 0 && size + steps[first - 1].join("\n").length <= budget) size += steps[--first].join("\n").length;
+  const lines = [...prompt];
+  if (first > 0) lines.push(`- (\u2026 ${first} earlier step(s) of this turn left out)`);
+  lines.push(...steps.slice(first).flat());
+  const skill = entries[at].attributionSkill;
+  const usage = turnUsage(entries.slice(start, end));
+  if (skill) lines.push(`- Skill in use: ${skill}`);
+  if (usage) lines.push(`- This turn up to there: ${usage}`);
+  return lines.join("\n");
+}
+async function threadConversations(thread, claudeDir, read = (f) => (0, import_promises9.readFile)(f, "utf8")) {
+  const replies = linkedReplies(thread);
+  const sessions = [...new Set(replies.map((r) => r.session))];
+  const head = `# The agent's conversation for thread ${thread.id}`;
+  if (replies.length === 0)
+    return {
+      text: `${head}
+
+No conversation is linked to this thread: its replies were written before Local Review recorded the agent's session, or by an agent that does not give it. Analyse it from the thread alone.`,
+      sessions,
+      available: false,
+      linked: 0
+    };
+  const parsed = /* @__PURE__ */ new Map();
+  const parts = [];
+  let found2 = 0;
+  for (const reply of replies) {
+    const title = `## Reply of ${reply.at} \u2014 session ${reply.session}`;
+    const files = await transcriptsOf(claudeDir, reply.session);
+    if (files.length === 0) {
+      parts.push(
+        `${title}
+
+No longer available: Claude Code deletes its conversations after 30 days by default (the cleanupPeriodDays setting), and keeps them only on the machine where they ran. Analyse this reply from the thread alone.`
+      );
+      continue;
+    }
+    found2++;
+    let shown = false;
+    for (const file of files) {
+      if (!parsed.has(file)) parsed.set(file, parseTranscript(await read(file).catch(() => "")));
+      const entries = parsed.get(file);
+      const at = findReply(entries, reply, thread.id);
+      if (at < 0) continue;
+      parts.push(`${title}
+
+Transcript: ${file}
+
+${excerpt(entries, at)}`);
+      shown = true;
+      break;
+    }
+    if (!shown)
+      parts.push(
+        `${title}
+
+The conversation exists (${files[0]}), but this reply was not found in it: read it there if needed.`
+      );
+  }
+  const n = replies.length;
+  return {
+    text: [
+      head,
+      `${n} agent repl${n === 1 ? "y" : "ies"} linked to a conversation, ${found2} still available.`,
+      ...parts
+    ].join("\n\n"),
+    sessions,
+    available: found2 > 0,
+    linked: n
+  };
+}
+
+// src/retroSetup.ts
+var import_promises10 = require("node:fs/promises");
+var import_node_path11 = require("node:path");
 var FILE_CAP = 24e3;
 var SETUP_BUDGET = 1e5;
 var orNull = (p) => p.catch(() => null);
-var exists = async (p) => await orNull((0, import_promises9.stat)(p)) !== null;
+var exists = async (p) => await orNull((0, import_promises10.stat)(p)) !== null;
 async function markdown(dir, depth = 3) {
   if (depth < 0) return [];
-  const names = await (0, import_promises9.readdir)(dir).catch(() => []);
+  const names = await (0, import_promises10.readdir)(dir).catch(() => []);
   const out = [];
   for (const name of names.sort()) {
-    const p = (0, import_node_path10.join)(dir, name);
-    const st = await orNull((0, import_promises9.stat)(p));
+    const p = (0, import_node_path11.join)(dir, name);
+    const st = await orNull((0, import_promises10.stat)(p));
     if (!st) continue;
     if (st.isDirectory()) out.push(...await markdown(p, depth - 1));
     else if (name.endsWith(".md")) out.push(p);
@@ -1417,18 +1654,18 @@ async function markdown(dir, depth = 3) {
   return out;
 }
 var isInside = (path, dir) => {
-  const rel = (0, import_node_path10.relative)(dir, path);
-  return rel !== "" && !rel.startsWith("..") && !(0, import_node_path10.isAbsolute)(rel);
+  const rel = (0, import_node_path11.relative)(dir, path);
+  return rel !== "" && !rel.startsWith("..") && !(0, import_node_path11.isAbsolute)(rel);
 };
 function projectDirs(root, repos, home) {
   const parents = [];
-  let dir = (0, import_node_path10.dirname)((0, import_node_path10.resolve)(root));
-  const top = (0, import_node_path10.resolve)(home);
-  while (dir !== (0, import_node_path10.dirname)(dir) && isInside(dir, top)) {
+  let dir = (0, import_node_path11.dirname)((0, import_node_path11.resolve)(root));
+  const top = (0, import_node_path11.resolve)(home);
+  while (dir !== (0, import_node_path11.dirname)(dir) && isInside(dir, top)) {
     parents.unshift(dir);
-    dir = (0, import_node_path10.dirname)(dir);
+    dir = (0, import_node_path11.dirname)(dir);
   }
-  return [.../* @__PURE__ */ new Set([...parents, (0, import_node_path10.resolve)(root), ...repos.map((r) => (0, import_node_path10.resolve)(r))])];
+  return [.../* @__PURE__ */ new Set([...parents, (0, import_node_path11.resolve)(root), ...repos.map((r) => (0, import_node_path11.resolve)(r))])];
 }
 async function found(root, repos, home, claudeDir) {
   const files = [];
@@ -1438,20 +1675,20 @@ async function found(root, repos, home, claudeDir) {
   const dirs = projectDirs(root, repos, home);
   for (const d of dirs)
     for (const name of ["CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md"])
-      await add((0, import_node_path10.join)(d, name), "rules", "project");
-  await add((0, import_node_path10.join)(claudeDir, "CLAUDE.md"), "rules", "user");
+      await add((0, import_node_path11.join)(d, name), "rules", "project");
+  await add((0, import_node_path11.join)(claudeDir, "CLAUDE.md"), "rules", "user");
   const setupOf = async (claude, agents, scope) => {
-    for (const f of await markdown((0, import_node_path10.join)(claude, "rules"))) await add(f, "rules", scope);
-    for (const f of await markdown((0, import_node_path10.join)(claude, "skills"), 2))
-      if ((0, import_node_path10.basename)(f) === "SKILL.md") await add(f, "skill", scope);
-    for (const f of await markdown((0, import_node_path10.join)(claude, "commands"))) await add(f, "command", scope);
-    for (const f of await markdown((0, import_node_path10.join)(claude, "agents"))) await add(f, "agent", scope);
-    for (const name of ["settings.json", "settings.local.json"]) await add((0, import_node_path10.join)(claude, name), "hooks", scope);
+    for (const f of await markdown((0, import_node_path11.join)(claude, "rules"))) await add(f, "rules", scope);
+    for (const f of await markdown((0, import_node_path11.join)(claude, "skills"), 2))
+      if ((0, import_node_path11.basename)(f) === "SKILL.md") await add(f, "skill", scope);
+    for (const f of await markdown((0, import_node_path11.join)(claude, "commands"))) await add(f, "command", scope);
+    for (const f of await markdown((0, import_node_path11.join)(claude, "agents"))) await add(f, "agent", scope);
+    for (const name of ["settings.json", "settings.local.json"]) await add((0, import_node_path11.join)(claude, name), "hooks", scope);
     for (const f of await markdown(agents)) await add(f, "other", scope);
   };
-  for (const d of [(0, import_node_path10.resolve)(root), ...repos.map((r) => (0, import_node_path10.resolve)(r))])
-    await setupOf((0, import_node_path10.join)(d, ".claude"), (0, import_node_path10.join)(d, ".agents"), "project");
-  await setupOf(claudeDir, (0, import_node_path10.join)(home, ".agents"), "user");
+  for (const d of [(0, import_node_path11.resolve)(root), ...repos.map((r) => (0, import_node_path11.resolve)(r))])
+    await setupOf((0, import_node_path11.join)(d, ".claude"), (0, import_node_path11.join)(d, ".agents"), "project");
+  await setupOf(claudeDir, (0, import_node_path11.join)(home, ".agents"), "user");
   return files;
 }
 function header(text) {
@@ -1469,13 +1706,13 @@ function hooksOf(text) {
     return null;
   }
 }
-async function collectSetup(root, repos, home, claudeDir = (0, import_node_path10.join)(home, ".claude"), budget = SETUP_BUDGET) {
+async function collectSetup(root, repos, home, claudeDir = (0, import_node_path11.join)(home, ".claude"), budget = SETUP_BUDGET) {
   const out = [];
   let used = 0;
   const all = await found(root, repos, home, claudeDir);
   const order = (f) => (f.kind === "rules" || f.kind === "hooks" ? 0 : 1) + (f.scope === "user" ? 2 : 0);
   for (const f of [...all].sort((a, b) => order(a) - order(b))) {
-    const raw = await orNull((0, import_promises9.readFile)(f.path, "utf8"));
+    const raw = await orNull((0, import_promises10.readFile)(f.path, "utf8"));
     if (raw === null) continue;
     let content = f.kind === "hooks" ? hooksOf(raw) : raw;
     if (content === null) continue;
@@ -1502,8 +1739,8 @@ var TITLES = {
 };
 function renderSetup(root, home, files) {
   const label = (p) => {
-    if (isInside(p, (0, import_node_path10.resolve)(root))) return (0, import_node_path10.relative)(root, p);
-    if (isInside(p, (0, import_node_path10.resolve)(home))) return "~/" + (0, import_node_path10.relative)(home, p);
+    if (isInside(p, (0, import_node_path11.resolve)(root))) return (0, import_node_path11.relative)(root, p);
+    if (isInside(p, (0, import_node_path11.resolve)(home))) return "~/" + (0, import_node_path11.relative)(home, p);
     return p;
   };
   const lines = [
@@ -1537,7 +1774,12 @@ var RETRO_CLI_USAGE = `lr-retro \u2014 the Claude Code part of Local Review's re
                                              .claude/ and .agents/ of the project and of ~) in a file
                                              of the retro, for its analysis
   lr-retro jev <retro-id> [--root <dir>]     Classify the retro's threads with Jev (needs a key:
-                                             lr retro key), and record the labels`;
+                                             lr retro key), and record the labels
+  lr-retro conversation <retro-id> <thread-id> [--root <dir>]
+                                             Read back Claude Code's conversation where the agent
+                                             replied in that thread (the steps that led to each
+                                             reply), while Claude Code keeps it (30 days by
+                                             default); the retro records it was read back`;
 var RULES_CAP = 8e3;
 async function runRetroCli(args, io) {
   try {
@@ -1546,8 +1788,8 @@ async function runRetroCli(args, io) {
       options: { root: { type: "string" } },
       allowPositionals: true
     });
-    const [action, id] = positionals;
-    if (action !== "setup" && action !== "jev") {
+    const [action, id, threadId] = positionals;
+    if (action !== "setup" && action !== "jev" && action !== "conversation") {
       io.out(RETRO_CLI_USAGE);
       return action === void 0 || action === "help" ? 0 : 1;
     }
@@ -1556,8 +1798,21 @@ async function runRetroCli(args, io) {
     const book = new RetroBook(await retroHome(root, io.env));
     const retro = await book.get(id);
     const home = io.env.HOME?.trim() || (0, import_node_os3.homedir)();
-    const claudeDir = io.env.CLAUDE_CONFIG_DIR?.trim() || (0, import_node_path11.join)(home, ".claude");
+    const claudeDir = io.env.CLAUDE_CONFIG_DIR?.trim() || (0, import_node_path12.join)(home, ".claude");
     const repos = retro.stores.map((s) => s.root);
+    if (action === "conversation") {
+      if (!threadId) throw new Error("missing <thread-id>");
+      const { threads: threads2 } = await retroThreads(retro, io.env);
+      const found2 = threads2.get(threadId);
+      if (!found2) throw new Error(`thread ${threadId} is not one of the threads of retro ${retro.id}`);
+      const result2 = await threadConversations(found2.thread, claudeDir);
+      if (result2.linked > 0)
+        await book.record(retro.id, [
+          { type: "retro.conversation", thread: threadId, sessions: result2.sessions, available: result2.available }
+        ]).catch(() => void 0);
+      io.out(result2.text);
+      return 0;
+    }
     if (action === "setup") {
       const files = await collectSetup(retro.root, repos, home, claudeDir);
       const file = await writeRetroFile(book, retro.id, "setup.md", renderSetup(retro.root, home, files));

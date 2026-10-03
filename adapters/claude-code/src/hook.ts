@@ -38,7 +38,10 @@ export interface WorktreeDeps {
 }
 
 export interface HookDeps {
-  registry: Pick<SessionRegistry, 'register' | 'unregister' | 'subscribe' | 'subscriptions' | 'setNote' | 'takeNote'>;
+  registry: Pick<
+    SessionRegistry,
+    'register' | 'unregister' | 'subscribe' | 'subscriptions' | 'setNote' | 'takeNote' | 'startCall' | 'endCall'
+  >;
   /** The Claude Code process of this session, to notice when it is gone. */
   claudePid(): Promise<number | null>;
   /** The command line of a process, to know whether Claude Code was launched with the channel. */
@@ -93,11 +96,18 @@ export async function handleHook(input: HookInput, deps: HookDeps): Promise<stri
     case 'PreToolUse': {
       // Claude often edits files with shell commands: note when the command starts, to see after
       // it which files it changed.
-      if (input.tool_name === 'Bash') await deps.registry.setNote(id, bashNote(input), String(deps.now().getTime()));
+      if (input.tool_name === 'Bash') {
+        await deps.registry.setNote(id, bashNote(input), String(deps.now().getTime()));
+        await noteReply(id, input, deps);
+      }
       return beforeWorktreeRemoval(input, deps);
     }
     case 'PostToolUse': {
-      if (input.tool_name === 'Bash') return afterShellCommand(id, input, deps);
+      if (input.tool_name === 'Bash') {
+        const call = replyCall(input);
+        if (call) await deps.registry.endCall(id, call.message);
+        return afterShellCommand(id, input, deps);
+      }
       if (!WRITE_TOOLS.includes(input.tool_name ?? '')) return undefined;
       const target = input.tool_input?.file_path ?? input.tool_input?.notebook_path;
       if (typeof target !== 'string' || target === '') return undefined;
@@ -109,6 +119,27 @@ export async function handleHook(input: HookInput, deps: HookDeps): Promise<stri
     }
   }
   return undefined;
+}
+
+/**
+ * A shell command running `lr reply`: the tool call is the message of the conversation that writes
+ * the reply. `null` for any other command, or a tool call id that cannot name a note.
+ */
+export function replyCall(input: HookInput): { message: string; command: string } | null {
+  const command = input.tool_input?.command;
+  const message = input.tool_use_id ?? '';
+  if (typeof command !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(message)) return null;
+  const replies = shellSegments(command).some((words) => {
+    const i = words.findIndex((w) => basename(w) === 'lr');
+    return i >= 0 && words[i + 1] === 'reply';
+  });
+  return replies ? { message, command } : null;
+}
+
+/** Before `lr reply` runs: note its tool call, which `lr` records with the reply (for retros). */
+async function noteReply(id: string, input: HookInput, deps: HookDeps): Promise<void> {
+  const call = replyCall(input);
+  if (call) await deps.registry.startCall(id, { ...call, at: deps.now().toISOString() });
 }
 
 /**

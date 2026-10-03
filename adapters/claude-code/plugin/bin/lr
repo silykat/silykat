@@ -31,6 +31,12 @@ var import_node_path16 = require("node:path");
 var SCHEMA_VERSION = 1;
 var STORE_DIR = ".local-review";
 var DELETE_REASONS = ["user", "branch-gone"];
+function sessionRefOf(raw) {
+  if (typeof raw !== "object" || raw === null) return void 0;
+  const { id, message } = raw;
+  if (typeof id !== "string" || id.trim() === "") return void 0;
+  return typeof message === "string" && message.trim() !== "" ? { id, message } : { id };
+}
 var branchKey = (b) => b ? `${b.repo}#${b.branch}` : "";
 var reviewScopeKey = (s) => s.branch ? branchKey(s.branch) : s.path ? `path:${s.path}` : "";
 
@@ -262,6 +268,7 @@ function threadHistory(events, opts = {}) {
       case "comment.added": {
         const at = published(e.reviewId, e.at);
         if (at === null) break;
+        const session2 = e.by === "agent" ? sessionRefOf(e.session) : void 0;
         const c = {
           kind: "comment",
           id: e.commentId,
@@ -269,7 +276,8 @@ function threadHistory(events, opts = {}) {
           ...agentOf(e),
           body: e.body,
           at: e.at,
-          ...at !== e.at ? { publishedAt: at } : {}
+          ...at !== e.at ? { publishedAt: at } : {},
+          ...session2 ? { session: session2 } : {}
         };
         comments.set(c.id, c);
         publishedAt.set(c.id, at);
@@ -553,8 +561,18 @@ var Store = class {
     const reopens = c.author === "user" && c.reviewId === null && current.status !== "open";
     const status2 = opts.status ?? (reopens ? "open" : void 0);
     const at = (/* @__PURE__ */ new Date()).toISOString();
+    const session2 = c.author === "agent" ? sessionRefOf(c.session) : void 0;
     const events = [
-      { v: SCHEMA_VERSION, type: "comment.added", at, ...who3, commentId: newCommentId(), body: body2, reviewId: c.reviewId }
+      {
+        v: SCHEMA_VERSION,
+        type: "comment.added",
+        at,
+        ...who3,
+        commentId: newCommentId(),
+        body: body2,
+        reviewId: c.reviewId,
+        ...session2 ? { session: session2 } : {}
+      }
     ];
     if (status2) events.push({ v: SCHEMA_VERSION, type: "status.changed", at, ...who3, status: status2 });
     return this.appendAndReload(threadId, events);
@@ -879,6 +897,14 @@ async function worktreeTopOf(dir) {
 
 // ../core/src/sessions.ts
 var CURSOR_HEAD_BYTES = 256;
+var CALL_NOTE = "call-";
+var CALL_MAX_AGE_MS = 15 * 6e4;
+function callFor(calls, threadId, now = Date.now()) {
+  const recent = calls.filter((c) => now - Date.parse(c.at) <= CALL_MAX_AGE_MS);
+  const naming = recent.filter((c) => c.command.includes(threadId));
+  const pick = naming.length > 0 ? naming : recent.length === 1 ? recent : [];
+  return pick.reduce((a, c) => a === void 0 || c.at > a.at ? c : a, void 0);
+}
 var LOOSE_ROOT = "/";
 function looseStore(env = process.env) {
   return new Store(LOOSE_ROOT, (0, import_node_path3.join)(localReviewHome(env), "files"));
@@ -943,6 +969,39 @@ var SessionRegistry = class {
     } catch {
       return void 0;
     }
+  }
+  /**
+   * Notes a command an agent starts (e.g. `lr reply …`), written by its adapter before it runs: `lr`
+   * then knows which message of the agent's conversation runs it. Removed by `endCall`, or with the
+   * session.
+   */
+  async startCall(id, call) {
+    await this.setNote(id, `${CALL_NOTE}${call.message}`, JSON.stringify(call));
+  }
+  async endCall(id, message) {
+    await this.takeNote(id, `${CALL_NOTE}${message}`);
+  }
+  /** The commands of a session that are running (as noted by its adapter). */
+  async calls(id) {
+    this.file(id, "json");
+    let names;
+    try {
+      names = await (0, import_promises3.readdir)(this.dir);
+    } catch {
+      return [];
+    }
+    const prefix = `${id}.note-${CALL_NOTE}`;
+    const calls = await Promise.all(
+      names.filter((n) => n.startsWith(prefix)).map(async (n) => {
+        try {
+          const raw = JSON.parse(await (0, import_promises3.readFile)((0, import_node_path3.join)(this.dir, n), "utf8"));
+          return typeof raw.message === "string" && typeof raw.command === "string" && typeof raw.at === "string" ? { message: raw.message, command: raw.command, at: raw.at } : null;
+        } catch {
+          return null;
+        }
+      })
+    );
+    return calls.filter((c) => c !== null);
   }
   note(id, key2) {
     if (!SESSION_ID.test(key2)) throw new Error(`Invalid note key: ${key2}`);
@@ -1399,6 +1458,7 @@ var RETRO_EVENTS = /* @__PURE__ */ new Set([
   "retro.proposed",
   "retro.decided",
   "retro.applied",
+  "retro.conversation",
   "retro.finished"
 ]);
 var PREFERENCE_EVENTS = /* @__PURE__ */ new Set([
@@ -1459,6 +1519,7 @@ function foldRetro(events, warnings = [], future = false) {
     dropped: [],
     decisions: {},
     applied: {},
+    conversations: {},
     finishedAt: null,
     readOnly: future,
     warnings
@@ -1491,6 +1552,10 @@ function foldRetro(events, warnings = [], future = false) {
         break;
       case "retro.applied":
         r.applied[e.proposal] = [.../* @__PURE__ */ new Set([...r.applied[e.proposal] ?? [], ...e.files])];
+        break;
+      case "retro.conversation":
+        if (!r.conversations[e.thread]?.available)
+          r.conversations[e.thread] = { sessions: e.sessions, available: e.available, at: e.at };
         break;
       case "retro.finished":
         r.finishedAt ??= e.at;
@@ -2122,12 +2187,17 @@ function analysisInput(ctx) {
         label(labels[thread.id]),
         sig.reopened ? "reopened" : "",
         sig.question ? "agent asked" : "",
-        sig.rounds ? `${sig.rounds} round(s) of back-and-forth` : ""
+        sig.rounds ? `${sig.rounds} round(s) of back-and-forth` : "",
+        linkedSessions(thread).length ? "the agent's conversation is linked" : ""
       ].filter(Boolean);
       return threadText(thread, store) + (extra.length ? `
 (${extra.join(" \xB7 ")})` : "") + "\n";
     })
   ].join("\n");
+}
+function linkedSessions(t) {
+  const ids2 = t.conversation.flatMap((e) => e.kind === "comment" && e.session ? [e.session.id] : []);
+  return [...new Set(ids2)];
 }
 async function writeRetroFile(book2, id, name, content) {
   const file = (0, import_node_path9.join)(await book2.workDir(id), name);
@@ -2459,6 +2529,7 @@ function renderEntry(e) {
       if (e.publishedAt) notes.push(`submitted in a review ${e.publishedAt}`);
       if (e.editedAt) notes.push(`edited ${e.editedAt}`);
       if (e.deletedAt) notes.push(`deleted ${e.deletedAt}`);
+      if (e.session) notes.push(`session ${e.session.id}${e.session.message ? `, message ${e.session.message}` : ""}`);
       return `**${who2(e.author, e.agent)}** (${notes.join(", ")}):
 ${e.body}`;
     }
@@ -2494,7 +2565,8 @@ function entryJson(e) {
         at: e.at,
         ...e.publishedAt ? { publishedAt: e.publishedAt } : {},
         ...e.editedAt ? { editedAt: e.editedAt } : {},
-        ...e.deletedAt ? { deletedAt: e.deletedAt } : {}
+        ...e.deletedAt ? { deletedAt: e.deletedAt } : {},
+        ...e.session ? { session: e.session } : {}
       };
     case "status":
       return { type: "status", status: e.status, by: author(e.by, e.agent), at: e.at };
@@ -2947,6 +3019,14 @@ async function show(c) {
         `- ${w.id} ${w.subject}: ${w.why} (${w.evidence.map((e) => e.thread + (e.excerpt ? `: "${e.excerpt}"` : "")).join("; ")})`
       );
   }
+  const conversations = Object.entries(r.conversations);
+  if (conversations.length) {
+    lines.push("", "## The agent's conversations read back", "");
+    for (const [thread, c2] of conversations)
+      lines.push(
+        `- ${thread}: ${c2.available ? "read back" : "no longer available (the agent deleted it), analysed without it"}`
+      );
+  }
   if (r.dropped.length) {
     lines.push("", "## Left out by the guard rails", "");
     for (const d of r.dropped) lines.push(`- ${d.subject}: ${d.reason}`);
@@ -3080,7 +3160,10 @@ Usage:
                                           the threads of what it is subscribed to (--any-topic: all)
   lr show <thread-id> [--format md|json]  One thread, in full
   lr reply <thread-id> --agent <name> (--body <markdown> | --body-file <path> | --body -)
-           [--status addressed|needs-info] [--rev <version>]
+           [--status addressed|needs-info] [--rev <version>] [--session <id>] [--message <id>]
+           The reply records your session (found from the processes running lr, or --session,
+           or $LR_SESSION) and, when known, your message (--message): a retro can then read
+           your conversation back
   lr set-status <thread-id> addressed|needs-info --agent <name> [--rev <version>]
            --rev: the version you read (lr list / lr show): refused, exit 3, if the user changed
            the thread since. Exit 2: the thread no longer exists (e.g. deleted by the user).
@@ -3290,7 +3373,9 @@ async function reply(rest, io) {
     body: { type: "string" },
     "body-file": { type: "string" },
     status: { type: "string" },
-    rev: { type: "string" }
+    rev: { type: "string" },
+    session: { type: "string" },
+    message: { type: "string" }
   });
   const id = requireThreadId(positionals);
   const agent = requireAgent(str(values.agent), io);
@@ -3302,9 +3387,26 @@ async function reply(rest, io) {
   if (body2 === void 0 || body2.trim() === "") throw new UsageError("reply needs --body, --body-file or --body -");
   const store = openStore(str(values.root), io);
   await assertCurrent(store, id, str(values.rev));
-  const state = await store.addComment(id, { author: "agent", agent, body: body2, reviewId: null }, status2 ? { status: status2 } : {});
+  const session2 = await replySession(id, values, io);
+  const state = await store.addComment(
+    id,
+    { author: "agent", agent, body: body2, reviewId: null, ...session2 ? { session: session2 } : {} },
+    status2 ? { status: status2 } : {}
+  );
   io.out(`Replied on ${state.id} (status: ${state.status}).`);
   return EXIT.OK;
+}
+async function replySession(threadId, values, io) {
+  try {
+    const registry = registryFor(io);
+    const named = str(values.session)?.trim() || io.env.LR_SESSION?.trim();
+    const id = named || sessionOfProcess(await registry.list(), await io.ancestors?.() ?? await processAncestors())?.id;
+    if (!id) return void 0;
+    const message = str(values.message)?.trim() || callFor(await registry.calls(id).catch(() => []), threadId)?.message;
+    return message ? { id, message } : { id };
+  } catch {
+    return void 0;
+  }
 }
 async function setStatus(rest, io) {
   const { values, positionals } = parse(rest, { agent: { type: "string" }, rev: { type: "string" } });

@@ -16,6 +16,8 @@ var topicKey = (t) => t.kind === "branch" ? `branch:${t.repo}#${t.branch}` : `pa
 
 // ../../packages/core/src/sessions.ts
 var CURSOR_HEAD_BYTES = 256;
+var CALL_NOTE = "call-";
+var CALL_MAX_AGE_MS = 15 * 6e4;
 function localReviewHome(env = process.env) {
   return env.LOCAL_REVIEW_HOME?.trim() || (0, import_node_path.join)((0, import_node_os.homedir)(), ".local-review");
 }
@@ -73,6 +75,39 @@ var SessionRegistry = class {
     } catch {
       return void 0;
     }
+  }
+  /**
+   * Notes a command an agent starts (e.g. `lr reply …`), written by its adapter before it runs: `lr`
+   * then knows which message of the agent's conversation runs it. Removed by `endCall`, or with the
+   * session.
+   */
+  async startCall(id, call) {
+    await this.setNote(id, `${CALL_NOTE}${call.message}`, JSON.stringify(call));
+  }
+  async endCall(id, message) {
+    await this.takeNote(id, `${CALL_NOTE}${message}`);
+  }
+  /** The commands of a session that are running (as noted by its adapter). */
+  async calls(id) {
+    this.file(id, "json");
+    let names;
+    try {
+      names = await (0, import_promises.readdir)(this.dir);
+    } catch {
+      return [];
+    }
+    const prefix = `${id}.note-${CALL_NOTE}`;
+    const calls = await Promise.all(
+      names.filter((n) => n.startsWith(prefix)).map(async (n) => {
+        try {
+          const raw = JSON.parse(await (0, import_promises.readFile)((0, import_node_path.join)(this.dir, n), "utf8"));
+          return typeof raw.message === "string" && typeof raw.command === "string" && typeof raw.at === "string" ? { message: raw.message, command: raw.command, at: raw.at } : null;
+        } catch {
+          return null;
+        }
+      })
+    );
+    return calls.filter((c) => c !== null);
   }
   note(id, key) {
     if (!SESSION_ID.test(key)) throw new Error(`Invalid note key: ${key}`);
