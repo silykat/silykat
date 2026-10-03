@@ -1895,6 +1895,20 @@ function replyCall(input) {
   });
   return replies ? { message, command } : null;
 }
+function purgeConfirmation(input) {
+  const command = input.tool_input?.command;
+  if (input.tool_name !== "Bash" || typeof command !== "string") return null;
+  for (const words of shellSegments(command)) {
+    const i = words.findIndex((w) => (0, import_node_path12.basename)(w) === "lr");
+    if (i < 0 || words[i + 1] !== "purge" || !words.includes("--yes")) continue;
+    const at = words.indexOf("--count");
+    const count = at >= 0 && /^\d+$/.test(words[at + 1] ?? "") ? Number(words[at + 1]) : null;
+    const before = words[words.indexOf("--before") + 1];
+    const what = count === null ? "old comment threads" : `${plural(count, "comment thread")}`;
+    return `Local Review: this deletes ${what} for good` + (before && words.includes("--before") ? ` (finished, with no activity since ${before})` : "") + ": gone from the history and from retros. It runs only if the user allows it; if they refuse, nothing is deleted.";
+  }
+  return null;
+}
 async function noteReply(id, input, deps) {
   const call = replyCall(input);
   if (call) await deps.registry.startCall(id, { ...call, at: deps.now().toISOString() });
@@ -2076,6 +2090,7 @@ async function main() {
   const chunks = [];
   for await (const chunk of process.stdin) chunks.push(chunk);
   const input = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  const ask = input.hook_event_name === "PreToolUse" ? purgeConfirmation(input) : null;
   const message = await handleHook(input, {
     registry: new SessionRegistry(localReviewHome()),
     claudePid: () => findClaudePid(),
@@ -2097,10 +2112,16 @@ async function main() {
       save: (dir) => saveWorktreeThreads(dir),
       threadCount: (dir) => worktreeThreadCount(dir)
     }
-  });
-  if (message && input.hook_event_name) {
+  }).catch(() => void 0);
+  if ((message || ask) && input.hook_event_name) {
     process.stdout.write(
-      JSON.stringify({ hookSpecificOutput: { hookEventName: input.hook_event_name, additionalContext: message } })
+      JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: input.hook_event_name,
+          ...message ? { additionalContext: message } : {},
+          ...ask ? { permissionDecision: "ask", permissionDecisionReason: ask } : {}
+        }
+      })
     );
   }
 }

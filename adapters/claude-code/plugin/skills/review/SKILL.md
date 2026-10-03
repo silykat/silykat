@@ -78,7 +78,7 @@ The user may ask you to tidy their comments: run these yourself, on the same pro
 - "archive the resolved comments of last month" → `lr archive --resolved-before <date>` (`2026-10-01`, or `30d` for 30 days ago); one thread → `lr archive <thread-id>`. Archived threads leave VS Code and `lr list`, and stay in `lr history` and retros.
 - "which threads are archived?" → `lr archive --list`; "bring it back" → `lr unarchive <thread-id>`.
 - "export my comments" → `lr history --format json --out <file>` (every thread, archived ones included).
-- "delete the old comments for good" → first `lr purge --before <date>`, which deletes nothing: it says how many finished threads (resolved, archived or deleted) would go, and which; threads still in progress are kept. **Tell the user that number and ask them to confirm**, suggesting an export first. Only after their yes, run the command it printed (`… --yes --count <n>`), and report how many were deleted.
+- "delete the old comments for good" → first `lr purge --before <date>`, which deletes nothing: it says how many finished threads (resolved, archived or deleted) would go, and which; threads still in progress are kept. **Tell the user that number and ask them to confirm**, suggesting an export first, then stop and wait for their answer. Only after their yes, run the command it printed (`… --yes --count <n>`): Claude Code asks them once more to allow it. Report how many were deleted.
 
 ## 7. Git worktrees
 
