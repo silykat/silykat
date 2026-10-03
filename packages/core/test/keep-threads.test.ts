@@ -122,6 +122,17 @@ describe('why a thread was deleted', () => {
     expect(countDeletions([plain, lastComment])).toEqual({ user: 1, 'branch-gone': 0, unknown: 1 });
   });
 
+  it('reads a reason it does not know (written by a newer version) as unknown', () => {
+    const future = threadHistory([
+      created,
+      added,
+      { v: 1, type: 'thread.deleted', at: at(5), by: 'user', reason: 'merged' } as unknown as ThreadEvent,
+    ])!;
+    expect(future.deletedReason).toBeNull();
+    expect(future.conversation.at(-1)).toEqual({ kind: 'deleted', by: 'user', at: at(5) });
+    expect(countDeletions([future])).toEqual({ user: 0, 'branch-gone': 0, unknown: 1 });
+  });
+
   it('labels the reasons for people', () => {
     expect(deletionLabel('user')).toBe('removed by the user');
     expect(deletionLabel('branch-gone')).toBe('its branch was deleted');

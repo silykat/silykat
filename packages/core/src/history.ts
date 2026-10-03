@@ -1,5 +1,13 @@
 import type { ThreadEvent } from './events';
-import type { Anchor, Author, BranchRef, DeleteReason, ReviewState, ThreadStatus } from './types';
+import {
+  DELETE_REASONS,
+  type Anchor,
+  type Author,
+  type BranchRef,
+  type DeleteReason,
+  type ReviewState,
+  type ThreadStatus,
+} from './types';
 
 /** Where a thread stands in its history: its status, or `deleted` whatever its status was. */
 export type HistoryState = ThreadStatus | 'deleted';
@@ -146,7 +154,8 @@ export function threadHistory(events: readonly ThreadEvent[], opts: HistoryOptio
         if (deletedAt === null) {
           deletedAt = e.at;
           // Older journals have no reason; deleting the last comment (same write) was the user's choice.
-          deletedReason = e.reason ?? (lastCommentDeletedAt === e.at ? 'user' : null);
+          // A reason this version does not know (written by a newer one) reads as unknown.
+          deletedReason = knownReason(e.reason) ?? (lastCommentDeletedAt === e.at ? 'user' : null);
           conversation.push({
             kind: 'deleted',
             by: e.by,
@@ -207,6 +216,9 @@ export function countStates(threads: readonly ThreadHistory[]): StateCounts {
   for (const t of threads) counts[t.state]++;
   return counts;
 }
+
+const knownReason = (r: unknown): DeleteReason | null =>
+  DELETE_REASONS.includes(r as DeleteReason) ? (r as DeleteReason) : null;
 
 /** Deleted threads by reason (`unknown`: older journals, which do not tell). */
 export type DeletionCounts = Record<DeleteReason | 'unknown', number>;
