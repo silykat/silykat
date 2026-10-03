@@ -248,6 +248,12 @@ function threadHistory(events, opts = {}) {
   let deletedAt = null;
   const conversation = [];
   const comments = /* @__PURE__ */ new Map();
+  const publishedAt = /* @__PURE__ */ new Map();
+  const drop = (id) => {
+    comments.delete(id);
+    const i = conversation.findIndex((x) => x.kind === "comment" && x.id === id);
+    if (i >= 0) conversation.splice(i, 1);
+  };
   const agentOf = (e) => e.by === "agent" && e.agent ? { agent: e.agent } : {};
   for (const e of events.slice(1)) {
     switch (e.type) {
@@ -264,6 +270,7 @@ function threadHistory(events, opts = {}) {
           ...at !== e.at ? { publishedAt: at } : {}
         };
         comments.set(c.id, c);
+        publishedAt.set(c.id, at);
         conversation.push(c);
         break;
       }
@@ -271,13 +278,15 @@ function threadHistory(events, opts = {}) {
         const c = comments.get(e.commentId);
         if (c && c.author === e.by && !c.deletedAt) {
           c.body = e.body;
-          c.editedAt = e.at;
+          if (e.at >= publishedAt.get(c.id)) c.editedAt = e.at;
         }
         break;
       }
       case "comment.deleted": {
         const c = comments.get(e.commentId);
-        if (c && c.author === e.by) c.deletedAt ??= e.at;
+        if (!c || c.author !== e.by) break;
+        if (e.at < publishedAt.get(c.id)) drop(c.id);
+        else c.deletedAt ??= e.at;
         break;
       }
       case "status.changed":
@@ -299,6 +308,9 @@ function threadHistory(events, opts = {}) {
       case "thread.created":
         break;
     }
+  }
+  if (deletedAt !== null) {
+    for (const [id, at] of publishedAt) if (at > deletedAt && comments.has(id)) drop(id);
   }
   if (comments.size === 0) return null;
   const all = [...comments.values()];
@@ -1729,7 +1741,8 @@ async function setStatus(rest, io) {
   return EXIT.OK;
 }
 async function history(rest, io) {
-  const { values } = parse(rest, { since: { type: "string" }, format: { type: "string" } });
+  const { values, positionals } = parse(rest, { since: { type: "string" }, format: { type: "string" } });
+  if (positionals.length > 0) throw new UsageError(`lr history takes no argument: "${positionals[0]}"`);
   const format = str(values.format) ?? "md";
   if (format !== "md" && format !== "json") throw new UsageError(`--format must be "md" or "json", not "${format}"`);
   const since = parseSince(str(values.since));
@@ -1741,8 +1754,10 @@ function parseSince(value, now = Date.now()) {
   if (value === void 0) return null;
   const days = /^(\d+)d$/.exec(value);
   if (days) return new Date(now - Number(days[1]) * 864e5);
-  const date = new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00` : value);
-  if (Number.isNaN(date.getTime()))
+  const day = /^(\d{4})-(\d{2})-(\d{2})(T.+)?$/.exec(value);
+  const date = day ? new Date(day[4] ? value : `${value}T00:00:00`) : /* @__PURE__ */ new Date(NaN);
+  const exists = day !== null && (/* @__PURE__ */ new Date(`${day[1]}-${day[2]}-${day[3]}T00:00:00Z`)).getUTCDate() === +day[3];
+  if (!exists || Number.isNaN(date.getTime()))
     throw new UsageError(`--since must be a date (2026-10-01), a date and time, or a number of days (7d): "${value}"`);
   return date;
 }

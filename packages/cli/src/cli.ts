@@ -320,7 +320,8 @@ async function setStatus(rest: string[], io: Io): Promise<number> {
 }
 
 async function history(rest: string[], io: Io): Promise<number> {
-  const { values } = parse(rest, { since: { type: 'string' }, format: { type: 'string' } });
+  const { values, positionals } = parse(rest, { since: { type: 'string' }, format: { type: 'string' } });
+  if (positionals.length > 0) throw new UsageError(`lr history takes no argument: "${positionals[0]}"`);
   const format = str(values.format) ?? 'md';
   if (format !== 'md' && format !== 'json') throw new UsageError(`--format must be "md" or "json", not "${format}"`);
   const since = parseSince(str(values.since));
@@ -334,8 +335,11 @@ export function parseSince(value: string | undefined, now = Date.now()): Date | 
   if (value === undefined) return null;
   const days = /^(\d+)d$/.exec(value);
   if (days) return new Date(now - Number(days[1]) * 86_400_000);
-  const date = new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00` : value);
-  if (Number.isNaN(date.getTime()))
+  // Only ISO dates: `new Date()` also takes "7" (the year 2001) or "2026-02-30" (March 2).
+  const day = /^(\d{4})-(\d{2})-(\d{2})(T.+)?$/.exec(value);
+  const date = day ? new Date(day[4] ? value : `${value}T00:00:00`) : new Date(NaN);
+  const exists = day !== null && new Date(`${day[1]}-${day[2]}-${day[3]}T00:00:00Z`).getUTCDate() === +day[3]!;
+  if (!exists || Number.isNaN(date.getTime()))
     throw new UsageError(`--since must be a date (2026-10-01), a date and time, or a number of days (7d): "${value}"`);
   return date;
 }
