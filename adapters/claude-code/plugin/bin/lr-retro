@@ -923,6 +923,15 @@ function realpath2(path) {
   }
 }
 
+// ../../packages/core/src/config.ts
+var DEFAULT_CONFIG = {
+  keepHistory: true,
+  retroReminder: true,
+  retroReminderDays: 7,
+  retroReminderSizeKB: 1e3,
+  retroReminderMaxDays: 25
+};
+
 // ../../packages/core/src/project.ts
 var import_node_child_process2 = require("node:child_process");
 var import_promises4 = require("node:fs/promises");
@@ -1374,6 +1383,12 @@ var RetroBook = class {
   }
 };
 
+// ../../packages/core/src/cadence.ts
+var DEFAULT_CADENCE = thresholdsOf(DEFAULT_CONFIG);
+function thresholdsOf(c) {
+  return { days: c.retroReminderDays, bytes: c.retroReminderSizeKB * 1e3, maxDays: c.retroReminderMaxDays };
+}
+
 // ../../packages/core/src/retroGuards.ts
 var STOPWORDS = new Set(
   "the and for with that this from into when then than are was were has have not use uses using les des une pour avec dans sur par pas que qui est sont aux ses son leur".split(" ")
@@ -1458,21 +1473,6 @@ async function writeRetroFile(book, id, name, content) {
   const file = (0, import_node_path9.join)(await book.workDir(id), name);
   await (0, import_promises7.writeFile)(file, content);
   return file;
-}
-
-// ../../packages/core/src/config.ts
-var DEFAULT_CONFIG = {
-  autoSaveWorktrees: true,
-  retroReminder: true,
-  retroReminderDays: 7,
-  retroReminderSizeKB: 1e3,
-  retroReminderMaxDays: 25
-};
-
-// ../../packages/core/src/cadence.ts
-var DEFAULT_CADENCE = thresholdsOf(DEFAULT_CONFIG);
-function thresholdsOf(c) {
-  return { days: c.retroReminderDays, bytes: c.retroReminderSizeKB * 1e3, maxDays: c.retroReminderMaxDays };
 }
 
 // src/retroAudit.ts

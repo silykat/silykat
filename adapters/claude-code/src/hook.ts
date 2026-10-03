@@ -3,8 +3,10 @@ import { realpath } from 'node:fs/promises';
 import { basename, isAbsolute, resolve } from 'node:path';
 import {
   cadenceSummary,
+  dateArgLabel,
   dueReasons,
   expandHome,
+  parseDateArg,
   topicKey,
   topicLabel,
   type RetroCadence,
@@ -32,8 +34,8 @@ export interface HookInput {
 
 /** What the hook needs to keep the threads of a git worktree an agent is about to remove. */
 export interface WorktreeDeps {
-  /** The machine setting: save the threads before the removal (on by default). */
-  autoSave(): Promise<boolean>;
+  /** The machine setting "keep history": save the threads before the removal (on by default). */
+  keepHistory(): Promise<boolean>;
   /** The worktree a `git worktree remove <spec>` run in `cwd` means, or `null`. */
   resolveWorktree(cwd: string, spec: string): Promise<string | null>;
   worktreeInfo(dir: string): Promise<WorktreeInfo | null>;
@@ -188,20 +190,29 @@ export function replyCall(input: HookInput): { message: string; command: string 
  * user confirms the deletion themselves, not only through what Claude says. `null` for any other
  * command.
  */
-export function purgeConfirmation(input: HookInput): string | null {
+export function purgeConfirmation(input: HookInput, now = Date.now()): string | null {
   const command = input.tool_input?.command;
   if (input.tool_name !== 'Bash' || typeof command !== 'string') return null;
   for (const words of shellSegments(command)) {
     const i = words.findIndex((w) => basename(w) === 'lr');
     if (i < 0 || words[i + 1] !== 'purge' || !words.includes('--yes')) continue;
+    const ask = ' It runs only if the user allows it; if they refuse, nothing is deleted.';
+    if (words.includes('--history'))
+      return (
+        'Local Review: this erases for good the review history kept for retros: the deleted comment threads, ' +
+        'and the threads saved from git worktrees.' +
+        ask
+      );
     const at = words.indexOf('--count');
     const count = at >= 0 && /^\d+$/.test(words[at + 1] ?? '') ? Number(words[at + 1]) : null;
-    const before = words[words.indexOf('--before') + 1];
+    const before = words.includes('--before') ? words[words.indexOf('--before') + 1] : undefined;
+    const date = before ? parseDateArg(before, now) : null;
     const what = count === null ? 'old comment threads' : `${plural(count, 'comment thread')}`;
     return (
       `Local Review: this deletes ${what} for good` +
-      (before && words.includes('--before') ? ` (finished, with no activity since ${before})` : '') +
-      ': gone from the history and from retros. It runs only if the user allows it; if they refuse, nothing is deleted.'
+      (before ? ` (finished, with no activity since ${date ? dateArgLabel(before, date) : before})` : '') +
+      ': gone from the history and from retros.' +
+      ask
     );
   }
   return null;
@@ -215,7 +226,7 @@ async function noteReply(id: string, input: HookInput, deps: HookDeps): Promise<
 
 /**
  * Before a command that removes a git worktree (which deletes its comments with it): save its
- * threads to the main worktree's store, unless the user turned that off (then, tell Claude).
+ * threads to the main worktree's store, unless the user does not keep the history (then, tell Claude).
  */
 async function beforeWorktreeRemoval(input: HookInput, deps: HookDeps): Promise<string | undefined> {
   const wt = deps.worktrees;
@@ -241,10 +252,10 @@ async function beforeWorktreeRemoval(input: HookInput, deps: HookDeps): Promise<
   if (worktrees.size === 0) return undefined;
 
   const messages: string[] = [];
-  const autoSave = await wt.autoSave();
+  const keep = await wt.keepHistory();
   for (const info of worktrees.values()) {
     const name = info.branch ? `${info.worktree} (branch ${info.branch})` : info.worktree;
-    if (autoSave) {
+    if (keep) {
       const saved = await wt.save(info.worktree).catch((err: unknown) => {
         // The removal goes on anyway: say so, rather than lose the comments in silence.
         messages.push(
@@ -263,7 +274,7 @@ async function beforeWorktreeRemoval(input: HookInput, deps: HookDeps): Promise<
       if (n > 0)
         messages.push(
           `Local Review: this command removes the git worktree ${name}, which holds ${plural(n, 'comment thread')} of the user's review, ` +
-            'and they are lost with it (saving them first is turned off on this machine). Tell the user; to keep them, ' +
+            'and they are lost with it (the history is not kept on this machine: keep-history is off). Tell the user; to keep them, ' +
             `they can run \`lr worktree save ${info.worktree}\` before the removal.`,
         );
     }

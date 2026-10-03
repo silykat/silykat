@@ -49,7 +49,7 @@ describe('the hook, before a worktree is removed', () => {
   let home: string;
   let deps: HookDeps;
   let saved: string[];
-  let autoSave: boolean;
+  let keepHistory: boolean;
   const LINKED: WorktreeInfo = {
     worktree: '/work/wt',
     repo: '/work/app/.git',
@@ -75,7 +75,7 @@ describe('the hook, before a worktree is removed', () => {
   beforeEach(async () => {
     home = await mkdtemp(join(tmpdir(), 'lr-hook-wt-'));
     saved = [];
-    autoSave = true;
+    keepHistory = true;
     published = 2;
     deps = {
       registry: new SessionRegistry(home, () => true),
@@ -88,7 +88,7 @@ describe('the hook, before a worktree is removed', () => {
       now: () => new Date('2026-10-03T10:00:00.000Z'),
       home: '/home/me',
       worktrees: {
-        autoSave: async () => autoSave,
+        keepHistory: async () => keepHistory,
         resolveWorktree: async (cwd, spec) => (spec === 'wt' || spec === '../wt' ? '/work/wt' : null),
         worktreeInfo: async (dir) => infos[dir] ?? null,
         save: async (dir) => {
@@ -133,11 +133,12 @@ describe('the hook, before a worktree is removed', () => {
     expect(saved).toEqual([]);
   });
 
-  it('warns Claude instead when saving is turned off', async () => {
-    autoSave = false;
+  it('warns Claude instead when the history is not kept', async () => {
+    keepHistory = false;
     const message = await pre({ command: 'git worktree remove wt' });
     expect(saved).toEqual([]);
     expect(message).toContain('which holds 3 comment threads of the user');
+    expect(message).toContain('the history is not kept on this machine: keep-history is off');
     expect(message).toContain('lr worktree save /work/wt');
   });
 

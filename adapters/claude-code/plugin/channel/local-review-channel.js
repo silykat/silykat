@@ -258,14 +258,9 @@ function parseDelivery(line) {
   }
 }
 
-// ../../packages/core/src/retroGuards.ts
-var STOPWORDS = new Set(
-  "the and for with that this from into when then than are was were has have not use uses using les des une pour avec dans sur par pas que qui est sont aux ses son leur".split(" ")
-);
-
 // ../../packages/core/src/config.ts
 var DEFAULT_CONFIG = {
-  autoSaveWorktrees: true,
+  keepHistory: true,
   retroReminder: true,
   retroReminderDays: 7,
   retroReminderSizeKB: 1e3,
@@ -277,6 +272,11 @@ var DEFAULT_CADENCE = thresholdsOf(DEFAULT_CONFIG);
 function thresholdsOf(c) {
   return { days: c.retroReminderDays, bytes: c.retroReminderSizeKB * 1e3, maxDays: c.retroReminderMaxDays };
 }
+
+// ../../packages/core/src/retroGuards.ts
+var STOPWORDS = new Set(
+  "the and for with that this from into when then than are was were has have not use uses using les des une pour avec dans sur par pas que qui est sont aux ses son leur".split(" ")
+);
 
 // src/channel.ts
 var BATCH_MS = 1500;

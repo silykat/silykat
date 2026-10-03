@@ -22,10 +22,23 @@ describe('deleting threads for good asks the user', () => {
     expect(purgeConfirmation(bash('cd /work && /plugin/bin/lr purge --yes --before 30d --count 1'))).toContain(
       'deletes 1 comment thread for good',
     );
+    // A number of days is said as a date, with the number of days.
+    const now = new Date(2026, 9, 3, 12).getTime();
+    expect(purgeConfirmation(bash('lr purge --before 60d --yes --count 2'), now)).toContain(
+      'with no activity since 2026-08-04 (60 days)',
+    );
     expect(purgeConfirmation(bash('lr purge --yes'))).toBe(
       'Local Review: this deletes old comment threads for good: gone from the history and from retros. ' +
         'It runs only if the user allows it; if they refuse, nothing is deleted.',
     );
+  });
+
+  it('asks before erasing the history kept', () => {
+    expect(purgeConfirmation(bash('lr purge --history --yes'))).toBe(
+      'Local Review: this erases for good the review history kept for retros: the deleted comment threads, ' +
+        'and the threads saved from git worktrees. It runs only if the user allows it; if they refuse, nothing is deleted.',
+    );
+    expect(purgeConfirmation(bash('lr purge --history'))).toBeNull();
   });
 
   it('lets everything else through', () => {

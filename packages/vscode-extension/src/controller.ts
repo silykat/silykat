@@ -7,6 +7,7 @@ import {
   reviewScopeKey,
   branchOfTopic,
   buildAnchorContext,
+  eraseThread,
   localBranches,
   reanchor,
   renamedBranch,
@@ -26,6 +27,7 @@ import {
 } from '@local-review/core';
 import { Branches } from './branches';
 import { commitExists, ensureExcluded, findRename, gitUserName, resolveCommit } from './git';
+import { keepHistory } from './history';
 import { anchorRef, isIndexRef, parseGitQuery, versionTag } from './gitUri';
 import type { Log } from './log';
 import { toLineRange, toZeroBasedLines } from './range';
@@ -147,6 +149,8 @@ export class ReviewController implements vscode.Disposable {
    */
   publishGate: (root: string, files: string[]) => Promise<boolean> = async () => true;
   choose: ChooseHandler = warningChoice;
+  /** Whether deleted threads are kept for the history (the "Keep history" setting). Replaceable in tests. */
+  keepHistory: () => Promise<boolean> = keepHistory;
   /** The git worktrees already warned about (kept across restarts by the extension). */
   worktreeWarnings: { has(path: string): boolean; add(path: string): void } = new Set<string>();
   /** What git said of each open folder: a linked worktree or not. */
@@ -436,6 +440,7 @@ export class ReviewController implements vscode.Disposable {
       } else if (choice === 'Delete Thread') {
         await m.root.store.deleteThread(m.state.id, 'user');
         this.forget(m.state.id);
+        await this.eraseIfNotKept(m.root, m.state.id);
       }
     } catch (err) {
       this.log.error('Failed to close the thread of a deleted file', err);
@@ -700,8 +705,10 @@ export class ReviewController implements vscode.Disposable {
     try {
       const file = this.fileOf(managed.root, managed.state);
       const state = await managed.root.store.deleteComment(comment.threadId, comment.commentId, 'user');
-      if (state.deleted) this.forget(state.id);
-      else this.adopt(managed.root, state, managed.thread);
+      if (state.deleted) {
+        this.forget(state.id);
+        await this.eraseIfNotKept(managed.root, state.id);
+      } else this.adopt(managed.root, state, managed.thread);
       if (!isDraft)
         this.published.fire({
           root: managed.root.path,
@@ -725,7 +732,8 @@ export class ReviewController implements vscode.Disposable {
       managed.state.onlyDrafts ||
       (await this.confirm(
         'Delete this thread?',
-        `Its ${n} comment${n > 1 ? 's' : ''}, including the agent's replies, will no longer be shown.`,
+        `Its ${n} comment${n > 1 ? 's' : ''}, including the agent's replies, ` +
+          ((await this.keepHistory()) ? 'will no longer be shown.' : 'will be erased for good (history not kept).'),
         'Delete Thread',
       ));
     if (!confirmed) return;
@@ -733,6 +741,7 @@ export class ReviewController implements vscode.Disposable {
       const file = this.fileOf(managed.root, managed.state);
       await managed.root.store.deleteThread(threadId, 'user');
       this.forget(threadId);
+      await this.eraseIfNotKept(managed.root, threadId);
       if (managed.state.hasPublished)
         this.published.fire({
           root: managed.root.path,
@@ -1352,11 +1361,24 @@ export class ReviewController implements vscode.Disposable {
     }
   }
 
+  /** After a thread was deleted: when the history is not kept, erase it for good (its copies too). */
+  private async eraseIfNotKept(root: Root, threadId: string): Promise<void> {
+    if (await this.keepHistory()) return;
+    try {
+      await eraseThread(root.store, threadId);
+    } catch (err) {
+      this.log.warn(`${root.path}: could not erase the deleted thread ${threadId}`, err);
+    }
+  }
+
   private async onBranchGone(root: Root, key: string, renamedTo: BranchRef | null): Promise<void> {
     for (const t of this.allThreads().filter((t) => t.root === root && branchKey(t.state.branch) === key)) {
       try {
         if (renamedTo) await root.store.setBranch(t.state.id, renamedTo);
-        else await root.store.deleteThread(t.state.id, 'user', 'branch-gone');
+        else {
+          await root.store.deleteThread(t.state.id, 'user', 'branch-gone');
+          await this.eraseIfNotKept(root, t.state.id);
+        }
       } catch (err) {
         this.log.warn(`${root.path}: could not update thread ${t.state.id} of a gone branch`, err);
       }

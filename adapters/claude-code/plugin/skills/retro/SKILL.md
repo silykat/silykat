@@ -36,7 +36,7 @@ When `lr retro scope` says that this retro **will check the changes adopted** la
 
 ## 3. The scope: first validation
 
-Announce, in a few lines: the project, the comment stores found, the period, the number of threads, the size and the estimated time. For a **first retro**, `lr retro scope` lists periods to choose from: ask which one (the proposed one recommended). Then ask to confirm: "Start the retro" / "Change the period" / "Cancel". For another period, run `lr retro scope --root <dir> --since <date>` (or `--all`) and announce it again.
+Announce, in a few lines: the project, the comment stores found, the period, the number of threads, the size and the estimated time. When `lr retro scope` says the **history is not kept** on this machine, say so: the threads the user deleted are erased, so the retro does not see them. For a **first retro**, `lr retro scope` lists periods to choose from: ask which one (the proposed one recommended). Then ask to confirm: "Start the retro" / "Change the period" / "Cancel". For another period, run `lr retro scope --root <dir> --since <date>` (or `--all`) and announce it again.
 
 ## 4. Start
 

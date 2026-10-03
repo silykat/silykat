@@ -1440,28 +1440,104 @@ function historyJson(h) {
 }
 
 // ../core/src/archive.ts
-var import_promises6 = require("node:fs/promises");
+var import_promises11 = require("node:fs/promises");
+
+// ../core/src/cadence.ts
+var import_promises10 = require("node:fs/promises");
+var import_node_path12 = require("node:path");
+
+// ../core/src/config.ts
+var import_promises4 = require("node:fs/promises");
+var import_node_path6 = require("node:path");
+var DEFAULT_CONFIG = {
+  keepHistory: true,
+  retroReminder: true,
+  retroReminderDays: 7,
+  retroReminderSizeKB: 1e3,
+  retroReminderMaxDays: 25
+};
+var CONFIG_KEYS = {
+  "keep-history": {
+    key: "keepHistory",
+    kind: "boolean",
+    help: "on|off \u2014 keep deleted threads (for lr history and retros) and save the threads of a worktree before an agent removes it; off, deleting a thread erases it (default: on)"
+  },
+  "retro-reminder": {
+    key: "retroReminder",
+    kind: "boolean",
+    help: "on|off \u2014 when a retro is due, the agent says so at the start of a session (default: on)"
+  },
+  "retro-reminder-days": {
+    key: "retroReminderDays",
+    kind: "number",
+    help: "days \u2014 a retro is due this many days after the last one (default: 7)"
+  },
+  "retro-reminder-size": {
+    key: "retroReminderSizeKB",
+    kind: "number",
+    help: "KB \u2014 or sooner, once the threads since the last one weigh this much (default: 1000, i.e. 1 MB)"
+  },
+  "retro-reminder-max-days": {
+    key: "retroReminderMaxDays",
+    kind: "number",
+    help: "days \u2014 and never later than this, to keep the agent conversations linked to replies (default: 25)"
+  }
+};
+var configFile = (env = process.env) => (0, import_node_path6.join)(localReviewHome(env), "config.json");
+var validSettingNumber = (x) => typeof x === "number" && Number.isInteger(x) && x >= 1;
+async function readConfig(env = process.env) {
+  const config2 = { ...DEFAULT_CONFIG };
+  let raw;
+  try {
+    raw = JSON.parse(await (0, import_promises4.readFile)(configFile(env), "utf8"));
+  } catch {
+    return config2;
+  }
+  if (typeof raw !== "object" || raw === null) return config2;
+  const values = raw;
+  for (const setting of Object.values(CONFIG_KEYS)) {
+    const value = values[setting.key];
+    if (setting.kind === "boolean" && typeof value === "boolean") config2[setting.key] = value;
+    if (setting.kind === "number" && validSettingNumber(value)) config2[setting.key] = value;
+  }
+  return config2;
+}
+async function writeConfig(change, env = process.env) {
+  const file = configFile(env);
+  let current = {};
+  try {
+    const raw = JSON.parse(await (0, import_promises4.readFile)(file, "utf8"));
+    if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) current = raw;
+  } catch {
+  }
+  const next = { ...current, ...change };
+  await (0, import_promises4.mkdir)(localReviewHome(env), { recursive: true });
+  const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+  await (0, import_promises4.writeFile)(tmp, JSON.stringify(next, null, 2) + "\n");
+  await (0, import_promises4.rename)(tmp, file);
+  return readConfig(env);
+}
 
 // ../core/src/project.ts
 var import_node_child_process2 = require("node:child_process");
-var import_promises5 = require("node:fs/promises");
-var import_node_path7 = require("node:path");
+var import_promises6 = require("node:fs/promises");
+var import_node_path8 = require("node:path");
 
 // ../core/src/saved.ts
-var import_promises4 = require("node:fs/promises");
-var import_node_path6 = require("node:path");
+var import_promises5 = require("node:fs/promises");
+var import_node_path7 = require("node:path");
 var SAVED_DIR = "saved";
 async function savedStores(storeDir) {
   let slots;
   try {
-    slots = (await (0, import_promises4.readdir)((0, import_node_path6.join)(storeDir, SAVED_DIR), { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name).sort();
+    slots = (await (0, import_promises5.readdir)((0, import_node_path7.join)(storeDir, SAVED_DIR), { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name).sort();
   } catch {
     return [];
   }
   const found = [];
   for (const slot of slots) {
-    const dir = (0, import_node_path6.join)(storeDir, SAVED_DIR, slot);
-    const origin = parseOrigin(await (0, import_promises4.readFile)((0, import_node_path6.join)(dir, "origin.json"), "utf8").catch(() => ""));
+    const dir = (0, import_node_path7.join)(storeDir, SAVED_DIR, slot);
+    const origin = parseOrigin(await (0, import_promises5.readFile)((0, import_node_path7.join)(dir, "origin.json"), "utf8").catch(() => ""));
     if (origin) found.push({ ...origin, dir });
   }
   return found;
@@ -1497,11 +1573,11 @@ var SKIPPED2 = /* @__PURE__ */ new Set([
 ]);
 async function projectStores(root, env = process.env) {
   if (root === LOOSE_ROOT) return [{ root, origin: "root" }];
-  const top = (0, import_node_path7.resolve)(root);
+  const top = (0, import_node_path8.resolve)(root);
   const found = [];
   const seen = /* @__PURE__ */ new Set();
   const add = async (dir, origin) => {
-    const key2 = await (0, import_promises5.realpath)((0, import_node_path7.join)(dir, STORE_DIR)).catch(() => (0, import_node_path7.join)(dir, STORE_DIR));
+    const key2 = await (0, import_promises6.realpath)((0, import_node_path8.join)(dir, STORE_DIR)).catch(() => (0, import_node_path8.join)(dir, STORE_DIR));
     if (seen.has(key2)) return;
     seen.add(key2);
     found.push({ root: dir, origin });
@@ -1517,7 +1593,7 @@ async function projectStores(root, env = process.env) {
       repos.push(above);
     }
   }
-  const realTop = await (0, import_promises5.realpath)(top).catch(() => top);
+  const realTop = await (0, import_promises6.realpath)(top).catch(() => top);
   const worktrees = /* @__PURE__ */ new Set();
   for (const list3 of await Promise.all(repos.map(worktreesOf)))
     for (const wt of list3) if (!walked(realTop, wt)) worktrees.add(wt);
@@ -1527,8 +1603,8 @@ async function projectStores(root, env = process.env) {
     for (const dir of stores) await add(dir, "worktree");
   }
   for (const s of [...found]) {
-    for (const saved of await savedStores((0, import_node_path7.join)(s.root, STORE_DIR))) {
-      const key2 = await (0, import_promises5.realpath)(saved.dir).catch(() => saved.dir);
+    for (const saved of await savedStores((0, import_node_path8.join)(s.root, STORE_DIR))) {
+      const key2 = await (0, import_promises6.realpath)(saved.dir).catch(() => saved.dir);
       if (seen.has(key2)) continue;
       seen.add(key2);
       found.push({ root: saved.root, origin: "saved", saved });
@@ -1538,34 +1614,34 @@ async function projectStores(root, env = process.env) {
   return found.sort((a, b) => order[a.origin] - order[b.origin] || a.root.localeCompare(b.root));
 }
 function walked(top, dir) {
-  const rel = (0, import_node_path7.relative)(top, dir);
+  const rel = (0, import_node_path8.relative)(top, dir);
   if (rel === "") return true;
-  if (rel.startsWith("..") || (0, import_node_path7.isAbsolute)(rel)) return false;
-  return rel.split(import_node_path7.sep).every((part) => !part.startsWith(".") && !SKIPPED2.has(part));
+  if (rel.startsWith("..") || (0, import_node_path8.isAbsolute)(rel)) return false;
+  return rel.split(import_node_path8.sep).every((part) => !part.startsWith(".") && !SKIPPED2.has(part));
 }
 async function storesUnder(dir, env = process.env) {
   const stores = [];
-  await walk((0, import_node_path7.resolve)(dir), env, stores, []);
+  await walk((0, import_node_path8.resolve)(dir), env, stores, []);
   return stores.sort();
 }
 async function walk(dir, env, stores, repos) {
   let entries;
   try {
-    entries = await (0, import_promises5.readdir)(dir, { withFileTypes: true });
+    entries = await (0, import_promises6.readdir)(dir, { withFileTypes: true });
   } catch {
     return;
   }
   if (entries.some((e) => e.name === ".git")) repos.push(dir);
   if (entries.some((e) => e.name === STORE_DIR && e.isDirectory()) && isStoreRoot(dir, env)) stores.push(dir);
   const children = entries.filter((e) => e.isDirectory() && !e.name.startsWith(".") && !SKIPPED2.has(e.name));
-  await Promise.all(children.map((e) => walk((0, import_node_path7.join)(dir, e.name), env, stores, repos)));
+  await Promise.all(children.map((e) => walk((0, import_node_path8.join)(dir, e.name), env, stores, repos)));
 }
 function worktreesOf(dir) {
   return new Promise(
     (done) => (0, import_node_child_process2.execFile)("git", ["worktree", "list", "--porcelain"], { cwd: dir, timeout: 3e3 }, (err, stdout) => {
       if (err) return done([]);
       const paths = stdout.split("\n").filter((l) => l.startsWith("worktree ")).map((l) => l.slice("worktree ".length));
-      void Promise.all(paths.map((p) => (0, import_promises5.realpath)(p).catch(() => null))).then(
+      void Promise.all(paths.map((p) => (0, import_promises6.realpath)(p).catch(() => null))).then(
         (real2) => done(real2.filter((p) => p !== null))
       );
     })
@@ -1597,7 +1673,7 @@ async function projectHistory(root, opts = {}) {
   });
   const all = stores.flatMap((s) => s.threads);
   return {
-    root: root === LOOSE_ROOT ? root : (0, import_node_path7.resolve)(root),
+    root: root === LOOSE_ROOT ? root : (0, import_node_path8.resolve)(root),
     since: opts.since ? opts.since.toISOString() : null,
     stores,
     threads: all.length,
@@ -1608,108 +1684,9 @@ async function projectHistory(root, opts = {}) {
   };
 }
 
-// ../core/src/archive.ts
-var storeOf = (s, env) => s.saved ? new Store(s.root, s.saved.dir) : storeAt(s.root, env);
-async function projectThreads(roots, env = process.env) {
-  const found = [];
-  const seen = /* @__PURE__ */ new Set();
-  for (const root of roots) {
-    for (const s of await projectStores(root, env)) {
-      const store = storeOf(s, env);
-      const key2 = await (0, import_promises6.realpath)(store.dir).catch(() => store.dir);
-      if (seen.has(key2)) continue;
-      seen.add(key2);
-      found.push({ s, store });
-    }
-  }
-  found.sort((a, b) => Number(a.s.origin === "saved") - Number(b.s.origin === "saved"));
-  const loaded = await Promise.all(found.map(async (f) => ({ ...f, threads: (await f.store.loadHistory()).threads })));
-  const byId = /* @__PURE__ */ new Map();
-  for (const { s, store, threads } of loaded) {
-    for (const thread of threads) {
-      const known = byId.get(thread.id);
-      const live = s.origin === "saved" ? 0 : 1;
-      if (!known) byId.set(thread.id, { thread, store: s, copies: [store], live });
-      else {
-        known.copies.push(store);
-        known.live += live;
-        if (thread.bytes > known.thread.bytes) Object.assign(known, { thread, store: s });
-      }
-    }
-  }
-  return [...byId.values()].sort(
-    (a, b) => a.thread.createdAt.localeCompare(b.thread.createdAt) || a.thread.id.localeCompare(b.thread.id)
-  );
-}
-function parseDateArg(value, now = Date.now()) {
-  const days = /^(\d+)d$/.exec(value.trim());
-  if (days) return new Date(now - Number(days[1]) * 864e5);
-  const day2 = /^(\d{4})-(\d{2})-(\d{2})(T.+)?$/.exec(value.trim());
-  if (!day2) return null;
-  const date = new Date(day2[4] ? value.trim() : `${day2[1]}-${day2[2]}-${day2[3]}T00:00:00`);
-  const exists = (/* @__PURE__ */ new Date(`${day2[1]}-${day2[2]}-${day2[3]}T00:00:00Z`)).getUTCDate() === +day2[3];
-  return exists && !Number.isNaN(date.getTime()) ? date : null;
-}
-var before = (at, date) => at !== null && Date.parse(at) < date.getTime();
-function resolvedBefore(threads, date) {
-  return threads.filter(
-    ({ thread: t }) => t.state === "resolved" && t.archivedAt === null && !t.hasDrafts && before(t.resolvedAt, date)
-  );
-}
-function archivedThreads(threads) {
-  return threads.filter((t) => t.thread.archivedAt !== null).sort((a, b) => b.thread.archivedAt.localeCompare(a.thread.archivedAt));
-}
-var isFinished = (t) => t.state === "resolved" || t.state === "deleted" || t.archivedAt !== null;
-function purgePlan(threads, date) {
-  const quiet = threads.filter((t) => before(t.thread.lastActivityAt, date));
-  const purgeable = (t) => isFinished(t.thread) && !t.thread.hasDrafts;
-  const purged = quiet.filter(purgeable);
-  return {
-    threads: purged,
-    inProgress: quiet.filter((t) => !purgeable(t)),
-    bytes: purged.reduce((n, t) => n + t.thread.bytes, 0)
-  };
-}
-function archiveThreads(threads) {
-  return inStores(threads, false, async (store, id) => {
-    const was = (await store.loadThread(id)).state?.archived;
-    await store.archiveThread(id);
-    return was === false;
-  });
-}
-function unarchiveThreads(threads) {
-  return inStores(threads, false, async (store, id) => {
-    const was = (await store.loadThread(id)).state?.archived;
-    await store.unarchiveThread(id);
-    return was === true;
-  });
-}
-function purgeThreads(threads) {
-  return inStores(threads, true, (store, id) => store.purgeThread(id));
-}
-async function inStores(threads, everyCopy, action) {
-  const result = { done: [], unchanged: [], failed: [] };
-  for (const { thread, copies, live } of threads) {
-    const errors = [];
-    let changed = false;
-    const stores = everyCopy || live === 0 ? copies : copies.slice(0, live);
-    for (const store of stores) {
-      try {
-        if (await action(store, thread.id)) changed = true;
-      } catch (err) {
-        errors.push(err instanceof Error ? err.message : String(err));
-      }
-    }
-    if (changed) result.done.push(thread.id);
-    else if (errors.length === 0) result.unchanged.push(thread.id);
-    else result.failed.push({ id: thread.id, error: errors[0] });
-  }
-  return result;
-}
-
 // ../core/src/retro.ts
 var import_promises7 = require("node:fs/promises");
-var import_node_path8 = require("node:path");
+var import_node_path9 = require("node:path");
 var RETRO_SCHEMA_VERSION = 1;
 var RETROS_DIR = "retros";
 var COLUMNS = ["keep", "remove", "improve"];
@@ -1874,7 +1851,7 @@ function foldPreferences(events) {
 }
 async function retroHome(root, env = process.env) {
   if (root === LOOSE_ROOT) throw new Error("a retro is about a project folder, not the files outside any folder");
-  const dir = (0, import_node_path8.resolve)(root);
+  const dir = (0, import_node_path9.resolve)(root);
   if (isStoreRoot(dir, env)) return dir;
   return await worktreeTopOf(dir) ?? dir;
 }
@@ -1893,7 +1870,7 @@ async function readRetro(dir, id) {
   if (!RETRO_ID.test(id)) throw new Error(`Invalid retro id: ${id}`);
   let text2;
   try {
-    text2 = await (0, import_promises7.readFile)((0, import_node_path8.join)(dir, `${id}.jsonl`), "utf8");
+    text2 = await (0, import_promises7.readFile)((0, import_node_path9.join)(dir, `${id}.jsonl`), "utf8");
   } catch (err) {
     if (err.code === "ENOENT") return null;
     throw err;
@@ -1904,23 +1881,23 @@ async function readRetro(dir, id) {
 var RetroBook = class {
   constructor(home) {
     this.home = home;
-    this.dir = (0, import_node_path8.join)(home, STORE_DIR, RETROS_DIR);
+    this.dir = (0, import_node_path9.join)(home, STORE_DIR, RETROS_DIR);
   }
   home;
   dir;
   retroFile(id) {
     if (!RETRO_ID.test(id)) throw new Error(`Invalid retro id: ${id}`);
-    return (0, import_node_path8.join)(this.dir, `${id}.jsonl`);
+    return (0, import_node_path9.join)(this.dir, `${id}.jsonl`);
   }
   /** A folder for the files a retro writes for its agents. */
   async workDir(id) {
     if (!RETRO_ID.test(id)) throw new Error(`Invalid retro id: ${id}`);
-    const dir = (0, import_node_path8.join)(this.dir, id);
+    const dir = (0, import_node_path9.join)(this.dir, id);
     await (0, import_promises7.mkdir)(dir, { recursive: true });
     return dir;
   }
   get preferencesFile() {
-    return (0, import_node_path8.join)(this.dir, "preferences.jsonl");
+    return (0, import_node_path9.join)(this.dir, "preferences.jsonl");
   }
   /** Every retro of this book, oldest first. */
   list() {
@@ -1937,7 +1914,7 @@ var RetroBook = class {
   }
   /** The last finished retro of the project folder `root`, if any. */
   async lastFinished(root) {
-    const done = (await this.list()).filter((r) => r.finishedAt !== null && r.root === (0, import_node_path8.resolve)(root));
+    const done = (await this.list()).filter((r) => r.finishedAt !== null && r.root === (0, import_node_path9.resolve)(root));
     return done.at(-1) ?? null;
   }
   async preferences() {
@@ -1987,7 +1964,7 @@ var RetroBook = class {
         at: (/* @__PURE__ */ new Date()).toISOString(),
         retroId,
         ...scope2,
-        root: (0, import_node_path8.resolve)(scope2.root),
+        root: (0, import_node_path9.resolve)(scope2.root),
         preferences
       }
     ]);
@@ -2010,6 +1987,368 @@ var RetroBook = class {
     await (0, import_promises7.appendFile)(file, events.map((e) => JSON.stringify(e) + "\n").join(""), { flag: "a" });
   }
 };
+
+// ../core/src/worktrees.ts
+var import_node_child_process4 = require("node:child_process");
+var import_node_crypto3 = require("node:crypto");
+var import_promises9 = require("node:fs/promises");
+var import_node_path11 = require("node:path");
+
+// ../core/src/storeHome.ts
+var import_node_child_process3 = require("node:child_process");
+var import_promises8 = require("node:fs/promises");
+var import_node_path10 = require("node:path");
+async function prepareStoreHome(home) {
+  const store = (0, import_node_path10.join)(home, STORE_DIR);
+  if (await (0, import_promises8.stat)(store).catch(() => null)) return;
+  const exclude = await new Promise(
+    (done) => (0, import_node_child_process3.execFile)(
+      "git",
+      ["rev-parse", "--git-path", "info/exclude"],
+      { cwd: home, timeout: 3e3 },
+      (err, out2) => done(err ? null : out2.trim())
+    )
+  );
+  if (exclude) {
+    const file = (0, import_node_path10.isAbsolute)(exclude) ? exclude : (0, import_node_path10.join)(home, exclude);
+    const current = await (0, import_promises8.readFile)(file, "utf8").catch(() => "");
+    const accepted = [`${STORE_DIR}/`, STORE_DIR, `/${STORE_DIR}/`, `/${STORE_DIR}`];
+    if (!current.split("\n").some((l) => accepted.includes(l.trim()))) {
+      await (0, import_promises8.mkdir)((0, import_node_path10.join)(file, ".."), { recursive: true });
+      await (0, import_promises8.appendFile)(file, `${current === "" || current.endsWith("\n") ? "" : "\n"}${STORE_DIR}/
+`);
+    }
+  }
+  await (0, import_promises8.mkdir)(store, { recursive: true });
+}
+
+// ../core/src/worktrees.ts
+function git2(args, cwd) {
+  return new Promise(
+    (done) => (0, import_node_child_process4.execFile)("git", args, { cwd, timeout: 3e3 }, (err, stdout) => done(err ? null : stdout.trim()))
+  );
+}
+var real = (p) => (0, import_promises9.realpath)(p).catch(() => (0, import_node_path11.resolve)(p));
+async function worktreeInfo(dir) {
+  const out2 = await git2(
+    ["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir", "--show-toplevel"],
+    dir
+  );
+  const [gitDir, commonDir, top] = out2?.split("\n") ?? [];
+  if (!gitDir || !commonDir || !top) return null;
+  const [realGit, repo, worktree2] = await Promise.all([real(gitDir), real(commonDir), real(top)]);
+  const list3 = await git2(["worktree", "list", "--porcelain"], dir) ?? "";
+  const first = list3.split("\n\n")[0]?.split("\n") ?? [];
+  const mainPath = first.find((l) => l.startsWith("worktree "))?.slice("worktree ".length);
+  const main = mainPath && !first.includes("bare") ? await real(mainPath) : null;
+  const branch = await git2(["symbolic-ref", "--quiet", "--short", "HEAD"], dir) || null;
+  return { worktree: worktree2, repo, linked: realGit !== repo, main, branch };
+}
+async function worktreesOf2(dir) {
+  const out2 = await git2(["worktree", "list", "--porcelain"], dir) ?? "";
+  const paths = out2.split("\n").filter((l) => l.startsWith("worktree ")).map((l) => l.slice("worktree ".length));
+  return Promise.all(paths.map(real));
+}
+function slotOf(storeRoot) {
+  const name = (0, import_node_path11.basename)(storeRoot).replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 60) || "worktree";
+  return `${name}-${(0, import_node_crypto3.createHash)("sha256").update(storeRoot).digest("hex").slice(0, 8)}`;
+}
+async function saveWorktreeThreads(dir, env = process.env) {
+  const info = await worktreeInfo(dir);
+  if (!info) throw new Error(`${dir} is not in a git repository`);
+  if (!info.linked)
+    throw new Error(
+      `${info.worktree} is the main worktree of its repository, not a linked one: git worktree remove never deletes it, so its comments are safe`
+    );
+  if (!info.main) throw new Error(`the repository of ${info.worktree} has no main worktree (bare): nowhere to save`);
+  const result = {
+    worktree: info.worktree,
+    branch: info.branch,
+    main: info.main,
+    copies: [],
+    threads: 0,
+    published: 0
+  };
+  const stores = await storesUnder(info.worktree, env);
+  if (stores.length === 0) return result;
+  await prepareStoreHome(info.main);
+  const mainStore = new Store(info.main);
+  await mainStore.ensureInitialized();
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  for (const root of stores) {
+    const from = await real(root);
+    const target = (0, import_node_path11.join)(mainStore.dir, SAVED_DIR, slotOf(from));
+    let threads = 0;
+    for (const kind of ["threads", "reviews"]) {
+      const files = await (0, import_promises9.readdir)((0, import_node_path11.join)(from, STORE_DIR, kind)).catch(() => []);
+      const journals = files.filter((f) => kind === "threads" ? Store.threadIdOf(f) !== null : f.endsWith(".jsonl"));
+      if (journals.length === 0) continue;
+      await (0, import_promises9.mkdir)((0, import_node_path11.join)(target, kind), { recursive: true });
+      for (const f of journals) await (0, import_promises9.copyFile)((0, import_node_path11.join)(from, STORE_DIR, kind, f), (0, import_node_path11.join)(target, kind, f));
+      if (kind === "threads") threads = journals.length;
+    }
+    if (threads === 0) continue;
+    const previous = parseOrigin(await (0, import_promises9.readFile)((0, import_node_path11.join)(target, "origin.json"), "utf8").catch(() => ""));
+    const origin = {
+      v: 1,
+      worktree: info.worktree,
+      root: from,
+      repo: info.repo,
+      branch: info.branch,
+      firstSavedAt: previous?.firstSavedAt ?? now,
+      savedAt: now
+    };
+    const tmp = (0, import_node_path11.join)(target, `origin.json.${process.pid}.tmp`);
+    await (0, import_promises9.writeFile)(tmp, JSON.stringify(origin, null, 2) + "\n");
+    await (0, import_promises9.rename)(tmp, (0, import_node_path11.join)(target, "origin.json"));
+    const published = (await new Store(from, target).loadHistory()).threads.length;
+    result.copies.push({ from, dir: target, threads, published });
+    result.threads += threads;
+    result.published += published;
+  }
+  return result;
+}
+
+// ../core/src/cadence.ts
+var DEFAULT_CADENCE = thresholdsOf(DEFAULT_CONFIG);
+function thresholdsOf(c) {
+  return { days: c.retroReminderDays, bytes: c.retroReminderSizeKB * 1e3, maxDays: c.retroReminderMaxDays };
+}
+var DAY = 864e5;
+async function retroCadence(root, opts = {}) {
+  const env = opts.env ?? process.env;
+  const now = opts.now ?? Date.now();
+  const dir = (0, import_node_path12.resolve)(root);
+  if (dir === LOOSE_ROOT || (0, import_node_path12.dirname)(dir) === dir) return null;
+  const thresholds = opts.thresholds ?? thresholdsOf(await readConfig(env));
+  const last = await lastRetroCovering(dir);
+  let since = last ? Date.parse(last.until) : null;
+  const history2 = await projectHistory(dir, { since: since === null ? null : new Date(since + 1), env });
+  const threads = history2.stores.flatMap((s) => s.threads);
+  if (since === null && threads.length > 0)
+    since = threads.reduce((first, t) => Math.min(first, Date.parse(t.createdAt)), Infinity);
+  const days = since === null ? 0 : Math.max(0, Math.floor((now - since) / DAY));
+  const reasons = [];
+  if (threads.length > 0) {
+    if (days >= Math.min(thresholds.days, thresholds.maxDays)) reasons.push("days");
+    if (history2.bytes >= thresholds.bytes) reasons.push("size");
+    if (days >= thresholds.maxDays) reasons.push("max-days");
+  }
+  return {
+    root: dir,
+    lastRetro: last ? { id: last.id, root: last.root, until: last.until } : null,
+    since: since === null ? null : new Date(since).toISOString(),
+    days,
+    threads: threads.length,
+    bytes: history2.bytes,
+    thresholds,
+    due: reasons.length > 0,
+    reasons
+  };
+}
+async function lastRetroCovering(dir) {
+  return lastFinished(await retrosCovering(dir));
+}
+async function retrosCovering(dir) {
+  const target = (0, import_node_path12.resolve)(dir);
+  const real2 = await (0, import_promises10.realpath)(target).catch(() => target);
+  const found = await retrosAbove([target, real2]);
+  const info = await worktreeInfo(real2);
+  if (info) {
+    const rel = (0, import_node_path12.relative)(info.worktree, real2);
+    if (!rel.startsWith("..") && !(0, import_node_path12.isAbsolute)(rel)) {
+      for (const wt of await worktreesOf2(real2)) {
+        if (wt === info.worktree) continue;
+        found.push(...await retrosAbove([(0, import_node_path12.join)(wt, rel)]));
+      }
+    }
+  }
+  const seen = /* @__PURE__ */ new Set();
+  return found.filter((r) => !seen.has(r.id) && seen.add(r.id));
+}
+var lastFinished = (retros) => retros.filter((r) => r.finishedAt !== null).reduce((a, r) => !a || r.until > a.until ? r : a, null);
+async function retrosAbove(dirs) {
+  const covers = (r) => dirs.some((d) => d === r || d.startsWith(r.endsWith(import_node_path12.sep) ? r : r + import_node_path12.sep));
+  const found = [];
+  for (let d = dirs[0]; ; d = (0, import_node_path12.dirname)(d)) {
+    for (const r of await readRetros((0, import_node_path12.join)(d, STORE_DIR, RETROS_DIR)).catch(() => [])) {
+      const rootReal = await (0, import_promises10.realpath)(r.root).catch(() => r.root);
+      if (covers(r.root) || covers(rootReal)) found.push(r);
+    }
+    if ((0, import_node_path12.dirname)(d) === d) return found;
+  }
+}
+async function retroReading(dirs) {
+  const until = [];
+  const reading = /* @__PURE__ */ new Set();
+  for (const dir of dirs) {
+    const retros = await retrosCovering(dir);
+    if (retros.length === 0) continue;
+    until.push(lastFinished(retros)?.until ?? null);
+    for (const r of retros) if (r.finishedAt === null) for (const id of r.threads) reading.add(id);
+  }
+  return until.length === 0 ? null : { until, reading };
+}
+function unreadByRetro(reading, id, lastActivityAt) {
+  if (reading.reading.has(id)) return true;
+  return reading.until.some((u) => u === null || lastActivityAt > u);
+}
+function formatBytes(n) {
+  if (n < 1e3) return `${n} B`;
+  if (n < 1e6) return `${(n / 1e3).toFixed(1)} KB`;
+  return `${(n / 1e6).toFixed(1)} MB`;
+}
+function cadenceSummary(c) {
+  const day2 = (iso) => iso.slice(0, 10);
+  const days = `${c.days} day${c.days === 1 ? "" : "s"}`;
+  const data = `${formatBytes(c.bytes)} of review threads (${c.threads})`;
+  if (c.lastRetro) return `${days} and ${data} since the last retro (${day2(c.lastRetro.until)})`;
+  return c.since ? `${days} and ${data} since the first thread (${day2(c.since)}), no retro yet` : `${data}, no retro yet`;
+}
+function dueReasons(c) {
+  const t = c.thresholds;
+  return c.reasons.map(
+    (r) => r === "days" ? `${c.days} days since ${c.lastRetro ? "the last retro" : "the first thread"} (reminder at ${Math.min(t.days, t.maxDays)})` : r === "size" ? `${formatBytes(c.bytes)} of threads to look back at (reminder at ${formatBytes(t.bytes)})` : `${t.maxDays} days or more: agents delete their conversations after a while (often 30 days), and the retro reads back those linked to replies`
+  );
+}
+
+// ../core/src/archive.ts
+var storeOf = (s, env) => s.saved ? new Store(s.root, s.saved.dir) : storeAt(s.root, env);
+async function projectThreads(roots, env = process.env) {
+  const found = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const root of roots) {
+    for (const s of await projectStores(root, env)) {
+      const store = storeOf(s, env);
+      const key2 = await (0, import_promises11.realpath)(store.dir).catch(() => store.dir);
+      if (seen.has(key2)) continue;
+      seen.add(key2);
+      found.push({ s, store });
+    }
+  }
+  found.sort((a, b) => Number(a.s.origin === "saved") - Number(b.s.origin === "saved"));
+  const loaded = await Promise.all(found.map(async (f) => ({ ...f, threads: (await f.store.loadHistory()).threads })));
+  const byId = /* @__PURE__ */ new Map();
+  for (const { s, store, threads } of loaded) {
+    for (const thread of threads) {
+      const known = byId.get(thread.id);
+      const live = s.origin === "saved" ? 0 : 1;
+      if (!known) byId.set(thread.id, { thread, store: s, copies: [store], live });
+      else {
+        known.copies.push(store);
+        known.live += live;
+        if (thread.bytes > known.thread.bytes) Object.assign(known, { thread, store: s });
+      }
+    }
+  }
+  return [...byId.values()].sort(
+    (a, b) => a.thread.createdAt.localeCompare(b.thread.createdAt) || a.thread.id.localeCompare(b.thread.id)
+  );
+}
+function parseDateArg(value, now = Date.now()) {
+  const days = /^(\d+)d$/.exec(value.trim());
+  if (days) return new Date(now - Number(days[1]) * 864e5);
+  const day2 = /^(\d{4})-(\d{2})-(\d{2})(T.+)?$/.exec(value.trim());
+  if (!day2) return null;
+  const date = new Date(day2[4] ? value.trim() : `${day2[1]}-${day2[2]}-${day2[3]}T00:00:00`);
+  const exists = (/* @__PURE__ */ new Date(`${day2[1]}-${day2[2]}-${day2[3]}T00:00:00Z`)).getUTCDate() === +day2[3];
+  return exists && !Number.isNaN(date.getTime()) ? date : null;
+}
+function dateArgLabel(value, date) {
+  const pad = (n) => String(n).padStart(2, "0");
+  const day2 = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  const days = /^(\d+)d$/.exec(value.trim());
+  if (days) return `${day2} (${days[1]} day${days[1] === "1" ? "" : "s"})`;
+  return /T/.test(value) ? `${day2} ${pad(date.getHours())}:${pad(date.getMinutes())}` : day2;
+}
+var before = (at, date) => at !== null && Date.parse(at) < date.getTime();
+function resolvedBefore(threads, date) {
+  return threads.filter(
+    ({ thread: t }) => t.state === "resolved" && t.archivedAt === null && !t.hasDrafts && before(t.resolvedAt, date)
+  );
+}
+function archivedThreads(threads) {
+  return threads.filter((t) => t.thread.archivedAt !== null).sort((a, b) => b.thread.archivedAt.localeCompare(a.thread.archivedAt));
+}
+var isFinished = (t) => t.state === "resolved" || t.state === "deleted" || t.archivedAt !== null;
+function purgePlan(threads, date, reading) {
+  const quiet = threads.filter((t) => before(t.thread.lastActivityAt, date));
+  const purgeable = (t) => isFinished(t.thread) && !t.thread.hasDrafts;
+  const unread = (t) => !!reading && unreadByRetro(reading, t.thread.id, t.thread.lastActivityAt);
+  const purged = quiet.filter((t) => purgeable(t) && !unread(t));
+  return {
+    threads: purged,
+    inProgress: quiet.filter((t) => !purgeable(t)),
+    unread: quiet.filter((t) => purgeable(t) && unread(t)),
+    retro: !!reading,
+    bytes: purged.reduce((n, t) => n + t.thread.bytes, 0)
+  };
+}
+async function historyPlan(roots, env = process.env) {
+  const deleted = (await projectThreads(roots, env)).filter((t) => t.thread.state === "deleted");
+  const saved = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const root of roots)
+    for (const s of await projectStores(root, env))
+      if (s.saved && !seen.has(s.saved.dir)) {
+        seen.add(s.saved.dir);
+        saved.push(s);
+      }
+  return { deleted, saved };
+}
+async function eraseHistory(plan) {
+  const result = await purgeThreads(plan.deleted);
+  if (result.failed.length > 0) throw new Error(result.failed[0].error);
+  let saved = 0;
+  for (const s of plan.saved) {
+    if (await (0, import_promises11.stat)(s.saved.dir).catch(() => null)) saved++;
+    await (0, import_promises11.rm)(s.saved.dir, { recursive: true, force: true });
+  }
+  return { threads: result.done.length, saved };
+}
+function historySummary(deleted, saved) {
+  const parts = [
+    ...deleted > 0 ? [`${deleted} deleted thread${deleted === 1 ? "" : "s"}`] : [],
+    ...saved > 0 ? [`${saved} ${saved === 1 ? "copy" : "copies"} of worktree threads`] : []
+  ];
+  return parts.length === 0 ? null : parts.join(" and ");
+}
+function archiveThreads(threads) {
+  return inStores(threads, false, async (store, id) => {
+    const was = (await store.loadThread(id)).state?.archived;
+    await store.archiveThread(id);
+    return was === false;
+  });
+}
+function unarchiveThreads(threads) {
+  return inStores(threads, false, async (store, id) => {
+    const was = (await store.loadThread(id)).state?.archived;
+    await store.unarchiveThread(id);
+    return was === true;
+  });
+}
+function purgeThreads(threads) {
+  return inStores(threads, true, (store, id) => store.purgeThread(id));
+}
+async function inStores(threads, everyCopy, action) {
+  const result = { done: [], unchanged: [], failed: [] };
+  for (const { thread, copies, live } of threads) {
+    const errors = [];
+    let changed = false;
+    const stores = everyCopy || live === 0 ? copies : copies.slice(0, live);
+    for (const store of stores) {
+      try {
+        if (await action(store, thread.id)) changed = true;
+      } catch (err) {
+        errors.push(err instanceof Error ? err.message : String(err));
+      }
+    }
+    if (changed) result.done.push(thread.id);
+    else if (errors.length === 0) result.unchanged.push(thread.id);
+    else result.failed.push({ id: thread.id, error: errors[0] });
+  }
+  return result;
+}
 
 // ../core/src/retroGuards.ts
 function threadSignals(t) {
@@ -2367,16 +2706,16 @@ function verify(input2, ctx, result) {
 }
 
 // ../core/src/retroKey.ts
-var import_promises8 = require("node:fs/promises");
+var import_promises12 = require("node:fs/promises");
 var import_node_os2 = require("node:os");
-var import_node_path9 = require("node:path");
+var import_node_path13 = require("node:path");
 function jevKeyFile(env = process.env) {
-  return (0, import_node_path9.join)(env.HOME?.trim() || (0, import_node_os2.homedir)(), ".config", "local-review", "jev-key");
+  return (0, import_node_path13.join)(env.HOME?.trim() || (0, import_node_os2.homedir)(), ".config", "local-review", "jev-key");
 }
 async function jevKeyStatus(env = process.env) {
   const path = jevKeyFile(env);
   const fromEnv = (env.JEV_API_KEY ?? "").trim() !== "";
-  const st = await (0, import_promises8.stat)(path).catch(() => null);
+  const st = await (0, import_promises12.stat)(path).catch(() => null);
   const exists = st?.isFile() === true;
   const status2 = {
     source: fromEnv ? "env" : exists ? "file" : "none",
@@ -2392,7 +2731,7 @@ async function jevKeyStatus(env = process.env) {
   status2.mode = (st.mode & 511).toString(8);
   const mine = typeof process.getuid !== "function" || st.uid === process.getuid();
   status2.private = (st.mode & 63) === 0 && mine;
-  status2.inRepo = await worktreeTopOf((0, import_node_path9.dirname)(path));
+  status2.inRepo = await worktreeTopOf((0, import_node_path13.dirname)(path));
   if (!status2.private) status2.fixes.push(`chmod 600 "${path}"`);
   if (status2.inRepo)
     status2.fixes.push(`move it out of the repository ${status2.inRepo} (e.g. to the default place, ${jevKeyFile(env)})`);
@@ -2405,13 +2744,13 @@ function jevKeySetupCommand(path = "$HOME/.config/local-review/jev-key") {
 }
 
 // ../core/src/retroScope.ts
-var import_promises9 = require("node:fs/promises");
-var import_node_path10 = require("node:path");
-var DAY = 864e5;
+var import_promises13 = require("node:fs/promises");
+var import_node_path14 = require("node:path");
+var DAY2 = 864e5;
 async function retroScope(root, opts = {}) {
   const env = opts.env ?? process.env;
   const now = opts.now ?? Date.now();
-  const dir = (0, import_node_path10.resolve)(root);
+  const dir = (0, import_node_path14.resolve)(root);
   const home = await retroHome(dir, env);
   const book2 = new RetroBook(home);
   const retros = (await book2.list()).filter((r) => r.root === dir);
@@ -2429,7 +2768,7 @@ async function retroScope(root, opts = {}) {
       ["last 7 days", 7],
       ["last 30 days", 30]
     ]) {
-      const from = now - days * DAY;
+      const from = now - days * DAY2;
       const ts = whole.stores.flatMap((s) => s.threads).filter((t) => Date.parse(t.lastActivityAt) >= from);
       options.push({
         label: label2,
@@ -2630,289 +2969,9 @@ function linkedSessions(t) {
   return [...new Set(ids2)];
 }
 async function writeRetroFile(book2, id, name, content) {
-  const file = (0, import_node_path10.join)(await book2.workDir(id), name);
-  await (0, import_promises9.writeFile)(file, content);
+  const file = (0, import_node_path14.join)(await book2.workDir(id), name);
+  await (0, import_promises13.writeFile)(file, content);
   return file;
-}
-
-// ../core/src/config.ts
-var import_promises10 = require("node:fs/promises");
-var import_node_path11 = require("node:path");
-var DEFAULT_CONFIG = {
-  autoSaveWorktrees: true,
-  retroReminder: true,
-  retroReminderDays: 7,
-  retroReminderSizeKB: 1e3,
-  retroReminderMaxDays: 25
-};
-var CONFIG_KEYS = {
-  "auto-save-worktrees": {
-    key: "autoSaveWorktrees",
-    kind: "boolean",
-    help: "on|off \u2014 before an agent removes a git worktree, its hook saves the worktree's threads (default: on)"
-  },
-  "retro-reminder": {
-    key: "retroReminder",
-    kind: "boolean",
-    help: "on|off \u2014 when a retro is due, the agent says so at the start of a session (default: on)"
-  },
-  "retro-reminder-days": {
-    key: "retroReminderDays",
-    kind: "number",
-    help: "days \u2014 a retro is due this many days after the last one (default: 7)"
-  },
-  "retro-reminder-size": {
-    key: "retroReminderSizeKB",
-    kind: "number",
-    help: "KB \u2014 or sooner, once the threads since the last one weigh this much (default: 1000, i.e. 1 MB)"
-  },
-  "retro-reminder-max-days": {
-    key: "retroReminderMaxDays",
-    kind: "number",
-    help: "days \u2014 and never later than this, to keep the agent conversations linked to replies (default: 25)"
-  }
-};
-var configFile = (env = process.env) => (0, import_node_path11.join)(localReviewHome(env), "config.json");
-var validSettingNumber = (x) => typeof x === "number" && Number.isInteger(x) && x >= 1;
-async function readConfig(env = process.env) {
-  const config2 = { ...DEFAULT_CONFIG };
-  let raw;
-  try {
-    raw = JSON.parse(await (0, import_promises10.readFile)(configFile(env), "utf8"));
-  } catch {
-    return config2;
-  }
-  if (typeof raw !== "object" || raw === null) return config2;
-  const values = raw;
-  for (const setting of Object.values(CONFIG_KEYS)) {
-    const value = values[setting.key];
-    if (setting.kind === "boolean" && typeof value === "boolean") config2[setting.key] = value;
-    if (setting.kind === "number" && validSettingNumber(value)) config2[setting.key] = value;
-  }
-  return config2;
-}
-async function writeConfig(change, env = process.env) {
-  const file = configFile(env);
-  let current = {};
-  try {
-    const raw = JSON.parse(await (0, import_promises10.readFile)(file, "utf8"));
-    if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) current = raw;
-  } catch {
-  }
-  const next = { ...current, ...change };
-  await (0, import_promises10.mkdir)(localReviewHome(env), { recursive: true });
-  const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
-  await (0, import_promises10.writeFile)(tmp, JSON.stringify(next, null, 2) + "\n");
-  await (0, import_promises10.rename)(tmp, file);
-  return readConfig(env);
-}
-
-// ../core/src/worktrees.ts
-var import_node_child_process4 = require("node:child_process");
-var import_node_crypto3 = require("node:crypto");
-var import_promises12 = require("node:fs/promises");
-var import_node_path13 = require("node:path");
-
-// ../core/src/storeHome.ts
-var import_node_child_process3 = require("node:child_process");
-var import_promises11 = require("node:fs/promises");
-var import_node_path12 = require("node:path");
-async function prepareStoreHome(home) {
-  const store = (0, import_node_path12.join)(home, STORE_DIR);
-  if (await (0, import_promises11.stat)(store).catch(() => null)) return;
-  const exclude = await new Promise(
-    (done) => (0, import_node_child_process3.execFile)(
-      "git",
-      ["rev-parse", "--git-path", "info/exclude"],
-      { cwd: home, timeout: 3e3 },
-      (err, out2) => done(err ? null : out2.trim())
-    )
-  );
-  if (exclude) {
-    const file = (0, import_node_path12.isAbsolute)(exclude) ? exclude : (0, import_node_path12.join)(home, exclude);
-    const current = await (0, import_promises11.readFile)(file, "utf8").catch(() => "");
-    const accepted = [`${STORE_DIR}/`, STORE_DIR, `/${STORE_DIR}/`, `/${STORE_DIR}`];
-    if (!current.split("\n").some((l) => accepted.includes(l.trim()))) {
-      await (0, import_promises11.mkdir)((0, import_node_path12.join)(file, ".."), { recursive: true });
-      await (0, import_promises11.appendFile)(file, `${current === "" || current.endsWith("\n") ? "" : "\n"}${STORE_DIR}/
-`);
-    }
-  }
-  await (0, import_promises11.mkdir)(store, { recursive: true });
-}
-
-// ../core/src/worktrees.ts
-function git2(args, cwd) {
-  return new Promise(
-    (done) => (0, import_node_child_process4.execFile)("git", args, { cwd, timeout: 3e3 }, (err, stdout) => done(err ? null : stdout.trim()))
-  );
-}
-var real = (p) => (0, import_promises12.realpath)(p).catch(() => (0, import_node_path13.resolve)(p));
-async function worktreeInfo(dir) {
-  const out2 = await git2(
-    ["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir", "--show-toplevel"],
-    dir
-  );
-  const [gitDir, commonDir, top] = out2?.split("\n") ?? [];
-  if (!gitDir || !commonDir || !top) return null;
-  const [realGit, repo, worktree2] = await Promise.all([real(gitDir), real(commonDir), real(top)]);
-  const list3 = await git2(["worktree", "list", "--porcelain"], dir) ?? "";
-  const first = list3.split("\n\n")[0]?.split("\n") ?? [];
-  const mainPath = first.find((l) => l.startsWith("worktree "))?.slice("worktree ".length);
-  const main = mainPath && !first.includes("bare") ? await real(mainPath) : null;
-  const branch = await git2(["symbolic-ref", "--quiet", "--short", "HEAD"], dir) || null;
-  return { worktree: worktree2, repo, linked: realGit !== repo, main, branch };
-}
-async function worktreesOf2(dir) {
-  const out2 = await git2(["worktree", "list", "--porcelain"], dir) ?? "";
-  const paths = out2.split("\n").filter((l) => l.startsWith("worktree ")).map((l) => l.slice("worktree ".length));
-  return Promise.all(paths.map(real));
-}
-function slotOf(storeRoot) {
-  const name = (0, import_node_path13.basename)(storeRoot).replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 60) || "worktree";
-  return `${name}-${(0, import_node_crypto3.createHash)("sha256").update(storeRoot).digest("hex").slice(0, 8)}`;
-}
-async function saveWorktreeThreads(dir, env = process.env) {
-  const info = await worktreeInfo(dir);
-  if (!info) throw new Error(`${dir} is not in a git repository`);
-  if (!info.linked)
-    throw new Error(
-      `${info.worktree} is the main worktree of its repository, not a linked one: git worktree remove never deletes it, so its comments are safe`
-    );
-  if (!info.main) throw new Error(`the repository of ${info.worktree} has no main worktree (bare): nowhere to save`);
-  const result = {
-    worktree: info.worktree,
-    branch: info.branch,
-    main: info.main,
-    copies: [],
-    threads: 0,
-    published: 0
-  };
-  const stores = await storesUnder(info.worktree, env);
-  if (stores.length === 0) return result;
-  await prepareStoreHome(info.main);
-  const mainStore = new Store(info.main);
-  await mainStore.ensureInitialized();
-  const now = (/* @__PURE__ */ new Date()).toISOString();
-  for (const root of stores) {
-    const from = await real(root);
-    const target = (0, import_node_path13.join)(mainStore.dir, SAVED_DIR, slotOf(from));
-    let threads = 0;
-    for (const kind of ["threads", "reviews"]) {
-      const files = await (0, import_promises12.readdir)((0, import_node_path13.join)(from, STORE_DIR, kind)).catch(() => []);
-      const journals = files.filter((f) => kind === "threads" ? Store.threadIdOf(f) !== null : f.endsWith(".jsonl"));
-      if (journals.length === 0) continue;
-      await (0, import_promises12.mkdir)((0, import_node_path13.join)(target, kind), { recursive: true });
-      for (const f of journals) await (0, import_promises12.copyFile)((0, import_node_path13.join)(from, STORE_DIR, kind, f), (0, import_node_path13.join)(target, kind, f));
-      if (kind === "threads") threads = journals.length;
-    }
-    if (threads === 0) continue;
-    const previous = parseOrigin(await (0, import_promises12.readFile)((0, import_node_path13.join)(target, "origin.json"), "utf8").catch(() => ""));
-    const origin = {
-      v: 1,
-      worktree: info.worktree,
-      root: from,
-      repo: info.repo,
-      branch: info.branch,
-      firstSavedAt: previous?.firstSavedAt ?? now,
-      savedAt: now
-    };
-    const tmp = (0, import_node_path13.join)(target, `origin.json.${process.pid}.tmp`);
-    await (0, import_promises12.writeFile)(tmp, JSON.stringify(origin, null, 2) + "\n");
-    await (0, import_promises12.rename)(tmp, (0, import_node_path13.join)(target, "origin.json"));
-    const published = (await new Store(from, target).loadHistory()).threads.length;
-    result.copies.push({ from, dir: target, threads, published });
-    result.threads += threads;
-    result.published += published;
-  }
-  return result;
-}
-
-// ../core/src/cadence.ts
-var import_promises13 = require("node:fs/promises");
-var import_node_path14 = require("node:path");
-var DEFAULT_CADENCE = thresholdsOf(DEFAULT_CONFIG);
-function thresholdsOf(c) {
-  return { days: c.retroReminderDays, bytes: c.retroReminderSizeKB * 1e3, maxDays: c.retroReminderMaxDays };
-}
-var DAY2 = 864e5;
-async function retroCadence(root, opts = {}) {
-  const env = opts.env ?? process.env;
-  const now = opts.now ?? Date.now();
-  const dir = (0, import_node_path14.resolve)(root);
-  if (dir === LOOSE_ROOT || (0, import_node_path14.dirname)(dir) === dir) return null;
-  const thresholds = opts.thresholds ?? thresholdsOf(await readConfig(env));
-  const last = await lastRetroCovering(dir);
-  let since = last ? Date.parse(last.until) : null;
-  const history2 = await projectHistory(dir, { since: since === null ? null : new Date(since + 1), env });
-  const threads = history2.stores.flatMap((s) => s.threads);
-  if (since === null && threads.length > 0)
-    since = threads.reduce((first, t) => Math.min(first, Date.parse(t.createdAt)), Infinity);
-  const days = since === null ? 0 : Math.max(0, Math.floor((now - since) / DAY2));
-  const reasons = [];
-  if (threads.length > 0) {
-    if (days >= Math.min(thresholds.days, thresholds.maxDays)) reasons.push("days");
-    if (history2.bytes >= thresholds.bytes) reasons.push("size");
-    if (days >= thresholds.maxDays) reasons.push("max-days");
-  }
-  return {
-    root: dir,
-    lastRetro: last ? { id: last.id, root: last.root, until: last.until } : null,
-    since: since === null ? null : new Date(since).toISOString(),
-    days,
-    threads: threads.length,
-    bytes: history2.bytes,
-    thresholds,
-    due: reasons.length > 0,
-    reasons
-  };
-}
-async function lastRetroCovering(dir) {
-  const target = (0, import_node_path14.resolve)(dir);
-  const real2 = await (0, import_promises13.realpath)(target).catch(() => target);
-  let best = await lastRetroAbove([target, real2]);
-  const info = await worktreeInfo(real2);
-  if (info) {
-    const rel = (0, import_node_path14.relative)(info.worktree, real2);
-    if (!rel.startsWith("..") && !(0, import_node_path14.isAbsolute)(rel)) {
-      for (const wt of await worktreesOf2(real2)) {
-        if (wt === info.worktree) continue;
-        const r = await lastRetroAbove([(0, import_node_path14.join)(wt, rel)]);
-        if (r && (!best || r.until > best.until)) best = r;
-      }
-    }
-  }
-  return best;
-}
-async function lastRetroAbove(dirs) {
-  const covers = (r) => dirs.some((d) => d === r || d.startsWith(r.endsWith(import_node_path14.sep) ? r : r + import_node_path14.sep));
-  let best = null;
-  for (let d = dirs[0]; ; d = (0, import_node_path14.dirname)(d)) {
-    for (const r of await readRetros((0, import_node_path14.join)(d, STORE_DIR, RETROS_DIR)).catch(() => [])) {
-      if (r.finishedAt === null) continue;
-      const rootReal = await (0, import_promises13.realpath)(r.root).catch(() => r.root);
-      if ((covers(r.root) || covers(rootReal)) && (!best || r.until > best.until)) best = r;
-    }
-    if ((0, import_node_path14.dirname)(d) === d) return best;
-  }
-}
-function formatBytes(n) {
-  if (n < 1e3) return `${n} B`;
-  if (n < 1e6) return `${(n / 1e3).toFixed(1)} KB`;
-  return `${(n / 1e6).toFixed(1)} MB`;
-}
-function cadenceSummary(c) {
-  const day2 = (iso) => iso.slice(0, 10);
-  const days = `${c.days} day${c.days === 1 ? "" : "s"}`;
-  const data = `${formatBytes(c.bytes)} of review threads (${c.threads})`;
-  if (c.lastRetro) return `${days} and ${data} since the last retro (${day2(c.lastRetro.until)})`;
-  return c.since ? `${days} and ${data} since the first thread (${day2(c.since)}), no retro yet` : `${data}, no retro yet`;
-}
-function dueReasons(c) {
-  const t = c.thresholds;
-  return c.reasons.map(
-    (r) => r === "days" ? `${c.days} days since ${c.lastRetro ? "the last retro" : "the first thread"} (reminder at ${Math.min(t.days, t.maxDays)})` : r === "size" ? `${formatBytes(c.bytes)} of threads to look back at (reminder at ${formatBytes(t.bytes)})` : `${t.maxDays} days or more: agents delete their conversations after a while (often 30 days), and the retro reads back those linked to replies`
-  );
 }
 
 // src/digest.ts
@@ -3119,8 +3178,13 @@ when the user asks:
                                           --yes, only says how many and which: show the user, and
                                           run it again with --yes once they confirm (--count: the
                                           number announced; refused if it changed). Threads still
-                                          in progress are kept. Keep a copy first: lr history
-                                          --format json --out <file>`;
+                                          in progress are kept, and so are those a retro has not
+                                          read yet. Keep a copy first: lr history --format json
+                                          --out <file>
+  lr purge --history [--yes] [--format md|json]
+                                          Erase the history kept for retros: the deleted threads,
+                                          and the threads saved from worktrees (when the user no
+                                          longer keeps it: lr config set keep-history off)`;
 async function archive(rest, io, dateOption) {
   const { values, positionals } = parse(rest, {
     "resolved-before": { type: "string" },
@@ -3157,7 +3221,7 @@ async function archive(rest, io, dateOption) {
   const selected = date ? resolvedBefore(threads, date) : byIds(threads, positionals, root);
   const result = await archiveThreads(selected);
   return report(io, format, result, selected, root, {
-    none: date ? `No resolved thread to archive: none was resolved before ${resolvedOption} in ${root}.` : "Nothing to archive.",
+    none: date ? `No resolved thread to archive: none was resolved before ${dateArgLabel(resolvedOption, date)} in ${root}.` : "Nothing to archive.",
     done: (n) => `Archived ${plural2(n, "thread")}: ${n === 1 ? "it is" : "they are"} no longer shown in the editor nor in lr list, and ${n === 1 ? "stays" : "stay"} in lr history and in retros (lr unarchive <id> brings one back).`,
     unchanged: (n) => `${plural2(n, "thread")} ${n === 1 ? "was" : "were"} already archived.`
   });
@@ -3178,19 +3242,26 @@ async function unarchive(rest, io) {
 async function purge(rest, io, dateOption) {
   const { values, positionals } = parse(rest, {
     before: { type: "string" },
+    history: { type: "boolean" },
     yes: { type: "boolean" },
     count: { type: "string" },
     format: { type: "string" }
   });
   if (positionals.length > 0) throw new UsageError(`lr purge takes no argument: "${positionals[0]}"`);
   const format = formatOf(str(values.format));
+  const root = (0, import_node_path16.resolve)(io.cwd, str(values.root) ?? ".");
   const beforeOption = str(values.before);
-  if (beforeOption === void 0) throw new UsageError("lr purge needs --before <date>");
+  if (values.history === true) {
+    if (beforeOption !== void 0 || values.count !== void 0)
+      throw new UsageError("lr purge --history takes neither --before nor --count");
+    return purgeHistory(root, values.yes === true, format, io);
+  }
+  if (beforeOption === void 0) throw new UsageError("lr purge needs --before <date> (or --history)");
   const date = dateOption(beforeOption, "--before");
+  const since = dateArgLabel(beforeOption, date);
   const count = str(values.count);
   if (count !== void 0 && !/^\d+$/.test(count)) throw new UsageError(`--count must be a number, not "${count}"`);
-  const root = (0, import_node_path16.resolve)(io.cwd, str(values.root) ?? ".");
-  const plan = purgePlan(await projectThreads([root], io.env), date);
+  const plan = purgePlan(await projectThreads([root], io.env), date, await retroReading([root]));
   const n = plan.threads.length;
   if (values.yes !== true) {
     if (format === "json") {
@@ -3200,7 +3271,9 @@ async function purge(rest, io, dateOption) {
             before: date.toISOString(),
             threads: plan.threads.map((t) => threadJson2(t)),
             bytes: plan.bytes,
-            inProgress: plan.inProgress.map((t) => t.thread.id)
+            inProgress: plan.inProgress.map((t) => t.thread.id),
+            unreadByRetro: plan.unread.map((t) => t.thread.id),
+            retro: plan.retro
           },
           null,
           2
@@ -3208,11 +3281,11 @@ async function purge(rest, io, dateOption) {
       );
       return OK;
     }
-    const kept = plan.inProgress.length > 0 ? `
-${plural2(plan.inProgress.length, "thread")} as old ${plan.inProgress.length === 1 ? "is" : "are"} still in progress (open, needs-info, addressed, or with a draft reply in your review): kept.` : "";
+    const kept = (plan.inProgress.length > 0 ? `
+${plural2(plan.inProgress.length, "thread")} as old ${plan.inProgress.length === 1 ? "is" : "are"} still in progress (open, needs-info, addressed, or with a draft reply in your review): kept.` : "") + retroNote(plan);
     io.out(
-      n === 0 ? `No finished thread without activity since ${beforeOption} in ${root}: nothing to delete.${kept}` : [
-        `${plural2(n, "thread")} would be deleted for good (finished, nothing published since ${beforeOption}; ${formatBytes(plan.bytes)}):`,
+      n === 0 ? `No finished thread without activity since ${since} in ${root}: nothing to delete.${kept}` : [
+        `${plural2(n, "thread")} would be deleted for good (finished, nothing published since ${since}; ${formatBytes(plan.bytes)}):`,
         ...plan.threads.map((t) => `  ${threadLine(t, root)}`)
       ].join("\n") + kept + `
 Nothing is deleted yet: they stay in lr history and in retros until then. Keep a copy first with lr history --format json --out <file>. To delete ${n === 1 ? "it" : "these " + n} for good: lr purge --before ${beforeOption} --yes --count ${n}`
@@ -3227,9 +3300,41 @@ Nothing is deleted yet: they stay in lr history and in retros until then. Keep a
   }
   const result = await purgeThreads(plan.threads);
   return report(io, format, result, plan.threads, root, {
-    none: `No finished thread without activity since ${beforeOption}: nothing deleted.`,
+    none: `No finished thread without activity since ${since}: nothing deleted.`,
     done: (k) => `Deleted ${plural2(k, "thread")} for good (${formatBytes(plan.bytes)}).`
   });
+}
+function retroNote(plan) {
+  if (!plan.retro) return "\nNo retro in this project yet: no thread is kept for one.";
+  const k = plan.unread.length;
+  return k === 0 ? "" : `
+${plural2(k, "finished thread")} as old ${k === 1 ? "is" : "are"} not read by a retro yet: kept for the next one.`;
+}
+async function purgeHistory(root, yes, format, io) {
+  const plan = await historyPlan([root], io.env);
+  const summary = historySummary(plan.deleted.length, plan.saved.length);
+  if (!yes) {
+    if (format === "json")
+      io.out(
+        JSON.stringify(
+          { deleted: plan.deleted.map((t) => threadJson2(t)), saved: plan.saved.map((s) => s.saved.dir) },
+          null,
+          2
+        )
+      );
+    else
+      io.out(
+        summary === null ? `No history kept in ${root}: nothing to erase.` : `History kept in ${root}: ${summary}. Nothing is erased yet. To erase it for good (gone from lr history and from retros): lr purge --history --yes`
+      );
+    return OK;
+  }
+  const erased = await eraseHistory(plan);
+  if (format === "json") io.out(JSON.stringify(erased, null, 2));
+  else
+    io.out(
+      erased.threads + erased.saved === 0 ? "No history kept: nothing erased." : `Erased for good: ${historySummary(erased.threads, erased.saved)}.`
+    );
+  return OK;
 }
 function byIds(threads, ids2, root) {
   return ids2.map((id) => {
@@ -3417,7 +3522,7 @@ function day(iso) {
   const p = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
-function renderScope(s) {
+function renderScope(s, keepHistory) {
   const h = s.history;
   const period = s.source === "last-retro" ? `since the last retro (${day(s.since)})` : s.source === "all" ? "the whole history" : s.source === "given" ? `since ${day(s.since)}` : s.since ? `proposed for a first retro: since ${day(s.since)}` : "proposed for a first retro: the whole history";
   const lines = [
@@ -3425,6 +3530,9 @@ function renderScope(s) {
     "",
     `- **Period**: ${period}, until now.`,
     `- **Threads**: ${h.threads} (${HISTORY_STATES.map((st) => `${h.states[st]} ${st}`).join(", ")}).`,
+    ...keepHistory ? [] : [
+      "- **History**: not kept on this machine (keep-history is off): deleted threads are erased, so this retro does not see them."
+    ],
     `- **Size**: ${formatBytes(h.bytes)} of journals, about ${Math.round(s.estimate.tokens / 1e3)}k tokens to read.`,
     `- **Time** (estimate): classification ${minutes(s.estimate.classifyJev)} with Jev or ${minutes(s.estimate.classifyModel)} with a small model, then analysis ${minutes(s.estimate.analysis)}.`,
     `- **Retro journal**: ${(0, import_node_path17.resolve)(s.home, ".local-review", "retros")}`,
@@ -3472,10 +3580,12 @@ function renderOutcome(r) {
 }
 async function scope(c) {
   const s = await scopeOf(c);
+  const { keepHistory } = await readConfig(c.io.env);
   return out(
     c,
     {
       ...s,
+      keepHistory,
       history: void 0,
       threads: s.history.threads,
       bytes: s.history.bytes,
@@ -3487,7 +3597,7 @@ async function scope(c) {
         bytes: st.bytes
       }))
     },
-    () => renderScope(s)
+    () => renderScope(s, keepHistory)
   );
 }
 async function start(c) {
@@ -4186,7 +4296,7 @@ async function show2(rest, io) {
   const id = requireThreadId(positionals);
   const { located } = await visibleThreads(openStore(str(values.root), io));
   const found = located.find((l) => l.view.thread.id === id);
-  if (!found) throw new Error(await whyNotFound(openStore(str(values.root), io), id));
+  if (!found) throw new Error(await whyNotFound(openStore(str(values.root), io), id, io.env));
   io.out(str(values.format) === "json" ? JSON.stringify(toJson(found), null, 2) : renderThread(found));
   return EXIT.OK;
 }
@@ -4209,7 +4319,7 @@ async function reply(rest, io) {
   if (bodyFile) body2 = await (0, import_promises15.readFile)((0, import_node_path18.resolve)(io.cwd, bodyFile), "utf8");
   if (body2 === void 0 || body2.trim() === "") throw new UsageError("reply needs --body, --body-file or --body -");
   const store = openStore(str(values.root), io);
-  await assertCurrent(store, id, str(values.rev));
+  await assertCurrent(store, id, str(values.rev), io.env);
   const session2 = await replySession(id, values, io);
   const state = await store.addComment(
     id,
@@ -4236,7 +4346,7 @@ async function setStatus(rest, io) {
   const id = requireThreadId(positionals);
   const status2 = agentStatus(positionals[1]);
   const store = openStore(str(values.root), io);
-  await assertCurrent(store, id, str(values.rev));
+  await assertCurrent(store, id, str(values.rev), io.env);
   const state = await store.setStatus(id, status2, "agent", requireAgent(str(values.agent), io));
   io.out(`${state.id} is now ${state.status}.`);
   return EXIT.OK;
@@ -4280,6 +4390,12 @@ They stay in lr history and in retros after the worktree is removed.`
   );
   return EXIT.OK;
 }
+async function keptHistoryNote(io) {
+  const plan = await historyPlan([io.cwd], io.env).catch(() => null);
+  const summary = plan && historySummary(plan.deleted.length, plan.saved.length);
+  return " Deleting a thread now erases it, and nothing is saved when an agent removes a worktree." + (summary ? `
+The history already kept stays: ${summary} in ${io.cwd}. To erase it: lr purge --history (it shows what, then --yes).` : "");
+}
 async function config(rest, io) {
   const { values, positionals } = parse(rest, { format: { type: "string" } });
   const [action, name, value] = positionals;
@@ -4294,7 +4410,7 @@ async function config(rest, io) {
       if (!validSettingNumber(n)) throw new UsageError(`${name} takes a whole number, 1 or more, not "${value ?? ""}"`);
       await writeConfig({ [setting.key]: n }, io.env);
     }
-    io.out(`${name} is now ${value}.`);
+    io.out(`${name} is now ${value}.` + (name === "keep-history" && value === "off" ? await keptHistoryNote(io) : ""));
     return EXIT.OK;
   }
   if (action !== void 0) throw new UsageError(`lr config takes "set" or nothing, not "${action}"`);
@@ -4430,10 +4546,10 @@ async function subscriptions(rest, io) {
     );
   return EXIT.OK;
 }
-async function assertCurrent(store, id, rev) {
+async function assertCurrent(store, id, rev, env) {
   const { state } = await store.loadThread(id);
   const view = state ? agentView(state) : null;
-  if (!view) throw new Error(await whyNotFound(store, id));
+  if (!view) throw new Error(await whyNotFound(store, id, env));
   if (rev === void 0 || rev === view.rev) return;
   const located = locate(view, await readWorkingFile(store, view));
   throw new ChangedError(
@@ -4442,7 +4558,7 @@ async function assertCurrent(store, id, rev) {
 ${renderThread(located)}`
   );
 }
-async function whyNotFound(store, id) {
+async function whyNotFound(store, id, env) {
   let state = null;
   try {
     state = (await store.loadThread(id)).state;
@@ -4452,6 +4568,8 @@ async function whyNotFound(store, id) {
     return `Thread not found: ${id} was deleted by the user. Stop working on it; if you already changed code for it, ask the user whether to undo those changes (never undo them on your own).`;
   if (state?.archived)
     return `Thread not found: ${id} was archived by the user: it is finished. Stop working on it (lr unarchive ${id} brings it back, only if the user asks).`;
+  if (!state && !(await readConfig(env)).keepHistory)
+    return `Thread not found: ${id}. The user may have deleted it (deleted threads are erased on this machine): if you were working on it, stop, and ask the user whether to undo the changes you made for it (never undo them on your own).`;
   return `Thread not found: ${id}`;
 }
 function requireThreadId(positionals) {

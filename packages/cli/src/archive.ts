@@ -2,15 +2,21 @@ import { resolve } from 'node:path';
 import {
   archivedThreads,
   archiveThreads,
+  dateArgLabel,
+  eraseHistory,
   formatBytes,
+  historyPlan,
+  historySummary,
   projectThreads,
   purgePlan,
   purgeThreads,
   resolvedBefore,
+  retroReading,
   storeLabel,
   unarchiveThreads,
   type BatchResult,
   type ProjectThread,
+  type PurgePlan,
 } from '@local-review/core';
 import { parse, str, UsageError } from './args';
 import type { Io } from './cli';
@@ -33,8 +39,13 @@ when the user asks:
                                           --yes, only says how many and which: show the user, and
                                           run it again with --yes once they confirm (--count: the
                                           number announced; refused if it changed). Threads still
-                                          in progress are kept. Keep a copy first: lr history
-                                          --format json --out <file>`;
+                                          in progress are kept, and so are those a retro has not
+                                          read yet. Keep a copy first: lr history --format json
+                                          --out <file>
+  lr purge --history [--yes] [--format md|json]
+                                          Erase the history kept for retros: the deleted threads,
+                                          and the threads saved from worktrees (when the user no
+                                          longer keeps it: lr config set keep-history off)`;
 
 type DateOption = (value: string, flag: string) => Date;
 
@@ -80,7 +91,7 @@ export async function archive(rest: string[], io: Io, dateOption: DateOption): P
   const result = await archiveThreads(selected);
   return report(io, format, result, selected, root, {
     none: date
-      ? `No resolved thread to archive: none was resolved before ${resolvedOption} in ${root}.`
+      ? `No resolved thread to archive: none was resolved before ${dateArgLabel(resolvedOption!, date)} in ${root}.`
       : 'Nothing to archive.',
     done: (n) =>
       `Archived ${plural(n, 'thread')}: ${n === 1 ? 'it is' : 'they are'} no longer shown in the editor nor in lr list, ` +
@@ -108,19 +119,26 @@ export async function unarchive(rest: string[], io: Io): Promise<number> {
 export async function purge(rest: string[], io: Io, dateOption: DateOption): Promise<number> {
   const { values, positionals } = parse(rest, {
     before: { type: 'string' },
+    history: { type: 'boolean' },
     yes: { type: 'boolean' },
     count: { type: 'string' },
     format: { type: 'string' },
   });
   if (positionals.length > 0) throw new UsageError(`lr purge takes no argument: "${positionals[0]}"`);
   const format = formatOf(str(values.format));
+  const root = resolve(io.cwd, str(values.root) ?? '.');
   const beforeOption = str(values.before);
-  if (beforeOption === undefined) throw new UsageError('lr purge needs --before <date>');
+  if (values.history === true) {
+    if (beforeOption !== undefined || values.count !== undefined)
+      throw new UsageError('lr purge --history takes neither --before nor --count');
+    return purgeHistory(root, values.yes === true, format, io);
+  }
+  if (beforeOption === undefined) throw new UsageError('lr purge needs --before <date> (or --history)');
   const date = dateOption(beforeOption, '--before');
+  const since = dateArgLabel(beforeOption, date);
   const count = str(values.count);
   if (count !== undefined && !/^\d+$/.test(count)) throw new UsageError(`--count must be a number, not "${count}"`);
-  const root = resolve(io.cwd, str(values.root) ?? '.');
-  const plan = purgePlan(await projectThreads([root], io.env), date);
+  const plan = purgePlan(await projectThreads([root], io.env), date, await retroReading([root]));
   const n = plan.threads.length;
 
   if (values.yes !== true) {
@@ -132,6 +150,8 @@ export async function purge(rest: string[], io: Io, dateOption: DateOption): Pro
             threads: plan.threads.map((t) => threadJson(t)),
             bytes: plan.bytes,
             inProgress: plan.inProgress.map((t) => t.thread.id),
+            unreadByRetro: plan.unread.map((t) => t.thread.id),
+            retro: plan.retro,
           },
           null,
           2,
@@ -140,14 +160,14 @@ export async function purge(rest: string[], io: Io, dateOption: DateOption): Pro
       return OK;
     }
     const kept =
-      plan.inProgress.length > 0
+      (plan.inProgress.length > 0
         ? `\n${plural(plan.inProgress.length, 'thread')} as old ${plan.inProgress.length === 1 ? 'is' : 'are'} still in progress (open, needs-info, addressed, or with a draft reply in your review): kept.`
-        : '';
+        : '') + retroNote(plan);
     io.out(
       n === 0
-        ? `No finished thread without activity since ${beforeOption} in ${root}: nothing to delete.${kept}`
+        ? `No finished thread without activity since ${since} in ${root}: nothing to delete.${kept}`
         : [
-            `${plural(n, 'thread')} would be deleted for good (finished, nothing published since ${beforeOption}; ${formatBytes(plan.bytes)}):`,
+            `${plural(n, 'thread')} would be deleted for good (finished, nothing published since ${since}; ${formatBytes(plan.bytes)}):`,
             ...plan.threads.map((t) => `  ${threadLine(t, root)}`),
           ].join('\n') +
             kept +
@@ -167,9 +187,51 @@ export async function purge(rest: string[], io: Io, dateOption: DateOption): Pro
   }
   const result = await purgeThreads(plan.threads);
   return report(io, format, result, plan.threads, root, {
-    none: `No finished thread without activity since ${beforeOption}: nothing deleted.`,
+    none: `No finished thread without activity since ${since}: nothing deleted.`,
     done: (k) => `Deleted ${plural(k, 'thread')} for good (${formatBytes(plan.bytes)}).`,
   });
+}
+
+/** What the preview says about retros: the threads kept for them, or that there is no retro to wait for. */
+function retroNote(plan: PurgePlan): string {
+  if (!plan.retro) return '\nNo retro in this project yet: no thread is kept for one.';
+  const k = plan.unread.length;
+  return k === 0
+    ? ''
+    : `\n${plural(k, 'finished thread')} as old ${k === 1 ? 'is' : 'are'} not read by a retro yet: kept for the next one.`;
+}
+
+/** `lr purge --history`: says what history is kept; erases it with `--yes`. */
+async function purgeHistory(root: string, yes: boolean, format: 'md' | 'json', io: Io): Promise<number> {
+  const plan = await historyPlan([root], io.env);
+  const summary = historySummary(plan.deleted.length, plan.saved.length);
+  if (!yes) {
+    if (format === 'json')
+      io.out(
+        JSON.stringify(
+          { deleted: plan.deleted.map((t) => threadJson(t)), saved: plan.saved.map((s) => s.saved!.dir) },
+          null,
+          2,
+        ),
+      );
+    else
+      io.out(
+        summary === null
+          ? `No history kept in ${root}: nothing to erase.`
+          : `History kept in ${root}: ${summary}. Nothing is erased yet. To erase it for good (gone from lr history ` +
+              `and from retros): lr purge --history --yes`,
+      );
+    return OK;
+  }
+  const erased = await eraseHistory(plan);
+  if (format === 'json') io.out(JSON.stringify(erased, null, 2));
+  else
+    io.out(
+      erased.threads + erased.saved === 0
+        ? 'No history kept: nothing erased.'
+        : `Erased for good: ${historySummary(erased.threads, erased.saved)}.`,
+    );
+  return OK;
 }
 
 function byIds(threads: ProjectThread[], ids: string[], root: string): ProjectThread[] {

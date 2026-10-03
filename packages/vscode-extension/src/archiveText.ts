@@ -30,10 +30,17 @@ export function archiveConfirmation(n: number, day: string): { message: string; 
   };
 }
 
-/** What a purge keeps although as old: the threads still in progress. */
+/** What a purge keeps although as old: the threads still in progress, and those a retro has not read yet. */
 export function keptText(plan: PurgePlan): string {
   const k = plan.inProgress.length;
-  return k === 0 ? '' : ` ${plural(k, 'older thread')} still in progress ${k === 1 ? 'is' : 'are'} kept.`;
+  const u = plan.unread.length;
+  return (
+    (k === 0 ? '' : ` ${plural(k, 'older thread')} still in progress ${k === 1 ? 'is' : 'are'} kept.`) +
+    (u === 0
+      ? ''
+      : ` ${plural(u, 'finished thread')} not read by a retro yet ${u === 1 ? 'is' : 'are'} kept for the next one.`) +
+    (plan.retro ? '' : ' No retro in these folders yet: no thread is kept for one.')
+  );
 }
 
 /** The confirmation before deleting threads for good: how many, and that it cannot be undone. */

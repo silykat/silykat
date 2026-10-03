@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import {
   analysisInput,
+  readConfig,
   cadenceSummary,
   changeRef,
   changesToVerify,
@@ -190,7 +191,7 @@ export function day(iso: string | null): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-function renderScope(s: RetroScope): string {
+function renderScope(s: RetroScope, keepHistory: boolean): string {
   const h = s.history;
   const period =
     s.source === 'last-retro'
@@ -207,6 +208,11 @@ function renderScope(s: RetroScope): string {
     '',
     `- **Period**: ${period}, until now.`,
     `- **Threads**: ${h.threads} (${HISTORY_STATES.map((st) => `${h.states[st]} ${st}`).join(', ')}).`,
+    ...(keepHistory
+      ? []
+      : [
+          '- **History**: not kept on this machine (keep-history is off): deleted threads are erased, so this retro does not see them.',
+        ]),
     `- **Size**: ${formatBytes(h.bytes)} of journals, about ${Math.round(s.estimate.tokens / 1000)}k tokens to read.`,
     `- **Time** (estimate): classification ${minutes(s.estimate.classifyJev)} with Jev or ${minutes(s.estimate.classifyModel)} with a small model, then analysis ${minutes(s.estimate.analysis)}.`,
     `- **Retro journal**: ${resolve(s.home, '.local-review', 'retros')}`,
@@ -260,10 +266,12 @@ function renderOutcome(r: RetroState): string[] {
 
 async function scope(c: Ctx): Promise<number> {
   const s = await scopeOf(c);
+  const { keepHistory } = await readConfig(c.io.env);
   return out(
     c,
     {
       ...s,
+      keepHistory,
       history: undefined,
       threads: s.history.threads,
       bytes: s.history.bytes,
@@ -275,7 +283,7 @@ async function scope(c: Ctx): Promise<number> {
         bytes: st.bytes,
       })),
     },
-    () => renderScope(s),
+    () => renderScope(s, keepHistory),
   );
 }
 

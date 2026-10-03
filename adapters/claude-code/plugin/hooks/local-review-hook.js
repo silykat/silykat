@@ -1206,26 +1206,87 @@ function realpath2(path) {
   }
 }
 
-// ../../packages/core/src/project.ts
-var import_node_child_process2 = require("node:child_process");
-var import_promises5 = require("node:fs/promises");
-var import_node_path6 = require("node:path");
+// ../../packages/core/src/cadence.ts
+var import_promises10 = require("node:fs/promises");
+var import_node_path11 = require("node:path");
 
-// ../../packages/core/src/saved.ts
+// ../../packages/core/src/config.ts
 var import_promises4 = require("node:fs/promises");
 var import_node_path5 = require("node:path");
+var DEFAULT_CONFIG = {
+  keepHistory: true,
+  retroReminder: true,
+  retroReminderDays: 7,
+  retroReminderSizeKB: 1e3,
+  retroReminderMaxDays: 25
+};
+var CONFIG_KEYS = {
+  "keep-history": {
+    key: "keepHistory",
+    kind: "boolean",
+    help: "on|off \u2014 keep deleted threads (for lr history and retros) and save the threads of a worktree before an agent removes it; off, deleting a thread erases it (default: on)"
+  },
+  "retro-reminder": {
+    key: "retroReminder",
+    kind: "boolean",
+    help: "on|off \u2014 when a retro is due, the agent says so at the start of a session (default: on)"
+  },
+  "retro-reminder-days": {
+    key: "retroReminderDays",
+    kind: "number",
+    help: "days \u2014 a retro is due this many days after the last one (default: 7)"
+  },
+  "retro-reminder-size": {
+    key: "retroReminderSizeKB",
+    kind: "number",
+    help: "KB \u2014 or sooner, once the threads since the last one weigh this much (default: 1000, i.e. 1 MB)"
+  },
+  "retro-reminder-max-days": {
+    key: "retroReminderMaxDays",
+    kind: "number",
+    help: "days \u2014 and never later than this, to keep the agent conversations linked to replies (default: 25)"
+  }
+};
+var configFile = (env = process.env) => (0, import_node_path5.join)(localReviewHome(env), "config.json");
+var validSettingNumber = (x) => typeof x === "number" && Number.isInteger(x) && x >= 1;
+async function readConfig(env = process.env) {
+  const config = { ...DEFAULT_CONFIG };
+  let raw;
+  try {
+    raw = JSON.parse(await (0, import_promises4.readFile)(configFile(env), "utf8"));
+  } catch {
+    return config;
+  }
+  if (typeof raw !== "object" || raw === null) return config;
+  const values = raw;
+  for (const setting of Object.values(CONFIG_KEYS)) {
+    const value = values[setting.key];
+    if (setting.kind === "boolean" && typeof value === "boolean") config[setting.key] = value;
+    if (setting.kind === "number" && validSettingNumber(value)) config[setting.key] = value;
+  }
+  return config;
+}
+
+// ../../packages/core/src/project.ts
+var import_node_child_process2 = require("node:child_process");
+var import_promises6 = require("node:fs/promises");
+var import_node_path7 = require("node:path");
+
+// ../../packages/core/src/saved.ts
+var import_promises5 = require("node:fs/promises");
+var import_node_path6 = require("node:path");
 var SAVED_DIR = "saved";
 async function savedStores(storeDir) {
   let slots;
   try {
-    slots = (await (0, import_promises4.readdir)((0, import_node_path5.join)(storeDir, SAVED_DIR), { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name).sort();
+    slots = (await (0, import_promises5.readdir)((0, import_node_path6.join)(storeDir, SAVED_DIR), { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name).sort();
   } catch {
     return [];
   }
   const found = [];
   for (const slot of slots) {
-    const dir = (0, import_node_path5.join)(storeDir, SAVED_DIR, slot);
-    const origin = parseOrigin(await (0, import_promises4.readFile)((0, import_node_path5.join)(dir, "origin.json"), "utf8").catch(() => ""));
+    const dir = (0, import_node_path6.join)(storeDir, SAVED_DIR, slot);
+    const origin = parseOrigin(await (0, import_promises5.readFile)((0, import_node_path6.join)(dir, "origin.json"), "utf8").catch(() => ""));
     if (origin) found.push({ ...origin, dir });
   }
   return found;
@@ -1261,11 +1322,11 @@ var SKIPPED = /* @__PURE__ */ new Set([
 ]);
 async function projectStores(root, env = process.env) {
   if (root === LOOSE_ROOT) return [{ root, origin: "root" }];
-  const top = (0, import_node_path6.resolve)(root);
+  const top = (0, import_node_path7.resolve)(root);
   const found = [];
   const seen = /* @__PURE__ */ new Set();
   const add = async (dir, origin) => {
-    const key = await (0, import_promises5.realpath)((0, import_node_path6.join)(dir, STORE_DIR)).catch(() => (0, import_node_path6.join)(dir, STORE_DIR));
+    const key = await (0, import_promises6.realpath)((0, import_node_path7.join)(dir, STORE_DIR)).catch(() => (0, import_node_path7.join)(dir, STORE_DIR));
     if (seen.has(key)) return;
     seen.add(key);
     found.push({ root: dir, origin });
@@ -1281,7 +1342,7 @@ async function projectStores(root, env = process.env) {
       repos.push(above);
     }
   }
-  const realTop = await (0, import_promises5.realpath)(top).catch(() => top);
+  const realTop = await (0, import_promises6.realpath)(top).catch(() => top);
   const worktrees = /* @__PURE__ */ new Set();
   for (const list of await Promise.all(repos.map(worktreesOf)))
     for (const wt of list) if (!walked(realTop, wt)) worktrees.add(wt);
@@ -1291,8 +1352,8 @@ async function projectStores(root, env = process.env) {
     for (const dir of stores) await add(dir, "worktree");
   }
   for (const s of [...found]) {
-    for (const saved of await savedStores((0, import_node_path6.join)(s.root, STORE_DIR))) {
-      const key = await (0, import_promises5.realpath)(saved.dir).catch(() => saved.dir);
+    for (const saved of await savedStores((0, import_node_path7.join)(s.root, STORE_DIR))) {
+      const key = await (0, import_promises6.realpath)(saved.dir).catch(() => saved.dir);
       if (seen.has(key)) continue;
       seen.add(key);
       found.push({ root: saved.root, origin: "saved", saved });
@@ -1302,34 +1363,34 @@ async function projectStores(root, env = process.env) {
   return found.sort((a, b) => order[a.origin] - order[b.origin] || a.root.localeCompare(b.root));
 }
 function walked(top, dir) {
-  const rel = (0, import_node_path6.relative)(top, dir);
+  const rel = (0, import_node_path7.relative)(top, dir);
   if (rel === "") return true;
-  if (rel.startsWith("..") || (0, import_node_path6.isAbsolute)(rel)) return false;
-  return rel.split(import_node_path6.sep).every((part) => !part.startsWith(".") && !SKIPPED.has(part));
+  if (rel.startsWith("..") || (0, import_node_path7.isAbsolute)(rel)) return false;
+  return rel.split(import_node_path7.sep).every((part) => !part.startsWith(".") && !SKIPPED.has(part));
 }
 async function storesUnder(dir, env = process.env) {
   const stores = [];
-  await walk((0, import_node_path6.resolve)(dir), env, stores, []);
+  await walk((0, import_node_path7.resolve)(dir), env, stores, []);
   return stores.sort();
 }
 async function walk(dir, env, stores, repos) {
   let entries;
   try {
-    entries = await (0, import_promises5.readdir)(dir, { withFileTypes: true });
+    entries = await (0, import_promises6.readdir)(dir, { withFileTypes: true });
   } catch {
     return;
   }
   if (entries.some((e) => e.name === ".git")) repos.push(dir);
   if (entries.some((e) => e.name === STORE_DIR && e.isDirectory()) && isStoreRoot(dir, env)) stores.push(dir);
   const children = entries.filter((e) => e.isDirectory() && !e.name.startsWith(".") && !SKIPPED.has(e.name));
-  await Promise.all(children.map((e) => walk((0, import_node_path6.join)(dir, e.name), env, stores, repos)));
+  await Promise.all(children.map((e) => walk((0, import_node_path7.join)(dir, e.name), env, stores, repos)));
 }
 function worktreesOf(dir) {
   return new Promise(
     (done) => (0, import_node_child_process2.execFile)("git", ["worktree", "list", "--porcelain"], { cwd: dir, timeout: 3e3 }, (err, stdout) => {
       if (err) return done([]);
       const paths = stdout.split("\n").filter((l) => l.startsWith("worktree ")).map((l) => l.slice("worktree ".length));
-      void Promise.all(paths.map((p) => (0, import_promises5.realpath)(p).catch(() => null))).then(
+      void Promise.all(paths.map((p) => (0, import_promises6.realpath)(p).catch(() => null))).then(
         (real2) => done(real2.filter((p) => p !== null))
       );
     })
@@ -1361,7 +1422,7 @@ async function projectHistory(root, opts = {}) {
   });
   const all = stores.flatMap((s) => s.threads);
   return {
-    root: root === LOOSE_ROOT ? root : (0, import_node_path6.resolve)(root),
+    root: root === LOOSE_ROOT ? root : (0, import_node_path7.resolve)(root),
     since: opts.since ? opts.since.toISOString() : null,
     stores,
     threads: all.length,
@@ -1373,8 +1434,8 @@ async function projectHistory(root, opts = {}) {
 }
 
 // ../../packages/core/src/retro.ts
-var import_promises6 = require("node:fs/promises");
-var import_node_path7 = require("node:path");
+var import_promises7 = require("node:fs/promises");
+var import_node_path8 = require("node:path");
 var RETRO_SCHEMA_VERSION = 1;
 var RETROS_DIR = "retros";
 var RETRO_EVENTS = /* @__PURE__ */ new Set([
@@ -1497,7 +1558,7 @@ function foldRetro(events, warnings = [], future = false) {
 async function readRetros(dir) {
   let files;
   try {
-    files = (await (0, import_promises6.readdir)(dir)).filter((f) => f.endsWith(".jsonl") && RETRO_ID.test(f.slice(0, -".jsonl".length)));
+    files = (await (0, import_promises7.readdir)(dir)).filter((f) => f.endsWith(".jsonl") && RETRO_ID.test(f.slice(0, -".jsonl".length)));
   } catch (err) {
     if (err.code === "ENOENT") return [];
     throw err;
@@ -1509,75 +1570,13 @@ async function readRetro(dir, id) {
   if (!RETRO_ID.test(id)) throw new Error(`Invalid retro id: ${id}`);
   let text;
   try {
-    text = await (0, import_promises6.readFile)((0, import_node_path7.join)(dir, `${id}.jsonl`), "utf8");
+    text = await (0, import_promises7.readFile)((0, import_node_path8.join)(dir, `${id}.jsonl`), "utf8");
   } catch (err) {
     if (err.code === "ENOENT") return null;
     throw err;
   }
   const parsed = parseLines(text, `retros/${id}.jsonl`, RETRO_EVENTS);
   return foldRetro(parsed.events, parsed.warnings, parsed.future);
-}
-
-// ../../packages/core/src/retroGuards.ts
-var STOPWORDS = new Set(
-  "the and for with that this from into when then than are was were has have not use uses using les des une pour avec dans sur par pas que qui est sont aux ses son leur".split(" ")
-);
-
-// ../../packages/core/src/config.ts
-var import_promises7 = require("node:fs/promises");
-var import_node_path8 = require("node:path");
-var DEFAULT_CONFIG = {
-  autoSaveWorktrees: true,
-  retroReminder: true,
-  retroReminderDays: 7,
-  retroReminderSizeKB: 1e3,
-  retroReminderMaxDays: 25
-};
-var CONFIG_KEYS = {
-  "auto-save-worktrees": {
-    key: "autoSaveWorktrees",
-    kind: "boolean",
-    help: "on|off \u2014 before an agent removes a git worktree, its hook saves the worktree's threads (default: on)"
-  },
-  "retro-reminder": {
-    key: "retroReminder",
-    kind: "boolean",
-    help: "on|off \u2014 when a retro is due, the agent says so at the start of a session (default: on)"
-  },
-  "retro-reminder-days": {
-    key: "retroReminderDays",
-    kind: "number",
-    help: "days \u2014 a retro is due this many days after the last one (default: 7)"
-  },
-  "retro-reminder-size": {
-    key: "retroReminderSizeKB",
-    kind: "number",
-    help: "KB \u2014 or sooner, once the threads since the last one weigh this much (default: 1000, i.e. 1 MB)"
-  },
-  "retro-reminder-max-days": {
-    key: "retroReminderMaxDays",
-    kind: "number",
-    help: "days \u2014 and never later than this, to keep the agent conversations linked to replies (default: 25)"
-  }
-};
-var configFile = (env = process.env) => (0, import_node_path8.join)(localReviewHome(env), "config.json");
-var validSettingNumber = (x) => typeof x === "number" && Number.isInteger(x) && x >= 1;
-async function readConfig(env = process.env) {
-  const config = { ...DEFAULT_CONFIG };
-  let raw;
-  try {
-    raw = JSON.parse(await (0, import_promises7.readFile)(configFile(env), "utf8"));
-  } catch {
-    return config;
-  }
-  if (typeof raw !== "object" || raw === null) return config;
-  const values = raw;
-  for (const setting of Object.values(CONFIG_KEYS)) {
-    const value = values[setting.key];
-    if (setting.kind === "boolean" && typeof value === "boolean") config[setting.key] = value;
-    if (setting.kind === "number" && validSettingNumber(value)) config[setting.key] = value;
-  }
-  return config;
 }
 
 // ../../packages/core/src/worktrees.ts
@@ -1716,8 +1715,6 @@ async function worktreeThreadCount(dir, env = process.env) {
 }
 
 // ../../packages/core/src/cadence.ts
-var import_promises10 = require("node:fs/promises");
-var import_node_path11 = require("node:path");
 var DEFAULT_CADENCE = thresholdsOf(DEFAULT_CONFIG);
 function thresholdsOf(c) {
   return { days: c.retroReminderDays, bytes: c.retroReminderSizeKB * 1e3, maxDays: c.retroReminderMaxDays };
@@ -1755,32 +1752,35 @@ async function retroCadence(root, opts = {}) {
   };
 }
 async function lastRetroCovering(dir) {
+  return lastFinished(await retrosCovering(dir));
+}
+async function retrosCovering(dir) {
   const target = (0, import_node_path11.resolve)(dir);
   const real2 = await (0, import_promises10.realpath)(target).catch(() => target);
-  let best = await lastRetroAbove([target, real2]);
+  const found = await retrosAbove([target, real2]);
   const info = await worktreeInfo(real2);
   if (info) {
     const rel = (0, import_node_path11.relative)(info.worktree, real2);
     if (!rel.startsWith("..") && !(0, import_node_path11.isAbsolute)(rel)) {
       for (const wt of await worktreesOf2(real2)) {
         if (wt === info.worktree) continue;
-        const r = await lastRetroAbove([(0, import_node_path11.join)(wt, rel)]);
-        if (r && (!best || r.until > best.until)) best = r;
+        found.push(...await retrosAbove([(0, import_node_path11.join)(wt, rel)]));
       }
     }
   }
-  return best;
+  const seen = /* @__PURE__ */ new Set();
+  return found.filter((r) => !seen.has(r.id) && seen.add(r.id));
 }
-async function lastRetroAbove(dirs) {
+var lastFinished = (retros) => retros.filter((r) => r.finishedAt !== null).reduce((a, r) => !a || r.until > a.until ? r : a, null);
+async function retrosAbove(dirs) {
   const covers = (r) => dirs.some((d) => d === r || d.startsWith(r.endsWith(import_node_path11.sep) ? r : r + import_node_path11.sep));
-  let best = null;
+  const found = [];
   for (let d = dirs[0]; ; d = (0, import_node_path11.dirname)(d)) {
     for (const r of await readRetros((0, import_node_path11.join)(d, STORE_DIR, RETROS_DIR)).catch(() => [])) {
-      if (r.finishedAt === null) continue;
       const rootReal = await (0, import_promises10.realpath)(r.root).catch(() => r.root);
-      if ((covers(r.root) || covers(rootReal)) && (!best || r.until > best.until)) best = r;
+      if (covers(r.root) || covers(rootReal)) found.push(r);
     }
-    if ((0, import_node_path11.dirname)(d) === d) return best;
+    if ((0, import_node_path11.dirname)(d) === d) return found;
   }
 }
 function formatBytes(n) {
@@ -1801,6 +1801,29 @@ function dueReasons(c) {
     (r) => r === "days" ? `${c.days} days since ${c.lastRetro ? "the last retro" : "the first thread"} (reminder at ${Math.min(t.days, t.maxDays)})` : r === "size" ? `${formatBytes(c.bytes)} of threads to look back at (reminder at ${formatBytes(t.bytes)})` : `${t.maxDays} days or more: agents delete their conversations after a while (often 30 days), and the retro reads back those linked to replies`
   );
 }
+
+// ../../packages/core/src/archive.ts
+function parseDateArg(value, now = Date.now()) {
+  const days = /^(\d+)d$/.exec(value.trim());
+  if (days) return new Date(now - Number(days[1]) * 864e5);
+  const day = /^(\d{4})-(\d{2})-(\d{2})(T.+)?$/.exec(value.trim());
+  if (!day) return null;
+  const date = new Date(day[4] ? value.trim() : `${day[1]}-${day[2]}-${day[3]}T00:00:00`);
+  const exists = (/* @__PURE__ */ new Date(`${day[1]}-${day[2]}-${day[3]}T00:00:00Z`)).getUTCDate() === +day[3];
+  return exists && !Number.isNaN(date.getTime()) ? date : null;
+}
+function dateArgLabel(value, date) {
+  const pad = (n) => String(n).padStart(2, "0");
+  const day = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  const days = /^(\d+)d$/.exec(value.trim());
+  if (days) return `${day} (${days[1]} day${days[1] === "1" ? "" : "s"})`;
+  return /T/.test(value) ? `${day} ${pad(date.getHours())}:${pad(date.getMinutes())}` : day;
+}
+
+// ../../packages/core/src/retroGuards.ts
+var STOPWORDS = new Set(
+  "the and for with that this from into when then than are was were has have not use uses using les des une pour avec dans sur par pas que qui est sont aux ses son leur".split(" ")
+);
 
 // src/hook.ts
 var import_node_child_process5 = require("node:child_process");
@@ -1913,17 +1936,21 @@ function replyCall(input) {
   });
   return replies ? { message, command } : null;
 }
-function purgeConfirmation(input) {
+function purgeConfirmation(input, now = Date.now()) {
   const command = input.tool_input?.command;
   if (input.tool_name !== "Bash" || typeof command !== "string") return null;
   for (const words of shellSegments(command)) {
     const i = words.findIndex((w) => (0, import_node_path12.basename)(w) === "lr");
     if (i < 0 || words[i + 1] !== "purge" || !words.includes("--yes")) continue;
+    const ask = " It runs only if the user allows it; if they refuse, nothing is deleted.";
+    if (words.includes("--history"))
+      return "Local Review: this erases for good the review history kept for retros: the deleted comment threads, and the threads saved from git worktrees." + ask;
     const at = words.indexOf("--count");
     const count = at >= 0 && /^\d+$/.test(words[at + 1] ?? "") ? Number(words[at + 1]) : null;
-    const before = words[words.indexOf("--before") + 1];
+    const before = words.includes("--before") ? words[words.indexOf("--before") + 1] : void 0;
+    const date = before ? parseDateArg(before, now) : null;
     const what = count === null ? "old comment threads" : `${plural(count, "comment thread")}`;
-    return `Local Review: this deletes ${what} for good` + (before && words.includes("--before") ? ` (finished, with no activity since ${before})` : "") + ": gone from the history and from retros. It runs only if the user allows it; if they refuse, nothing is deleted.";
+    return `Local Review: this deletes ${what} for good` + (before ? ` (finished, with no activity since ${date ? dateArgLabel(before, date) : before})` : "") + ": gone from the history and from retros." + ask;
   }
   return null;
 }
@@ -1951,10 +1978,10 @@ async function beforeWorktreeRemoval(input, deps) {
   }
   if (worktrees.size === 0) return void 0;
   const messages = [];
-  const autoSave = await wt.autoSave();
+  const keep = await wt.keepHistory();
   for (const info of worktrees.values()) {
     const name = info.branch ? `${info.worktree} (branch ${info.branch})` : info.worktree;
-    if (autoSave) {
+    if (keep) {
       const saved = await wt.save(info.worktree).catch((err) => {
         messages.push(
           `Local Review: this command removes the git worktree ${name}, but its comment threads could not be saved first (${err instanceof Error ? err.message : String(err)}): they may be lost with it. Tell the user before going on.`
@@ -1969,7 +1996,7 @@ async function beforeWorktreeRemoval(input, deps) {
       const n = await wt.threadCount(info.worktree);
       if (n > 0)
         messages.push(
-          `Local Review: this command removes the git worktree ${name}, which holds ${plural(n, "comment thread")} of the user's review, and they are lost with it (saving them first is turned off on this machine). Tell the user; to keep them, they can run \`lr worktree save ${info.worktree}\` before the removal.`
+          `Local Review: this command removes the git worktree ${name}, which holds ${plural(n, "comment thread")} of the user's review, and they are lost with it (the history is not kept on this machine: keep-history is off). Tell the user; to keep them, they can run \`lr worktree save ${info.worktree}\` before the removal.`
         );
     }
   }
@@ -2124,7 +2151,7 @@ async function main() {
       return config.retroReminder ? retroCadence(cwd, { thresholds: thresholdsOf(config) }) : null;
     },
     worktrees: {
-      autoSave: async () => (await readConfig()).autoSaveWorktrees,
+      keepHistory: async () => (await readConfig()).keepHistory,
       resolveWorktree,
       worktreeInfo,
       save: (dir) => saveWorktreeThreads(dir),

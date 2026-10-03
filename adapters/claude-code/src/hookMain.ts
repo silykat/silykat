@@ -40,7 +40,7 @@ async function main(): Promise<void> {
       return config.retroReminder ? retroCadence(cwd, { thresholds: thresholdsOf(config) }) : null;
     },
     worktrees: {
-      autoSave: async () => (await readConfig()).autoSaveWorktrees,
+      keepHistory: async () => (await readConfig()).keepHistory,
       resolveWorktree,
       worktreeInfo,
       save: (dir) => saveWorktreeThreads(dir),
