@@ -28,6 +28,10 @@ lr-retro conversation <retro-id> <thread-id> --root <project>
 
 It prints the prompt of that turn, the steps up to the reply (files read, commands, edits, results), the skill in use and the tokens. Use it only for threads that stay **ambiguous** once you have read them all: you cannot tell from the thread why the agent did what it did (what it read or missed, which rule or skill it followed), and the answer would change a proposal (its cause, its column or its target). Ten threads at most. When it says the conversation is **no longer available** (Claude Code deletes them after 30 days by default), go on with the thread alone. In the `why` of a proposal, say what a conversation showed ("conversation read back: …"), or that it was no longer available.
 
+### The changes adopted at the last retro: did they help?
+
+When the input lists **changes adopted at the last retro**, check each one: which threads of this period have feedback with **the same cause** (the change did not prevent it)? Name them in `verify` (below), `[]` when there are none. `lr retro check` computes the numbers and the verdict by program: **stopped** (no thread), **decreased** (a smaller share of the threads than before) or **not decreased**. A change that did not reduce the feedback, with 2 threads or more, needs a proposal that revises it, with `"revisits": "<ref>"`: reword the rule, move it up, make it a hook, or remove it. Be strict both ways: only the threads whose cause is the one the change addressed count, not the ones about the same file.
+
 ## 2. Find the proposals
 
 Three columns:
@@ -62,6 +66,7 @@ Choose the target from the threads only. When nothing in them tells where it bel
 - **one cause** per proposal (`causes` has exactly one item);
 - the target is asked when `targetEvidence` is empty for a new rule;
 - a subject the developer **excluded** in an earlier retro is dropped, unless at least 2 new threads raise it again (then set `reopens` to `<retro>/<proposal>`, as listed in the input).
+- every change adopted at the last retro is checked in `verify`; one that did not reduce the feedback, with 2 threads or more, is revised by a proposal (`revisits`).
 
 **Findings of the audit**: turn each one worth acting on (high or medium confidence, in files the developer can change) into a proposal in **remove** (or **improve** for a rewrite), with an `audit` field: `{ "location": "CLAUDE.md:2-3", "finding": "what is wrong there" }`, and the existing text in `rule`. It needs no thread; cite the threads that relate to it, if any. When a finding is the same subject as a proposal drawn from the threads, put the `audit` field on that proposal instead of writing two. Leave out what the audit itself says is low confidence or not applicable.
 
@@ -94,11 +99,13 @@ Write the proposals as JSON, in the developer's language for the texts, with its
       "audit": null
     }
   ],
-  "watch": [{ "subject": "…", "why": "…", "evidence": [{ "thread": "t_…", "excerpt": "…" }] }]
+  "watch": [{ "subject": "…", "why": "…", "evidence": [{ "thread": "t_…", "excerpt": "…" }] }],
+  "verify": [{ "change": "rt_…/p1", "threads": ["t_…"], "note": "what you saw, in a sentence" }]
 }
 ```
 
 - `kind`: rule, hook, skill, command, agent, doc, setting or other. `file`: the file of the existing rule, or where the change goes. `rule`: the existing rule word for word (required for keep and remove; `null` for a new one). `change`: the exact text to add or the exact edit (empty for keep). `targetEvidence`: the threads that show where it belongs (e.g. "the whole team does it"), empty when nothing tells. `recommendation`: accepted, modified or excluded, your advice. `audit`: `null`, or the audit finding it comes from.
+- `verify`: one item per change adopted at the last retro (`change` is its reference, as listed in the input); omit it when the input lists none. `revisits`, on a proposal: the reference of the change it revises (its `target` may then be left out: it stays where that change was made).
 - Cite thread ids exactly as written in the input, with a short excerpt that shows the point.
 
 Write this JSON with the Write tool in the file `lr retro input` named (`…/proposals.json`), then check it with the command it printed:
@@ -113,4 +120,4 @@ If a command is refused (a permission), do not work around it: answer that you w
 
 ## 4. Answer
 
-Answer the main session in **one or two lines** only: how many proposals per column were recorded (how many from the audit), how many subjects to watch, and how many conversations you read back (and how many were no longer available). Never paste the threads or the proposals: the main session reads them with `lr retro show`.
+Answer the main session in **one or two lines** only: how many proposals per column were recorded (how many from the audit), how many subjects to watch, how many changes of the last retro you checked (and how many did not reduce the feedback), and how many conversations you read back (and how many were no longer available). Never paste the threads or the proposals: the main session reads them with `lr retro show`.

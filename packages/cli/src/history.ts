@@ -1,6 +1,7 @@
 import { isAbsolute, relative } from 'node:path';
 import {
   deletionLabel,
+  formatBytes,
   HISTORY_STATES,
   LOOSE_ROOT,
   topicLabel,
@@ -22,12 +23,6 @@ export function storeLabel(store: { root: string; saved?: { savedAt: string } },
   const rel = relative(root, store.root);
   const path = rel === '' ? '.' : rel.startsWith('..') || isAbsolute(rel) ? store.root : rel;
   return store.saved ? `${path} (saved ${store.saved.savedAt.slice(0, 10)})` : path;
-}
-
-export function formatBytes(n: number): string {
-  if (n < 1000) return `${n} B`;
-  if (n < 1_000_000) return `${(n / 1000).toFixed(1)} KB`;
-  return `${(n / 1_000_000).toFixed(1)} MB`;
 }
 
 const ORIGIN: Record<StoreOrigin, string> = {

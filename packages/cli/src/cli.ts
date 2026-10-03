@@ -4,6 +4,8 @@ import {
   agentView,
   callFor,
   CONFIG_KEYS,
+  validSettingNumber,
+  type ConfigSetting,
   configFile,
   findStoreRoot,
   findStoresBelow,
@@ -398,8 +400,14 @@ async function config(rest: string[], io: Io): Promise<number> {
   if (action === 'set') {
     const setting = name ? CONFIG_KEYS[name] : undefined;
     if (!setting) throw new UsageError(`unknown setting "${name ?? ''}": ${Object.keys(CONFIG_KEYS).join(', ')}`);
-    if (value !== 'on' && value !== 'off') throw new UsageError(`${name} takes "on" or "off", not "${value ?? ''}"`);
-    await writeConfig({ [setting.key]: value === 'on' }, io.env);
+    if (setting.kind === 'boolean') {
+      if (value !== 'on' && value !== 'off') throw new UsageError(`${name} takes "on" or "off", not "${value ?? ''}"`);
+      await writeConfig({ [setting.key]: value === 'on' }, io.env);
+    } else {
+      const n = /^\d+$/.test(value ?? '') ? Number(value) : NaN;
+      if (!validSettingNumber(n)) throw new UsageError(`${name} takes a whole number, 1 or more, not "${value ?? ''}"`);
+      await writeConfig({ [setting.key]: n }, io.env);
+    }
     io.out(`${name} is now ${value}.`);
     return EXIT.OK;
   }
@@ -409,10 +417,11 @@ async function config(rest: string[], io: Io): Promise<number> {
     io.out(JSON.stringify(current, null, 2));
     return EXIT.OK;
   }
+  const shown = (s: ConfigSetting) => (s.kind === 'boolean' ? (current[s.key] ? 'on' : 'off') : String(current[s.key]));
   io.out(
     [
       `Settings of this machine (${configFile(io.env)}):`,
-      ...Object.entries(CONFIG_KEYS).map(([n, c]) => `  ${n}: ${current[c.key] ? 'on' : 'off'}`),
+      ...Object.entries(CONFIG_KEYS).map(([n, c]) => `  ${n}: ${shown(c)}`),
     ].join('\n'),
   );
   return EXIT.OK;

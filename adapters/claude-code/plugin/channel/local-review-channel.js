@@ -263,6 +263,21 @@ var STOPWORDS = new Set(
   "the and for with that this from into when then than are was were has have not use uses using les des une pour avec dans sur par pas que qui est sont aux ses son leur".split(" ")
 );
 
+// ../../packages/core/src/config.ts
+var DEFAULT_CONFIG = {
+  autoSaveWorktrees: true,
+  retroReminder: true,
+  retroReminderDays: 7,
+  retroReminderSizeKB: 1e3,
+  retroReminderMaxDays: 25
+};
+
+// ../../packages/core/src/cadence.ts
+var DEFAULT_CADENCE = thresholdsOf(DEFAULT_CONFIG);
+function thresholdsOf(c) {
+  return { days: c.retroReminderDays, bytes: c.retroReminderSizeKB * 1e3, maxDays: c.retroReminderMaxDays };
+}
+
 // src/channel.ts
 var BATCH_MS = 1500;
 var SUPPORTED_PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];

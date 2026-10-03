@@ -2,8 +2,24 @@ import { writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { deletionLabel, type HistoryEntry, type ThreadHistory } from './history';
 import { projectHistory, type ProjectHistory } from './project';
-import { FEEDBACK_CATEGORIES, RetroBook, retroHome, type Preference, type RetroState, type ThreadLabel } from './retro';
-import { exclusionsOf, retroStats, threadSignals, type Exclusion, type RetroStats } from './retroGuards';
+import {
+  FEEDBACK_CATEGORIES,
+  RetroBook,
+  retroHome,
+  type AdoptedChange,
+  type Preference,
+  type RetroState,
+  type ThreadLabel,
+} from './retro';
+import {
+  adoptedChanges,
+  changeRef,
+  exclusionsOf,
+  retroStats,
+  threadSignals,
+  type Exclusion,
+  type RetroStats,
+} from './retroGuards';
 
 /** How the period of a retro was chosen. */
 export type PeriodSource = 'last-retro' | 'given' | 'proposed' | 'all';
@@ -42,6 +58,8 @@ export interface RetroScope {
   preferences: Preference[];
   /** For a first retro: the periods to choose from. */
   options: PeriodOption[];
+  /** The changes adopted at the last retro, that this one will check. */
+  toVerify: AdoptedChange[];
 }
 
 const DAY = 86_400_000;
@@ -105,7 +123,19 @@ export async function retroScope(
     unfinished,
     preferences: await book.preferences(),
     options,
+    toVerify: lastRetro ? adoptedChanges(lastRetro) : [],
   };
+}
+
+/**
+ * The changes a retro checks: those adopted at the last retro of the same project finished before
+ * it started (`previous`: the other retros of its book).
+ */
+export function changesToVerify(retro: RetroState, previous: readonly RetroState[]): AdoptedChange[] {
+  const last = previous
+    .filter((r) => r.root === retro.root && r.finishedAt !== null && r.finishedAt <= retro.startedAt)
+    .at(-1);
+  return last ? adoptedChanges(last) : [];
 }
 
 /** About 4 characters per token. */
@@ -279,6 +309,7 @@ export function analysisInput(ctx: AnalysisContext): string {
     '## Previous retros',
     ...renderPrevious(ctx.previous, exclusionsOf(ctx.previous)),
     '',
+    ...renderToVerify(changesToVerify(retro, ctx.previous)),
     '## Statistics (computed without a model)',
     ...renderStats(statsOf(ctx)),
     '',
@@ -296,6 +327,27 @@ export function analysisInput(ctx: AnalysisContext): string {
       return threadText(thread, store) + (extra.length ? `\n(${extra.join(' · ')})` : '') + '\n';
     }),
   ].join('\n');
+}
+
+function renderToVerify(changes: readonly AdoptedChange[]): string[] {
+  if (changes.length === 0) return [];
+  const out = [
+    '## Changes adopted at the last retro: did they help?',
+    '',
+    'For EACH change below, list in "verify" the threads of this period whose feedback has the same cause (the change did not prevent it), [] when none: { "change": "<ref>", "threads": [...], "note": "what you saw, in a sentence" }. The numbers and the verdict are computed by program: stopped (no thread), decreased (a smaller share of the threads than before) or not decreased. A change that did not reduce the feedback, with 2 threads or more, needs a proposal to revise it, with "revisits": "<ref>" (reword it, move it up, make it a hook, or remove it); its "target" defaults to the one of the change it revises.',
+    '',
+  ];
+  for (const c of changes) {
+    out.push(
+      `- ${changeRef(c)} [${c.column}] ${c.title} (${c.kind}, ${c.decision}${c.target ? `, target ${c.target}` : ''}${c.files.length ? `, changed: ${c.files.join(', ')}` : ', no file recorded as changed'}): ${c.subject}`,
+      `  before: ${c.before.threads} of the ${c.before.total} threads of that retro` +
+        (c.change ? `; change: ${c.change.replace(/\s+/g, ' ').slice(0, 300)}` : '') +
+        (c.note ? `; note of the user: ${c.note}` : ''),
+      ...c.evidence.map((e) => `  - ${e.thread}${e.excerpt ? `: "${e.excerpt}"` : ''}`),
+    );
+  }
+  out.push('');
+  return out;
 }
 
 /** The agent sessions the replies of a thread were written in, as recorded (oldest first, once each). */

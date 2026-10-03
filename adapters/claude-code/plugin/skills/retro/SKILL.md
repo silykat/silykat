@@ -32,6 +32,8 @@ lr retro prefs add --root <dir> --body "Show at most 5 proposals, the most impor
 
 Remove the ones they no longer want with `lr retro prefs remove <id> --root <dir>`. **Apply the preferences from now on**, in this retro too.
 
+When `lr retro scope` says that this retro **will check the changes adopted** last time, tell the user in one sentence: the analysis will measure whether the feedback on their subject went down, and you will show it with its numbers.
+
 ## 3. The scope: first validation
 
 Announce, in a few lines: the project, the comment stores found, the period, the number of threads, the size and the estimated time. For a **first retro**, `lr retro scope` lists periods to choose from: ask which one (the proposed one recommended). Then ask to confirm: "Start the retro" / "Change the period" / "Cancel". For another period, run `lr retro scope --root <dir> --since <date>` (or `--all`) and announce it again.
@@ -69,11 +71,15 @@ Launch the sub-agent **`local-review:retro-analyst`** with this prompt: `Retro <
 
 ## 7. The proposals
 
-Run `lr retro show <id> --root <dir>`. Give an overview first: how many proposals in **To keep**, **To remove** and **To improve** (and how many come from the audit of the setup), and the subjects **to watch** (preferences seen in a single thread: not proposed, kept for the next retros). When it lists **the agent's conversations read back**, say in one sentence which ambiguous threads the analysis explained from your conversation where you replied, and which conversations were no longer available (it did without them).
+Run `lr retro show <id> --root <dir>`.
+
+**First, the check of the last retro's changes** (section "The last retro's changes: did they help?", when there is one): for each change adopted last time, give its numbers (the threads on its subject, out of all the threads, before and since) and the verdict: the feedback **stopped** or **decreased** (the change is kept), or **did not decrease** (the retro proposes to revise it: the proposal marked "Revises").
+
+Then give an overview of the proposals: how many proposals in **To keep**, **To remove** and **To improve** (and how many come from the audit of the setup), and the subjects **to watch** (preferences seen in a single thread: not proposed, kept for the next retros). When it lists **the agent's conversations read back**, say in one sentence which ambiguous threads the analysis explained from your conversation where you replied, and which conversations were no longer available (it did without them).
 
 ## 8. The discussion: second validation, one proposal at a time
 
-The user decides on what they read: **always the same presentation, and always the exact change**. For each proposal, until `lr retro show` says all are decided:
+The user decides on what they read: **always the same presentation, and always the exact change**. For each proposal, until `lr retro show` says all are decided (those that revise a change of the last retro come first: `--next` gives them in that order):
 
 The user sees **neither the output of your commands nor your thinking**: only the text of your messages and your questions. Everything they must read goes there.
 
@@ -133,4 +139,4 @@ Never commit, and never change what the user did not validate.
 
 ## 10. Finish
 
-Wait for every `retro-applier` still running to finish. Then run `lr retro finish <id> --root <dir>` and show the user what it printed: **the list of files changed**, and the subjects to watch. Tell them the next retro will start from this one, and will measure whether these changes helped from the feedback that follows.
+Wait for every `retro-applier` still running to finish. Then run `lr retro finish <id> --root <dir>` and show the user what it printed: **the list of files changed**, and the subjects to watch. Tell them the next retro will start from this one, and will measure whether these changes helped from the feedback that follows. Local Review reminds them when it is due (VS Code's status bar, and you at the start of a session).

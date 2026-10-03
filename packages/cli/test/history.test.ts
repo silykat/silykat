@@ -9,9 +9,9 @@ import {
   Store,
   type Anchor,
   type ThreadEvent,
+  formatBytes,
 } from '@local-review/core';
 import { EXIT, parseSince, runCli } from '../src/cli';
-import { formatBytes } from '../src/history';
 
 const CODE = ['export function find(id: string) {', '  const user = db.get(id);', '  if (!user) return null;', '}'];
 

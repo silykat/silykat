@@ -5,6 +5,8 @@ import {
   localReviewHome,
   readConfig,
   resolveWorktree,
+  retroCadence,
+  thresholdsOf,
   saveWorktreeThreads,
   SessionRegistry,
   topicOf,
@@ -29,6 +31,10 @@ async function main(): Promise<void> {
     filesChangedSince,
     now: () => new Date(),
     home: process.env.HOME || homedir(),
+    retroCadence: async (cwd) => {
+      const config = await readConfig();
+      return config.retroReminder ? retroCadence(cwd, { thresholds: thresholdsOf(config) }) : null;
+    },
     worktrees: {
       autoSave: async () => (await readConfig()).autoSaveWorktrees,
       resolveWorktree,

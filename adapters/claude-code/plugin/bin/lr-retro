@@ -1067,6 +1067,7 @@ function foldRetro(events, warnings = [], future = false) {
     proposals: [],
     watch: [],
     dropped: [],
+    verifications: [],
     decisions: {},
     applied: {},
     conversations: {},
@@ -1089,6 +1090,7 @@ function foldRetro(events, warnings = [], future = false) {
         r.proposals = e.proposals;
         r.watch = e.watch;
         r.dropped = e.dropped;
+        r.verifications = e.verifications ?? [];
         r.decisions = {};
         r.applied = {};
         break;
@@ -1134,6 +1136,29 @@ async function retroHome(root, env = process.env) {
   if (isStoreRoot(dir, env)) return dir;
   return await worktreeTopOf(dir) ?? dir;
 }
+async function readRetros(dir) {
+  let files;
+  try {
+    files = (await (0, import_promises5.readdir)(dir)).filter((f) => f.endsWith(".jsonl") && RETRO_ID.test(f.slice(0, -".jsonl".length)));
+  } catch (err) {
+    if (err.code === "ENOENT") return [];
+    throw err;
+  }
+  const retros = await Promise.all(files.map((f) => readRetro(dir, f.slice(0, -".jsonl".length))));
+  return retros.filter((r) => r !== null).sort((a, b) => a.startedAt.localeCompare(b.startedAt) || a.id.localeCompare(b.id));
+}
+async function readRetro(dir, id) {
+  if (!RETRO_ID.test(id)) throw new Error(`Invalid retro id: ${id}`);
+  let text;
+  try {
+    text = await (0, import_promises5.readFile)((0, import_node_path7.join)(dir, `${id}.jsonl`), "utf8");
+  } catch (err) {
+    if (err.code === "ENOENT") return null;
+    throw err;
+  }
+  const parsed = parseLines(text, `retros/${id}.jsonl`, RETRO_EVENTS);
+  return foldRetro(parsed.events, parsed.warnings, parsed.future);
+}
 var RetroBook = class {
   constructor(home) {
     this.home = home;
@@ -1156,27 +1181,11 @@ var RetroBook = class {
     return (0, import_node_path7.join)(this.dir, "preferences.jsonl");
   }
   /** Every retro of this book, oldest first. */
-  async list() {
-    let files;
-    try {
-      files = (await (0, import_promises5.readdir)(this.dir)).filter((f) => RETRO_ID.test(f.replace(/\.jsonl$/, "")) && f.endsWith(".jsonl"));
-    } catch (err) {
-      if (err.code === "ENOENT") return [];
-      throw err;
-    }
-    const retros = await Promise.all(files.map((f) => this.read(f.slice(0, -".jsonl".length))));
-    return retros.filter((r) => r !== null).sort((a, b) => a.startedAt.localeCompare(b.startedAt) || a.id.localeCompare(b.id));
+  list() {
+    return readRetros(this.dir);
   }
-  async read(id) {
-    let text;
-    try {
-      text = await (0, import_promises5.readFile)(this.retroFile(id), "utf8");
-    } catch (err) {
-      if (err.code === "ENOENT") return null;
-      throw err;
-    }
-    const parsed = parseLines(text, `retros/${id}.jsonl`, RETRO_EVENTS);
-    return foldRetro(parsed.events, parsed.warnings, parsed.future);
+  read(id) {
+    return readRetro(this.dir, id);
   }
   /** The retro, which must exist and accept writes. */
   async get(id) {
@@ -1344,6 +1353,21 @@ async function writeRetroFile(book, id, name, content) {
   const file = (0, import_node_path9.join)(await book.workDir(id), name);
   await (0, import_promises7.writeFile)(file, content);
   return file;
+}
+
+// ../../packages/core/src/config.ts
+var DEFAULT_CONFIG = {
+  autoSaveWorktrees: true,
+  retroReminder: true,
+  retroReminderDays: 7,
+  retroReminderSizeKB: 1e3,
+  retroReminderMaxDays: 25
+};
+
+// ../../packages/core/src/cadence.ts
+var DEFAULT_CADENCE = thresholdsOf(DEFAULT_CONFIG);
+function thresholdsOf(c) {
+  return { days: c.retroReminderDays, bytes: c.retroReminderSizeKB * 1e3, maxDays: c.retroReminderMaxDays };
 }
 
 // src/retroAudit.ts
