@@ -53,6 +53,7 @@ On a Mac with Apple silicon, the container is Linux arm64; the CI runs on x86-64
 - Never bump the plugin version by hand: releases do it (see below). Claude Code only updates a plugin whose version changed.
 - The hook saves the threads of a git worktree before Claude removes it (`PreToolUse`): its parsing of shell commands (`worktreeRemovals`) is unit-tested with fake helpers; to try it for real, run `claude -p --model haiku` in a throwaway repository with a worktree that has a comment, ask it to remove the worktree, then check `lr history`. The setting lives in the machine settings (`lr config`), as the hook runs outside VS Code.
 - The retro (`/local-review:retro`) runs two sub-agents of the plugin (`agents/`), and `bin/lr-retro`, bundled from `adapters/claude-code/src/retroMain.ts`. Its Jev classification is tested against a local stub: `LR_JEV_URL` points `lr-retro jev` at another address (tests only). Never use a real key in tests.
+- Claude Code's transcripts (`~/.claude/projects/…/<session>.jsonl`) are an internal format: only `adapters/claude-code/src/retroConversation.ts` reads them, for `lr-retro conversation`. Its tests build transcripts shaped like real ones in a temporary `CLAUDE_CONFIG_DIR`; when Claude Code changes the format, check a real one (a `claude -p --model haiku` run that replies with `lr reply`, then `lr-retro conversation`).
 
 ### Without an agent
 
