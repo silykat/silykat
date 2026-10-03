@@ -53,6 +53,8 @@ export const RETRO_USAGE = `Retros (look back at the feedback of a period with y
   lr retro decide <retro> <proposal> accepted|modified|excluded|retargeted
            [--target project-shared|project-personal|user] [--note <text>]
   lr retro applied <retro> <proposal> --file <path>…   Files changed for a proposal
+  lr retro undo <retro> <proposal>         Undo a decision recorded by mistake, with its files
+                                          (the journal is never edited by hand)
   lr retro finish <retro>                  Close the retro: prints the files changed
   lr retro list                            The retros of the project
   lr retro prefs [add --body <text> | remove <id>]     The user's retro preferences
@@ -102,6 +104,8 @@ export async function retro(rest: string[], io: Io, parseSince: ParseSince): Pro
       return decide(ctx);
     case 'applied':
       return applied(ctx);
+    case 'undo':
+      return undo(ctx);
     case 'finish':
       return finish(ctx);
     case 'list':
@@ -498,7 +502,7 @@ function presentProposal(
   const lines = [
     '---',
     '',
-    `## Proposal ${position}/${total} · ${COLUMN_TITLE[p.column]} · ${p.title}`,
+    `## Proposal ${position}/${total} (${p.id}) · ${COLUMN_TITLE[p.column]} · ${p.title}`,
     '',
     `**Source**: ${source}`,
     ...p.evidence.map(
@@ -632,6 +636,25 @@ async function decide(c: Ctx): Promise<number> {
     { type: 'retro.decided', proposal: p.id, decision, ...(target ? { target } : {}), ...(note ? { note } : {}) },
   ]);
   c.io.out(`${p.id} ${decision}${target ? ` (${target})` : ''}.`);
+  return 0;
+}
+
+async function undo(c: Ctx): Promise<number> {
+  const { book: b, retro: r } = await retroOf(c);
+  const proposal = c.positionals[1];
+  const p = r.proposals.find((x) => x.id === proposal);
+  if (!p) throw new Error(`Proposal not found: ${proposal ?? '(none)'} (lr retro show ${r.id})`);
+  if (r.finishedAt) throw new Error(`Retro ${r.id} is finished`);
+  const d = r.decisions[p.id];
+  if (!d) throw new Error(`${p.id} has no decision to undo`);
+  const files = r.applied[p.id] ?? [];
+  await b.record(r.id, [{ type: 'retro.undone', proposal: p.id }]);
+  c.io.out(
+    `${p.id}: decision "${d.decision}" undone` +
+      (files.length
+        ? `, and its files changed forgotten (${files.join(', ')}): undo those changes if they were not for it.`
+        : '.'),
+  );
   return 0;
 }
 

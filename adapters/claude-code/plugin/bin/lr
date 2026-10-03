@@ -1310,6 +1310,7 @@ var RETRO_EVENTS = /* @__PURE__ */ new Set([
   "retro.proposed",
   "retro.decided",
   "retro.applied",
+  "retro.undone",
   "retro.finished"
 ]);
 var PREFERENCE_EVENTS = /* @__PURE__ */ new Set([
@@ -1402,6 +1403,10 @@ function foldRetro(events, warnings = [], future = false) {
         break;
       case "retro.applied":
         r.applied[e.proposal] = [.../* @__PURE__ */ new Set([...r.applied[e.proposal] ?? [], ...e.files])];
+        break;
+      case "retro.undone":
+        delete r.decisions[e.proposal];
+        delete r.applied[e.proposal];
         break;
       case "retro.finished":
         r.finishedAt ??= e.at;
@@ -2341,6 +2346,8 @@ var RETRO_USAGE = `Retros (look back at the feedback of a period with your agent
   lr retro decide <retro> <proposal> accepted|modified|excluded|retargeted
            [--target project-shared|project-personal|user] [--note <text>]
   lr retro applied <retro> <proposal> --file <path>\u2026   Files changed for a proposal
+  lr retro undo <retro> <proposal>         Undo a decision recorded by mistake, with its files
+                                          (the journal is never edited by hand)
   lr retro finish <retro>                  Close the retro: prints the files changed
   lr retro list                            The retros of the project
   lr retro prefs [add --body <text> | remove <id>]     The user's retro preferences
@@ -2386,6 +2393,8 @@ async function retro(rest, io, parseSince2) {
       return decide(ctx);
     case "applied":
       return applied(ctx);
+    case "undo":
+      return undo(ctx);
     case "finish":
       return finish(ctx);
     case "list":
@@ -2690,7 +2699,7 @@ function presentProposal(p, position, total, r, threads) {
   const lines = [
     "---",
     "",
-    `## Proposal ${position}/${total} \xB7 ${COLUMN_TITLE[p.column]} \xB7 ${p.title}`,
+    `## Proposal ${position}/${total} (${p.id}) \xB7 ${COLUMN_TITLE[p.column]} \xB7 ${p.title}`,
     "",
     `**Source**: ${source}`,
     ...p.evidence.map(
@@ -2813,6 +2822,21 @@ async function decide(c) {
     { type: "retro.decided", proposal: p.id, decision, ...target ? { target } : {}, ...note ? { note } : {} }
   ]);
   c.io.out(`${p.id} ${decision}${target ? ` (${target})` : ""}.`);
+  return 0;
+}
+async function undo(c) {
+  const { book: b, retro: r } = await retroOf(c);
+  const proposal = c.positionals[1];
+  const p = r.proposals.find((x) => x.id === proposal);
+  if (!p) throw new Error(`Proposal not found: ${proposal ?? "(none)"} (lr retro show ${r.id})`);
+  if (r.finishedAt) throw new Error(`Retro ${r.id} is finished`);
+  const d = r.decisions[p.id];
+  if (!d) throw new Error(`${p.id} has no decision to undo`);
+  const files = r.applied[p.id] ?? [];
+  await b.record(r.id, [{ type: "retro.undone", proposal: p.id }]);
+  c.io.out(
+    `${p.id}: decision "${d.decision}" undone` + (files.length ? `, and its files changed forgotten (${files.join(", ")}): undo those changes if they were not for it.` : ".")
+  );
   return 0;
 }
 async function applied(c) {

@@ -251,7 +251,7 @@ describe('lr retro', () => {
     expect((await lr(['retro', 'propose', id, '--body', '-'], JSON.stringify(proposals))).code).toBe(0);
 
     const first = (await lr(['retro', 'show', id, '--next'])).out;
-    expect(first.startsWith('---\n\n## Proposal 1/3 · To improve · Say that dates are UTC\n')).toBe(true);
+    expect(first.startsWith('---\n\n## Proposal 1/3 (p2) · To improve · Say that dates are UTC\n')).toBe(true);
     expect(first).toContain(`**Source**: 2 threads\n- ${t.utc1} (src/a.ts:1, open): "Dates are UTC here"`);
     expect(first).toContain('**Numbers**: 2 threads, 1 reopened');
     expect(first).toContain('**File**: `api/CLAUDE.md` (rule)');
@@ -262,7 +262,7 @@ describe('lr retro', () => {
 
     await lr(['retro', 'decide', id, 'p2', 'accepted']);
     const second = (await lr(['retro', 'show', id, '--next'])).out;
-    expect(second).toContain('## Proposal 2/3 · To remove · Remove the tabs rule');
+    expect(second).toContain('## Proposal 2/3 (p3) · To remove · Remove the tabs rule');
     expect(second).toContain(
       '**Source**: 0 threads, and the audit of your setup (/doctor prompt-audit)\n- /doctor prompt-audit, `api/CLAUDE.md:2-3`: Contradicts "always 2 spaces"',
     );
@@ -273,7 +273,7 @@ describe('lr retro', () => {
     );
 
     const kept = (await lr(['retro', 'show', id, 'p1'])).out;
-    expect(kept).toContain('## Proposal 3/3 · To keep · Keep the small-modules rule');
+    expect(kept).toContain('## Proposal 3/3 (p1) · To keep · Keep the small-modules rule');
     expect(kept).not.toContain('**Proposed change**');
     expect(JSON.parse((await lr(['retro', 'show', id, 'p2', '--format', 'json'])).out)).toMatchObject({
       position: 1,
@@ -283,9 +283,23 @@ describe('lr retro', () => {
     expect((await lr(['retro', 'show', id, 'p2'])).out).toContain('**Decision**: accepted');
     expect((await lr(['retro', 'show', id, 'p9'])).err).toContain('Proposal not found: p9');
 
+    // A decision recorded on the wrong proposal is undone, with its files, never edited by hand.
+    await lr(['retro', 'decide', id, 'p1', 'accepted']);
+    await lr(['retro', 'applied', id, 'p1', '--file', 'api/CLAUDE.md']);
+    expect((await lr(['retro', 'undo', id, 'p1'])).out).toBe(
+      `p1: decision "accepted" undone, and its files changed forgotten (${join(work, 'api', 'CLAUDE.md')}): undo those changes if they were not for it.\n`,
+    );
+    expect((await lr(['retro', 'undo', id, 'p1'])).err).toContain('p1 has no decision to undo');
+    expect((await lr(['retro', 'undo', id, 'p9'])).err).toContain('Proposal not found: p9');
+    expect((await lr(['retro', 'undo', id, 'p2'])).out).toBe('p2: decision "accepted" undone.\n');
+    expect((await lr(['retro', 'show', id, '--next'])).out).toContain('## Proposal 1/3 (p2)');
+    await lr(['retro', 'decide', id, 'p2', 'accepted']);
     await lr(['retro', 'decide', id, 'p3', 'excluded', '--note', 'not now']);
     await lr(['retro', 'decide', id, 'p1', 'accepted']);
     expect((await lr(['retro', 'show', id, '--next'])).out).toBe('All 3 proposals are decided.\n');
+    expect(JSON.parse((await lr(['retro', 'show', id, '--format', 'json'])).out).applied).toEqual({});
+    await lr(['retro', 'finish', id]);
+    expect((await lr(['retro', 'undo', id, 'p1'])).err).toContain('is finished');
   });
 
   it('says when no proposal is recorded yet', async () => {

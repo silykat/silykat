@@ -195,6 +195,8 @@ export type RetroEvent = BaseRetroEvent &
     | { type: 'retro.proposed'; proposals: Proposal[]; watch: WatchItem[]; dropped: Dropped[] }
     | { type: 'retro.decided'; proposal: string; decision: Decision; target?: Target; note?: string }
     | { type: 'retro.applied'; proposal: string; files: string[] }
+    /** A decision recorded by mistake (e.g. on the wrong proposal): undone, with its files changed. */
+    | { type: 'retro.undone'; proposal: string }
     | { type: 'retro.finished' }
   );
 
@@ -208,6 +210,7 @@ const RETRO_EVENTS: ReadonlySet<string> = new Set<RetroEvent['type']>([
   'retro.proposed',
   'retro.decided',
   'retro.applied',
+  'retro.undone',
   'retro.finished',
 ]);
 const PREFERENCE_EVENTS: ReadonlySet<string> = new Set<PreferenceEvent['type']>([
@@ -343,6 +346,10 @@ export function foldRetro(events: readonly RetroEvent[], warnings: string[] = []
         break;
       case 'retro.applied':
         r.applied[e.proposal] = [...new Set([...(r.applied[e.proposal] ?? []), ...e.files])];
+        break;
+      case 'retro.undone':
+        delete r.decisions[e.proposal];
+        delete r.applied[e.proposal];
         break;
       case 'retro.finished':
         r.finishedAt ??= e.at;

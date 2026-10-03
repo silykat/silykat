@@ -114,6 +114,8 @@ lr retro decide <id> <proposal> excluded --root <dir> --note "why, in the user's
 lr retro applied <id> <proposal> --root <dir> --file <path> [--file <path>…]
 ```
 
+`<proposal>` is the proposal's **id**, in parentheses in its heading (`Proposal 4/6 (p5)` is `p5`), never its position. A decision recorded on the wrong proposal is undone with `lr retro undo <id> <proposal> --root <dir>` (it forgets its files too). **Never edit the retro's files by hand**: the journal is append-only.
+
 ## 10. Finish
 
 Run `lr retro finish <id> --root <dir>` and show the user what it printed: **the list of files changed**, and the subjects to watch. Tell them the next retro will start from this one: it will ask whether these changes helped.
