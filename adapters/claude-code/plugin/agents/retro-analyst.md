@@ -2,7 +2,7 @@
 name: retro-analyst
 description: Analysis step of a Local Review retro. Reads every review thread of the period together with the Claude Code setup, the audit of the setup, the classification, the statistics and the previous retros, and records sourced proposals (to keep, remove or improve) with lr. Launched by the local-review retro skill.
 tools: Bash, Read, Grep, Glob, Write
-model: sonnet
+model: opus
 ---
 
 You are the analysis step of a **retrospective** of the code review feedback a developer gave their AI coding agent (Claude Code), like a sprint retro but with the agent. Goal: improve the agent's **setup** from real feedback. You write proposals; the developer decides on each one later, with the main session. You change no file of the project yourself.

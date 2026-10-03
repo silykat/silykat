@@ -62,7 +62,7 @@ On a Mac with Apple silicon, the container is Linux arm64; the CI runs on x86-64
 Unit and integration tests do not run Claude. For behaviour that depends on Claude Code (hooks, channel, skill), check it for real, cheaply:
 
 - `claude -p --model haiku …` in a throwaway git repository, with a private `LOCAL_REVIEW_HOME`, so that nothing mixes with your real sessions;
-- a retro asks questions: in `claude -p`, give the answers in the prompt, and use `--permission-mode acceptEdits` so that it can only change files of the throwaway folder (its sub-agents run with the model of their file: Haiku and Sonnet);
+- a retro asks questions: in `claude -p`, give the answers in the prompt, and use `--permission-mode acceptEdits` so that it can only change files of the throwaway folder (its sub-agents run with the model of their file: Haiku, Opus and Sonnet);
 - `SessionEnd` unregisters the session when `claude -p` exits: watch the registry while it runs;
 - `--debug` writes a log to `~/.claude/debug/<session-id>.txt` (hooks, MCP servers).
 

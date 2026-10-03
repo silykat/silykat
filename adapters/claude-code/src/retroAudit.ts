@@ -8,7 +8,7 @@ import { execFile } from 'node:child_process';
 export const AUDIT_COMMAND = '/doctor prompt-audit';
 /** The first version of Claude Code with `/doctor prompt-audit`. */
 export const AUDIT_MIN_VERSION: readonly [number, number, number] = [2, 1, 283];
-/** The model of the audit: the one of the analysis. */
+/** The model of the audit: thorough enough, at a fraction of the analysis's cost (Opus). */
 export const AUDIT_MODEL = 'sonnet';
 export const AUDIT_TIMEOUT_MS = 15 * 60_000;
 
