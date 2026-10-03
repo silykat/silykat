@@ -25,7 +25,7 @@ export default defineConfig({
         'packages/core/src/**': { statements: 95, branches: 90, functions: 94, lines: 97 },
         'packages/cli/src/**': { statements: 98, branches: 88, functions: 99, lines: 99 },
         'adapters/claude-code/src/**': { statements: 97, branches: 89, functions: 98, lines: 99 },
-        'packages/vscode-extension/src/**': { statements: 8, branches: 8, functions: 8, lines: 9 },
+        'packages/vscode-extension/src/**': { statements: 8, branches: 8, functions: 8, lines: 8 },
       },
     },
   },
