@@ -211,7 +211,7 @@ A retro is worth it about once a week: with too little feedback there is not muc
 - in the **status bar** of VS Code, e.g. `Retro: 6 d · 640.0 KB`, which becomes `Retro due: 8 d · 1.2 MB` once a retro is due; click it to see how to run one (and copy `/local-review:retro`). It is hidden while there is nothing new since the last retro;
 - in **Claude's first reply** of a new session started in the project, once: Claude tells you a retro is due and suggests `/local-review:retro` (it does not start it on its own).
 
-A retro is due after **7 days**, or sooner once the threads weigh **1 MB**, and never later than **25 days**, so that the retro can still read back the conversations linked to replies (Claude Code deletes them after 30 days by default). The count starts after the last retro of the folder, or of a folder above it (a retro covers the subfolders); before any retro, it starts at the first thread. Change these thresholds in the settings below; `lr retro cadence` tells where things stand.
+A retro is due after **7 days**, or sooner once the threads weigh **1 MB**, and never later than **25 days**, so that the retro can still read back the conversations linked to replies (Claude Code deletes them after 30 days by default). The count starts after the last retro of the folder, or of a folder above it (a retro covers the subfolders), in this git worktree or another one of the same repository; before any retro, it starts at the first thread. Change these thresholds in the settings below; `lr retro cadence` tells where things stand.
 
 ### The Jev key (optional)
 
