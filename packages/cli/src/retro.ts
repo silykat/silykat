@@ -23,6 +23,7 @@ import {
   retroScope,
   retroThreads,
   statsOf,
+  storeLabel,
   TARGETS,
   writeRetroFile,
   type Column,
@@ -39,7 +40,6 @@ import {
 } from '@local-review/core';
 import { parse, str, UsageError, type Values } from './args';
 import type { Io } from './cli';
-import { storeLabel } from './history';
 
 export const RETRO_USAGE = `Retros (look back at the feedback of a period with your agent, and improve its setup):
   lr retro scope [--since <date> | --all]  What a retro would cover: period (since the last retro),
