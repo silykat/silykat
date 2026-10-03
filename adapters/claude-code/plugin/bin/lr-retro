@@ -1236,7 +1236,7 @@ async function writeRetroFile(book, id, name, content) {
 var import_node_child_process3 = require("node:child_process");
 var AUDIT_COMMAND = "/doctor prompt-audit";
 var AUDIT_MIN_VERSION = [2, 1, 283];
-var AUDIT_MODEL = "sonnet";
+var AUDIT_MODEL = "opus";
 var AUDIT_TIMEOUT_MS = 15 * 6e4;
 var runProcess = (command, args, { cwd, env, timeoutMs }) => new Promise((resolve6) => {
   (0, import_node_child_process3.execFile)(command, args, { cwd, env, timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
