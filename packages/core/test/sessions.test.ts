@@ -263,7 +263,7 @@ describe('Topics during a rebase', () => {
 describe('Topics', () => {
   it('are the branch of a git worktree (shared by its worktrees as one repo), else the path', async () => {
     const { execFileSync } = await import('node:child_process');
-    const { mkdir, realpath, writeFile } = await import('node:fs/promises');
+    const { mkdir, realpath, stat, writeFile } = await import('node:fs/promises');
     const base = await realpath(await mkdtemp(join(tmpdir(), 'lr-topics-')));
     try {
       const repo = join(base, 'app');
@@ -298,7 +298,8 @@ describe('Topics', () => {
       expect(await renamedBranch(repo, 'never-existed')).toBeNull();
       expect([...(await localBranches(repo))].sort()).toEqual(['feat', 'main', 'new-name']);
 
-      const since = Date.now() - 5000;
+      // File dates are real, not the test clock: start from the file the worktree just checked out.
+      const since = (await stat(join(base, 'wt-feat', 'src', 'a.ts'))).mtimeMs;
       await writeFile(join(base, 'wt-feat', 'src', 'b.ts'), 'b');
       expect(await filesChangedSince(join(base, 'wt-feat'), since)).toEqual([join(base, 'wt-feat', 'src', 'b.ts')]);
       expect(await filesChangedSince(base, since)).toEqual([]); // not git
