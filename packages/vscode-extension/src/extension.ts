@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { AgentRepliesUi, type Notifier } from './agentReplies';
+import { ArchiveUi } from './archive';
 import { ReviewController, type ChooseHandler, type ConfirmHandler } from './controller';
 import { simulateAgentReply, type SimulateArgs } from './dev/simulateAgentReply';
 import { DeliveriesUi, type NoSubscriberPrompt, type Warner } from './deliveries';
@@ -50,6 +51,10 @@ export interface LocalReviewApi {
   refreshRetroReminder(): Promise<{ statusText: string | undefined; due: string[] }>;
   /** Tests only: answer the retro reminder message without showing it. */
   setRetroReminderPrompt(prompt: ReminderPrompt | undefined): void;
+  /** Tests only: answer the prompts of the archive and clean-up commands (`undefined`: the real ones). */
+  setArchivePrompts(
+    prompts: Partial<Pick<ArchiveUi, 'askDate' | 'pickThreads' | 'askSaveLocation' | 'inform'>> | undefined,
+  ): void;
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<LocalReviewApi> {
@@ -60,7 +65,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
   const sessions = new SessionsUi();
   const deliveries = new DeliveriesUi(review, log);
   const retroReminder = new RetroReminderUi(review.onDidChange);
-  context.subscriptions.push(log, review, reviewUi, agentReplies, sessions, deliveries, retroReminder);
+  const archive = new ArchiveUi(review, log);
+  context.subscriptions.push(log, review, reviewUi, agentReplies, sessions, deliveries, retroReminder, archive);
 
   context.subscriptions.push(
     vscode.commands.registerCommand('localReview.commentSelection', () =>
@@ -120,6 +126,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
   const defaultWarner = deliveries.warn;
   const defaultNoSubscriberPrompt = deliveries.askNoSubscriber;
   const defaultRetroPrompt = retroReminder.prompt;
+  const archivePrompts = {
+    askDate: archive.askDate,
+    pickThreads: archive.pickThreads,
+    askSaveLocation: archive.askSaveLocation,
+    inform: archive.inform,
+  };
   await review.reload();
   log.info('Local Review activated');
 
@@ -162,6 +174,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
     },
     setRetroReminderPrompt: (prompt) => {
       retroReminder.prompt = prompt ?? defaultRetroPrompt;
+    },
+    setArchivePrompts: (prompts) => {
+      Object.assign(archive, archivePrompts, prompts ?? {});
     },
     warnIfWorktree: (path) => review.warnIfWorktree(path),
     forgetWorktreeWarnings: () => Promise.resolve(context.globalState.update('localReview.warnedWorktrees', undefined)),
