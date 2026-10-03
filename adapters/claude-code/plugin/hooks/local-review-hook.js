@@ -7,6 +7,7 @@ var import_node_os3 = require("node:os");
 // ../../packages/core/src/types.ts
 var SCHEMA_VERSION = 1;
 var STORE_DIR = ".local-review";
+var DELETE_REASONS = ["user", "branch-gone"];
 var branchKey = (b) => b ? `${b.repo}#${b.branch}` : "";
 var reviewScopeKey = (s) => s.branch ? branchKey(s.branch) : s.path ? `path:${s.path}` : "";
 
@@ -275,7 +276,7 @@ function threadHistory(events, opts = {}) {
       case "thread.deleted":
         if (deletedAt === null) {
           deletedAt = e.at;
-          deletedReason = e.reason ?? (lastCommentDeletedAt === e.at ? "user" : null);
+          deletedReason = knownReason(e.reason) ?? (lastCommentDeletedAt === e.at ? "user" : null);
           conversation.push({
             kind: "deleted",
             by: e.by,
@@ -317,6 +318,7 @@ function threadHistory(events, opts = {}) {
     bytes: opts.bytes ?? 0
   };
 }
+var knownReason = (r) => DELETE_REASONS.includes(r) ? r : null;
 
 // ../../packages/core/src/store.ts
 var Store = class {
@@ -1319,8 +1321,13 @@ async function beforeWorktreeRemoval(input, deps) {
   for (const info of worktrees.values()) {
     const name = info.branch ? `${info.worktree} (branch ${info.branch})` : info.worktree;
     if (autoSave) {
-      const saved = await wt.save(info.worktree);
-      if (saved.published > 0)
+      const saved = await wt.save(info.worktree).catch((err) => {
+        messages.push(
+          `Local Review: this command removes the git worktree ${name}, but its comment threads could not be saved first (${err instanceof Error ? err.message : String(err)}): they may be lost with it. Tell the user before going on.`
+        );
+        return null;
+      });
+      if (saved && saved.published > 0)
         messages.push(
           `Local Review: before this command removes the git worktree ${name}, its comment threads (${saved.published}) were saved to the store of ${saved.main}: the user's review history and retros keep them. Tell the user in one short sentence.`
         );

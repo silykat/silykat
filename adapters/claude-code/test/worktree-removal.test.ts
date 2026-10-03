@@ -141,6 +141,15 @@ describe('the hook, before a worktree is removed', () => {
     expect(message).toContain('lr worktree save /work/wt');
   });
 
+  it('tells Claude when the threads could not be saved', async () => {
+    deps.worktrees!.save = async () => {
+      throw new Error('disk full');
+    };
+    const message = await pre({ command: 'git worktree remove ../wt' });
+    expect(message).toContain('its comment threads could not be saved first (disk full)');
+    expect(message).toContain('Tell the user before going on.');
+  });
+
   it("saves Claude Code's own worktree when the session leaves it with remove", async () => {
     expect(await pre({ action: 'keep' }, 'ExitWorktree', '/work/wt')).toBeUndefined();
     expect(await pre({ action: 'remove' }, 'ExitWorktree', '/work/wt/src')).toContain('its comment threads (2)');

@@ -9,6 +9,7 @@ var import_node_util = require("node:util");
 // ../../packages/core/src/types.ts
 var SCHEMA_VERSION = 1;
 var STORE_DIR = ".local-review";
+var DELETE_REASONS = ["user", "branch-gone"];
 var branchKey = (b) => b ? `${b.repo}#${b.branch}` : "";
 var reviewScopeKey = (s) => s.branch ? branchKey(s.branch) : s.path ? `path:${s.path}` : "";
 
@@ -278,7 +279,7 @@ function threadHistory(events, opts = {}) {
       case "thread.deleted":
         if (deletedAt === null) {
           deletedAt = e.at;
-          deletedReason = e.reason ?? (lastCommentDeletedAt === e.at ? "user" : null);
+          deletedReason = knownReason(e.reason) ?? (lastCommentDeletedAt === e.at ? "user" : null);
           conversation.push({
             kind: "deleted",
             by: e.by,
@@ -328,6 +329,7 @@ function countStates(threads) {
   for (const t of threads) counts[t.state]++;
   return counts;
 }
+var knownReason = (r) => DELETE_REASONS.includes(r) ? r : null;
 function countDeletions(threads) {
   const counts = { user: 0, "branch-gone": 0, unknown: 0 };
   for (const t of threads) if (t.state === "deleted") counts[t.deletedReason ?? "unknown"]++;

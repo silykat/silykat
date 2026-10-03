@@ -143,8 +143,15 @@ async function beforeWorktreeRemoval(input: HookInput, deps: HookDeps): Promise<
   for (const info of worktrees.values()) {
     const name = info.branch ? `${info.worktree} (branch ${info.branch})` : info.worktree;
     if (autoSave) {
-      const saved = await wt.save(info.worktree);
-      if (saved.published > 0)
+      const saved = await wt.save(info.worktree).catch((err: unknown) => {
+        // The removal goes on anyway: say so, rather than lose the comments in silence.
+        messages.push(
+          `Local Review: this command removes the git worktree ${name}, but its comment threads could not be saved first ` +
+            `(${err instanceof Error ? err.message : String(err)}): they may be lost with it. Tell the user before going on.`,
+        );
+        return null;
+      });
+      if (saved && saved.published > 0)
         messages.push(
           `Local Review: before this command removes the git worktree ${name}, its comment threads (${saved.published}) ` +
             `were saved to the store of ${saved.main}: the user's review history and retros keep them. Tell the user in one short sentence.`,
