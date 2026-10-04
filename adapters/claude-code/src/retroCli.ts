@@ -1,8 +1,18 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { RetroBook, retroHome, retroThreads, threadText, writeRetroFile } from '@local-review/core';
+import {
+  parseDateArg,
+  recordRetroSessions,
+  RetroBook,
+  retroHome,
+  retroScope,
+  retroThreads,
+  threadText,
+  writeRetroFile,
+} from '@local-review/core';
 import { AUDIT_COMMAND, runAudit, type Runner } from './retroAudit';
+import { countSessions, INSIGHTS_SOURCE, projectSessions, runInsights } from './retroInsights';
 import { classifyWithJev, readJevKey, type JevDeps } from './retroJev';
 import { threadConversations } from './retroConversation';
 import { collectSetup, renderSetup } from './retroSetup';
@@ -18,6 +28,15 @@ export const RETRO_CLI_USAGE = `lr-retro — the Claude Code part of Local Revie
   lr-retro audit <retro-id> [--root <dir>]   Audit the setup with /doctor prompt-audit (a separate,
                                              read-only Claude Code; several minutes), in a file of
                                              the retro, for its analysis
+
+  lr-retro sessions [--root <dir>] [--since <date> | --all]
+                                             How many Claude Code sessions the project had in the
+                                             period of the next retro (as lr retro scope)
+  lr-retro insights <retro-id> [--root <dir>]
+                                             Run Claude Code's /insights (a separate Claude Code,
+                                             about a minute), then keep what it knows of the
+                                             sessions of the project and of the retro's period, for
+                                             its analysis
 
   lr-retro conversation <retro-id> <thread-id> [--root <dir>]
                                              Read back Claude Code's conversation where the agent
@@ -35,6 +54,12 @@ export interface RetroCliIo {
   run?: Runner;
 }
 
+/** A date as people read it: its local day. */
+const localDay = (iso: string) => {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
 /** The rules files, as context for each Jev decision. */
 const RULES_CAP = 8000;
 
@@ -42,21 +67,35 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
   try {
     const { values, positionals } = parseArgs({
       args,
-      options: { root: { type: 'string' } },
+      options: { root: { type: 'string' }, since: { type: 'string' }, all: { type: 'boolean' } },
       allowPositionals: true,
     });
     const [action, id, threadId] = positionals;
-    if (action !== 'setup' && action !== 'jev' && action !== 'audit' && action !== 'conversation') {
+    const actions = ['setup', 'jev', 'audit', 'conversation', 'insights', 'sessions'];
+    if (action === undefined || !actions.includes(action)) {
       io.out(RETRO_CLI_USAGE);
       return action === undefined || action === 'help' ? 0 : 1;
     }
-    if (!id) throw new Error('missing <retro-id>');
     const root = values.root ?? io.cwd;
-    const book = new RetroBook(await retroHome(root, io.env));
-    const retro = await book.get(id);
     const home = io.env.HOME?.trim() || homedir();
     // Claude Code keeps the user's setup in $CLAUDE_CONFIG_DIR when it is set, else in ~/.claude.
     const claudeDir = io.env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude');
+    if (action === 'sessions') {
+      if (values.since !== undefined && values.all) throw new Error('give --since or --all, not both');
+      const since = values.since === undefined ? undefined : parseDateArg(values.since);
+      if (since === null) throw new Error(`--since takes a date (2026-10-01) or a number of days ago (7d)`);
+      const scope = await retroScope(root, { ...(since ? { since } : {}), all: values.all === true, env: io.env });
+      const n = await countSessions(claudeDir, scope.root, scope, io.env);
+      io.out(
+        `${n} Claude Code session${n === 1 ? '' : 's'} in this project ` +
+          (scope.since ? `since ${localDay(scope.since)}` : 'over the whole history') +
+          '.',
+      );
+      return 0;
+    }
+    if (!id) throw new Error('missing <retro-id>');
+    const book = new RetroBook(await retroHome(root, io.env));
+    const retro = await book.get(id);
     const repos = retro.stores.map((s) => s.root);
     if (action === 'conversation') {
       if (!threadId) throw new Error('missing <thread-id>');
@@ -81,6 +120,44 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
         `Written: ${file}\n${files.length} setup files (${files.filter((f) => f.kind === 'rules').length} rules files)` +
           (header ? `, ${header} shown by their header only (over the size budget: read them if needed)` : '') +
           '.',
+      );
+      return 0;
+    }
+    if (action === 'insights') {
+      const ran = await runInsights(retro.root, io.env, io.run);
+      const { sessions, files, read } = await projectSessions(
+        join(claudeDir, 'usage-data'),
+        retro.root,
+        retro,
+        io.env,
+        io.run,
+      );
+      if (files > 0 && read === 0) {
+        io.err(
+          `lr-retro: /insights has ${files} session file(s), but none could be read: its format changed. ` +
+            'The retro goes on without the sessions; tell the user to report it as a bug of Local Review.',
+        );
+        return 1;
+      }
+      if (files === 0 && ran.kind === 'failed') {
+        io.err(`lr-retro: /insights failed (${ran.reason}): the retro goes on without the sessions.`);
+        return 1;
+      }
+      const file = await recordRetroSessions(
+        book,
+        retro.id,
+        INSIGHTS_SOURCE,
+        sessions,
+        ran.kind === 'done' ? ran : { costUsd: null, durationMs: null },
+      );
+      const withSummary = sessions.filter((s) => s.summary).length;
+      io.out(
+        [
+          `Written: ${file}`,
+          `${sessions.length} Claude Code session${sessions.length === 1 ? '' : 's'} of this project in the period, ` +
+            `${withSummary} with a summary by /insights: lr retro input --for analysis includes them.`,
+          ...(ran.kind === 'failed' ? [`(/insights did not run: ${ran.reason}; its last results were used.)`] : []),
+        ].join('\n'),
       );
       return 0;
     }

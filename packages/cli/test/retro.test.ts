@@ -3,7 +3,14 @@ import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buildAnchorContext, RetroBook, Store, writeConfig, type Anchor } from '@local-review/core';
+import {
+  buildAnchorContext,
+  recordRetroSessions,
+  RetroBook,
+  Store,
+  writeConfig,
+  type Anchor,
+} from '@local-review/core';
 import { runCli } from '../src/cli';
 import { day } from '../src/retro';
 
@@ -89,6 +96,79 @@ const utcProposal = (t: Awaited<ReturnType<typeof project>>, over: Record<string
   targetEvidence: [],
   confidence: 0.8,
   ...over,
+});
+
+describe("lr retro with the agent's sessions", () => {
+  const summary = {
+    friction_detail: 'The user rejected the first fix of the dates.',
+    brief_summary: 'Claude fixed the dates.',
+  };
+
+  it('gives them to the analysis, checks their citations, shows them and what reading them cost', async () => {
+    const t = await project();
+    const id = (await lr(['retro', 'start', '--all'])).out.match(/rt_\w+/)![0];
+    const book = new RetroBook(work);
+    await recordRetroSessions(
+      book,
+      id,
+      'Claude Code /insights',
+      [
+        {
+          id: 'sess-aaaaaaaa1',
+          start: '2026-09-20T10:00:00.000Z',
+          folder: work,
+          facts: { user_interruptions: 2 },
+          summary,
+        },
+        { id: 'sess-bbbbbbbb2', start: '2026-09-21T10:00:00.000Z', folder: work, facts: {}, summary: null },
+      ],
+      { costUsd: 0.7, durationMs: 53_000 },
+    );
+    const input = await lr(['retro', 'input', id, '--for', 'analysis']);
+    expect(input.out).toContain('3 threads and 2 sessions of the agent');
+    const text = await readFile(input.out.match(/Written: (.+)/)![1]!, 'utf8');
+    expect(text).toContain('### Session sess-aaaaaaaa1');
+    expect(text).toContain(summary.friction_detail);
+
+    const sessionsOnly = utcProposal(t, {
+      subject: 'Check the dates first',
+      causes: ['no check of dates'],
+      evidence: [],
+      sessions: [{ session: 'sess-aaaaaaaa1', excerpt: 'rejected the first fix' }, 'sess-bbbbbbbb2'],
+    });
+    const invented = utcProposal(t, { sessions: [{ session: 'sess-aaaaaaaa1', excerpt: 'The user loved it' }] });
+    const refused = await lr(['retro', 'propose', id, '--body', '-'], JSON.stringify({ proposals: [invented] }));
+    expect(refused.code).toBe(1);
+    expect(refused.out).toContain('the excerpt of session sess-aaaaaaaa1 is not in its summary');
+
+    const recorded = await lr(
+      ['retro', 'propose', id, '--body', '-'],
+      JSON.stringify({ proposals: [utcProposal(t, { sessions: ['sess-aaaaaaaa1'] }), sessionsOnly] }),
+    );
+    expect(recorded.code).toBe(0);
+    expect(recorded.out).toContain('p1 [improve] Dates are UTC: 2 threads and 1 session, target to ask');
+    expect(recorded.out).toContain('p2 [improve] Check the dates first: 0 threads and 2 sessions (sessions only)');
+
+    const shown = (await lr(['retro', 'show', id])).out;
+    expect(shown).toContain(
+      "The agent's sessions: 2 in this project and period, 1 with a summary; 2 proposals rest on them.",
+    );
+    expect(shown).toContain(`  - session sess-aaa (${day('2026-09-20T10:00:00.000Z')}): "${summary.friction_detail}"`);
+    expect(shown).toContain('  - session sess-bbb (');
+    expect(shown).toContain('facts only');
+    expect(shown).toContain(
+      "**Source**: 2 sessions of the agent (only the agent's sessions: summaries written by a model",
+    );
+    const next = (await lr(['retro', 'show', id, 'p2'])).out;
+    expect(next).toContain("**Source**: 2 sessions of the agent. **Note**: only the agent's sessions");
+    expect(next).toContain('- session sess-aaa');
+
+    const finished = (await lr(['retro', 'finish', id])).out;
+    expect(finished).toContain(
+      "Reading the agent's sessions (Claude Code /insights) took 1 min and about $0.70 at the API list price " +
+        '(on a subscription, tokens counted against your usage limits, not a bill).',
+    );
+  });
 });
 
 describe('lr retro', () => {
@@ -197,7 +277,7 @@ describe('lr retro', () => {
     expect(shown).toContain('**Why**: Two threads ask for UTC');
     expect(shown).toContain('**Target**: to ask the user');
     expect(shown).toContain('**Confidence**: 80%');
-    expect(shown).toContain('## To watch (seen in a single thread)');
+    expect(shown).toContain('## To watch (seen in a single thread or session)');
     expect(shown).toContain('classified by haiku');
     expect(JSON.parse((await lr(['retro', 'show', id, '--format', 'json'])).out).stats).toMatchObject({
       threads: 3,

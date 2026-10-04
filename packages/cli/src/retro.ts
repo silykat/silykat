@@ -2,6 +2,9 @@ import { readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import {
   analysisInput,
+  readRetroSessions,
+  type RetroSession,
+  type SessionEvidence,
   readConfig,
   cadenceSummary,
   changeRef,
@@ -323,10 +326,12 @@ async function input(c: Ctx): Promise<number> {
   const { threads } = await retroThreads(r, c.io.env);
   const missing = r.threads.filter((id) => !threads.has(id));
   let content: string;
+  let sessions: RetroSession[] = [];
   if (kind === 'classify') content = classifyInput(r, threads);
   else {
     const previous = (await b.list()).filter((x) => x.id !== r.id && x.startedAt < r.startedAt);
-    content = analysisInput({ retro: r, threads, previous, preferences: await b.preferences() });
+    sessions = await retroSessions(b, r);
+    content = analysisInput({ retro: r, threads, previous, preferences: await b.preferences(), sessions });
   }
   const file = await writeRetroFile(b, r.id, `${kind}-input.md`, content);
   const lines = content.split('\n').length;
@@ -337,17 +342,54 @@ async function input(c: Ctx): Promise<number> {
     kind === 'classify'
       ? `lr retro classification ${r.id} ${root} --by <your name> --body-file ${quote(answer)}`
       : `lr retro check ${r.id} ${root} --body-file ${quote(answer)}, then lr retro propose with the same arguments`;
-  return out(c, { file, lines, bytes: Buffer.byteLength(content), threads: threads.size, missing, answer, next }, () =>
-    [
-      `Written: ${file}`,
-      `${threads.size} threads, ${lines} lines, ${formatBytes(Buffer.byteLength(content))}. Read it all (in parts if needed).`,
-      ...(missing.length
-        ? [`${missing.length} thread(s) of the retro are no longer found: ${missing.join(', ')}`]
-        : []),
-      `Then write your JSON in ${answer} and run: ${next}`,
-    ].join('\n'),
+  return out(
+    c,
+    {
+      file,
+      lines,
+      bytes: Buffer.byteLength(content),
+      threads: threads.size,
+      sessions: sessions.length,
+      missing,
+      answer,
+      next,
+    },
+    () =>
+      [
+        `Written: ${file}`,
+        `${threads.size} threads${sessions.length ? ` and ${sessions.length} sessions of the agent` : ''}, ${lines} lines, ${formatBytes(Buffer.byteLength(content))}. Read it all (in parts if needed).`,
+        ...(missing.length
+          ? [`${missing.length} thread(s) of the retro are no longer found: ${missing.join(', ')}`]
+          : []),
+        `Then write your JSON in ${answer} and run: ${next}`,
+      ].join('\n'),
   );
 }
+
+/** The agent's sessions the retro reads: those its journal lists, from the file of the retro. */
+async function retroSessions(b: RetroBook, r: RetroState): Promise<RetroSession[]> {
+  if (!r.sessions) return [];
+  const listed = new Set(r.sessions.list.map((x) => x.id));
+  return (await readRetroSessions(b, r.id)).filter((x) => listed.has(x.id));
+}
+
+/** A session in a list: its date and the start of its id, and the words of its summary cited. */
+const sessionLine = (e: SessionEvidence) =>
+  `session ${e.session.slice(0, 8)} (${day(e.start)})${e.excerpt ? `: "${e.excerpt}"` : ', facts only'}`;
+
+/** What a proposal rests on, in a few words: its threads and sessions, then `audit` when it comes from one. */
+function sourceOf(p: Proposal, audit: string): string {
+  const f = p.figures;
+  const n = p.sessions?.length ?? 0;
+  const parts = [
+    ...(f.threads > 0 || n === 0 ? [`${f.threads} thread${f.threads === 1 ? '' : 's'}`] : []),
+    ...(n ? [`${n} session${n === 1 ? '' : 's'} of the agent`] : []),
+  ];
+  return parts.join(' and ') + (p.audit ? `, and ${audit}` : '');
+}
+
+/** Said of a proposal that rests on the agent's sessions only. */
+const SESSIONS_ONLY = "only the agent's sessions: summaries written by a model, not your own words (no review thread)";
 
 const threadOf = (x: unknown): string => {
   const t = (x as { thread?: unknown } | null)?.thread;
@@ -414,6 +456,7 @@ async function check(c: Ctx, record: boolean): Promise<number> {
     labels: r.classification?.labels ?? {},
     exclusions: exclusionsOf(previous),
     adopted: changesToVerify(r, previous),
+    sessions: new Map((await retroSessions(b, r)).map((x) => [x.id, { start: x.start, summary: x.summary }])),
   });
   const rejected = result.rejected.length > 0;
   if (record && !rejected)
@@ -445,6 +488,9 @@ function renderGuards(g: GuardResult, recorded: boolean, record: boolean): strin
   for (const p of g.proposals)
     lines.push(
       `- ${p.id} [${p.column}] ${p.subject}: ${p.figures.threads} threads` +
+        (p.sessions?.length
+          ? ` and ${p.sessions.length} session${p.sessions.length === 1 ? '' : 's'}${p.sessionsOnly ? ' (sessions only)' : ''}`
+          : '') +
         (p.askTarget ? ', target to ask' : '') +
         (p.convertedFromKeep ? ', turned from keep into improve' : '') +
         (p.reopens ? `, reopens ${p.reopens.retro}/${p.reopens.proposal}` : '') +
@@ -492,12 +538,13 @@ function renderProposal(p: Proposal, r: RetroState, threads: ReadonlyMap<string,
   const lines = [
     `### ${p.id} · ${COLUMN_TITLE[p.column]} · ${p.title}`,
     '',
-    `- **Source**: ${f.threads} threads` + (p.audit ? `, and the audit of the setup` : ''),
+    `- **Source**: ${sourceOf(p, 'the audit of the setup')}` + (p.sessionsOnly ? ` (${SESSIONS_ONLY})` : ''),
     ...p.evidence.map(
       (e) => `  - ${e.thread}${where(threads.get(e.thread)?.thread)}${e.excerpt ? `: "${e.excerpt}"` : ''}`,
     ),
+    ...(p.sessions ?? []).map((e) => `  - ${sessionLine(e)}`),
     ...(p.audit ? [`  - ${AUDIT_NAME}, ${p.audit.location}: ${p.audit.finding}`] : []),
-    `- **Numbers**: ${f.threads} threads, ${f.reopened} reopened, ${f.questions} with a question from the agent, ${f.rounds} round(s) of back-and-forth, from ${day(f.first)} to ${day(f.last)}`,
+    `- **Numbers**: ${f.threads} threads${p.sessions?.length ? ` and ${p.sessions.length} session${p.sessions.length === 1 ? '' : 's'}` : ''}, ${f.reopened} reopened, ${f.questions} with a question from the agent, ${f.rounds} round(s) of back-and-forth, from ${day(f.first)} to ${day(f.last)}`,
     `- **File**: ${p.file}` + (p.rule ? `\n- **Rule**: ${p.rule}` : ''),
     `- **Why**: ${p.why}`,
   ];
@@ -553,8 +600,7 @@ function presentProposal(
   const f = p.figures;
   const d = r.decisions[p.id];
   const source =
-    `${f.threads} thread${f.threads === 1 ? '' : 's'}` +
-    (p.audit ? `, and the audit of your setup (${AUDIT_NAME})` : '');
+    sourceOf(p, `the audit of your setup (${AUDIT_NAME})`) + (p.sessionsOnly ? `. **Note**: ${SESSIONS_ONLY}` : '');
   const lines = [
     '---',
     '',
@@ -564,6 +610,7 @@ function presentProposal(
     ...p.evidence.map(
       (e) => `- ${e.thread}${where(threads.get(e.thread)?.thread)}${e.excerpt ? `: "${e.excerpt}"` : ''}`,
     ),
+    ...(p.sessions ?? []).map((e) => `- ${sessionLine(e)}`),
     ...(p.audit ? [`- ${AUDIT_NAME}, \`${p.audit.location}\`: ${p.audit.finding}`] : []),
     '',
   ];
@@ -655,6 +702,15 @@ async function show(c: Ctx): Promise<number> {
       (r.classification ? ` · classified by ${r.classification.by.join(', ')}` : ' · not classified') +
       (r.finishedAt ? ` · finished ${day(r.finishedAt)}` : ''),
   ];
+  if (r.sessions) {
+    const fromSessions = r.proposals.filter((p) => p.sessions?.length).length;
+    const withSummary = r.sessions.list.filter((x) => x.summary).length;
+    lines.push(
+      '',
+      `The agent's sessions: ${r.sessions.list.length} in this project and period, ${withSummary} with a summary; ` +
+        `${fromSessions} proposal${fromSessions === 1 ? '' : 's'} rest${fromSessions === 1 ? 's' : ''} on them.`,
+    );
+  }
   if (r.preferences.length) lines.push('', 'Preferences: ' + r.preferences.map((p) => `${p.id} ${p.body}`).join(' · '));
   if (r.verifications.length || r.feedback.length) {
     lines.push('', "## The last retro's changes: did they help?", '');
@@ -672,10 +728,13 @@ async function show(c: Ctx): Promise<number> {
     for (const p of ps) lines.push(renderProposal(p, r, threads), '');
   }
   if (r.watch.length) {
-    lines.push('', '## To watch (seen in a single thread)', '');
+    lines.push('', '## To watch (seen in a single thread or session)', '');
     for (const w of r.watch)
       lines.push(
-        `- ${w.id} ${w.subject}: ${w.why} (${w.evidence.map((e) => e.thread + (e.excerpt ? `: "${e.excerpt}"` : '')).join('; ')})`,
+        `- ${w.id} ${w.subject}: ${w.why} (${[
+          ...w.evidence.map((e) => e.thread + (e.excerpt ? `: "${e.excerpt}"` : '')),
+          ...(w.sessions ?? []).map(sessionLine),
+        ].join('; ')})`,
       );
   }
   const conversations = Object.entries(r.conversations);
@@ -768,8 +827,21 @@ async function finish(c: Ctx): Promise<number> {
       files.length ? `Files changed (${files.length}):` : 'No file changed.',
       ...files.map((f) => `- ${f}`),
       ...(done.watch.length ? ['', 'To watch:', ...done.watch.map((w) => `- ${w.subject}`)] : []),
+      ...sessionsCost(done),
     ].join('\n'),
   );
+}
+
+/** What reading the agent's sessions took, at the end of the retro. */
+function sessionsCost(r: RetroState): string[] {
+  const s = r.sessions;
+  if (!s || (s.costUsd === null && s.durationMs === null)) return [];
+  const time = s.durationMs === null ? '' : ` took ${Math.max(1, Math.round(s.durationMs / 60_000))} min`;
+  const cost =
+    s.costUsd === null
+      ? ''
+      : ` and about $${s.costUsd.toFixed(2)} at the API list price (on a subscription, tokens counted against your usage limits, not a bill)`;
+  return ['', `Reading the agent's sessions (${s.source})${time}${cost}.`];
 }
 
 async function list(c: Ctx): Promise<number> {

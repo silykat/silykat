@@ -3,7 +3,7 @@
 
 // src/retroCli.ts
 var import_node_os3 = require("node:os");
-var import_node_path12 = require("node:path");
+var import_node_path15 = require("node:path");
 var import_node_util = require("node:util");
 
 // ../../packages/core/src/types.ts
@@ -1052,7 +1052,7 @@ function worktreesOf(dir) {
       if (err) return done([]);
       const paths = stdout.split("\n").filter((l) => l.startsWith("worktree ")).map((l) => l.slice("worktree ".length));
       void Promise.all(paths.map((p) => (0, import_promises4.realpath)(p).catch(() => null))).then(
-        (real) => done(real.filter((p) => p !== null))
+        (real2) => done(real2.filter((p) => p !== null))
       );
     })
   );
@@ -1124,6 +1124,7 @@ var RETRO_EVENTS = /* @__PURE__ */ new Set([
   "retro.applied",
   "retro.undone",
   "retro.conversation",
+  "retro.sessions",
   "retro.finished"
 ]);
 var PREFERENCE_EVENTS = /* @__PURE__ */ new Set([
@@ -1186,6 +1187,7 @@ function foldRetro(events, warnings = [], future = false) {
     decisions: {},
     applied: {},
     conversations: {},
+    sessions: null,
     finishedAt: null,
     readOnly: future,
     warnings
@@ -1227,6 +1229,14 @@ function foldRetro(events, warnings = [], future = false) {
       case "retro.conversation":
         if (!r.conversations[e.thread]?.available)
           r.conversations[e.thread] = { sessions: e.sessions, available: e.available, at: e.at };
+        break;
+      case "retro.sessions":
+        r.sessions = {
+          source: e.source,
+          list: Array.isArray(e.sessions) ? e.sessions : [],
+          costUsd: e.costUsd ?? null,
+          durationMs: e.durationMs ?? null
+        };
         break;
       case "retro.finished":
         r.finishedAt ??= e.at;
@@ -1384,28 +1394,98 @@ var RetroBook = class {
   }
 };
 
+// ../../packages/core/src/worktrees.ts
+var import_node_child_process3 = require("node:child_process");
+var import_promises6 = require("node:fs/promises");
+var import_node_path8 = require("node:path");
+function git2(args, cwd) {
+  return new Promise(
+    (done) => (0, import_node_child_process3.execFile)("git", args, { cwd, timeout: 3e3 }, (err, stdout) => done(err ? null : stdout.trim()))
+  );
+}
+var real = (p) => (0, import_promises6.realpath)(p).catch(() => (0, import_node_path8.resolve)(p));
+async function worktreesOf2(dir) {
+  const out = await git2(["worktree", "list", "--porcelain"], dir) ?? "";
+  const paths = out.split("\n").filter((l) => l.startsWith("worktree ")).map((l) => l.slice("worktree ".length));
+  return Promise.all(paths.map(real));
+}
+
 // ../../packages/core/src/cadence.ts
 var DEFAULT_CADENCE = thresholdsOf(DEFAULT_CONFIG);
 function thresholdsOf(c) {
   return { days: c.retroReminderDays, bytes: c.retroReminderSizeKB * 1e3, maxDays: c.retroReminderMaxDays };
 }
 
+// ../../packages/core/src/archive.ts
+function parseDateArg(value, now = Date.now()) {
+  const days = /^(\d+)d$/.exec(value.trim());
+  if (days) return new Date(now - Number(days[1]) * 864e5);
+  const day = /^(\d{4})-(\d{2})-(\d{2})(T.+)?$/.exec(value.trim());
+  if (!day) return null;
+  const date = new Date(day[4] ? value.trim() : `${day[1]}-${day[2]}-${day[3]}T00:00:00`);
+  const exists2 = (/* @__PURE__ */ new Date(`${day[1]}-${day[2]}-${day[3]}T00:00:00Z`)).getUTCDate() === +day[3];
+  return exists2 && !Number.isNaN(date.getTime()) ? date : null;
+}
+
+// ../../packages/core/src/retroSessions.ts
+var import_promises7 = require("node:fs/promises");
+var import_node_path9 = require("node:path");
+var SESSIONS_FILE = "sessions.json";
+async function recordRetroSessions(book, retroId, source, sessions, run = { costUsd: null, durationMs: null }) {
+  const file = (0, import_node_path9.join)(await book.workDir(retroId), SESSIONS_FILE);
+  await (0, import_promises7.writeFile)(file, JSON.stringify({ source, sessions }, null, 2) + "\n");
+  await book.record(retroId, [
+    {
+      type: "retro.sessions",
+      source,
+      sessions: sessions.map((s) => ({ id: s.id, start: s.start, summary: s.summary !== null })),
+      ...run.costUsd !== null ? { costUsd: run.costUsd } : {},
+      ...run.durationMs !== null ? { durationMs: run.durationMs } : {}
+    }
+  ]);
+  return file;
+}
+
 // ../../packages/core/src/retroGuards.ts
+var ADOPTED = ["accepted", "modified", "retargeted"];
+function adoptedChanges(r) {
+  return r.proposals.flatMap((p) => {
+    const d = r.decisions[p.id];
+    if (p.column === "keep" || !d || !ADOPTED.includes(d.decision)) return [];
+    return [
+      {
+        retro: r.id,
+        proposal: p.id,
+        column: p.column,
+        subject: p.subject,
+        title: p.title,
+        kind: p.kind,
+        change: p.change,
+        decision: d.decision,
+        ...d.note ? { note: d.note } : {},
+        target: d.target ?? p.target,
+        files: r.applied[p.id] ?? [],
+        before: { threads: p.figures.threads, total: r.threads.length },
+        evidence: p.evidence
+      }
+    ];
+  });
+}
 var STOPWORDS = new Set(
   "the and for with that this from into when then than are was were has have not use uses using les des une pour avec dans sur par pas que qui est sont aux ses son leur".split(" ")
 );
 
 // ../../packages/core/src/retroKey.ts
-var import_promises6 = require("node:fs/promises");
+var import_promises8 = require("node:fs/promises");
 var import_node_os2 = require("node:os");
-var import_node_path8 = require("node:path");
+var import_node_path10 = require("node:path");
 function jevKeyFile(env = process.env) {
-  return (0, import_node_path8.join)(env.HOME?.trim() || (0, import_node_os2.homedir)(), ".config", "local-review", "jev-key");
+  return (0, import_node_path10.join)(env.HOME?.trim() || (0, import_node_os2.homedir)(), ".config", "local-review", "jev-key");
 }
 async function jevKeyStatus(env = process.env) {
   const path = jevKeyFile(env);
   const fromEnv = (env.JEV_API_KEY ?? "").trim() !== "";
-  const st = await (0, import_promises6.stat)(path).catch(() => null);
+  const st = await (0, import_promises8.stat)(path).catch(() => null);
   const exists2 = st?.isFile() === true;
   const status = {
     source: fromEnv ? "env" : exists2 ? "file" : "none",
@@ -1421,7 +1501,7 @@ async function jevKeyStatus(env = process.env) {
   status.mode = (st.mode & 511).toString(8);
   const mine = typeof process.getuid !== "function" || st.uid === process.getuid();
   status.private = (st.mode & 63) === 0 && mine;
-  status.inRepo = await worktreeTopOf((0, import_node_path8.dirname)(path));
+  status.inRepo = await worktreeTopOf((0, import_node_path10.dirname)(path));
   if (!status.private) status.fixes.push(`chmod 600 "${path}"`);
   if (status.inRepo)
     status.fixes.push(`move it out of the repository ${status.inRepo} (e.g. to the default place, ${jevKeyFile(env)})`);
@@ -1430,8 +1510,72 @@ async function jevKeyStatus(env = process.env) {
 }
 
 // ../../packages/core/src/retroScope.ts
-var import_promises7 = require("node:fs/promises");
-var import_node_path9 = require("node:path");
+var import_promises9 = require("node:fs/promises");
+var import_node_path11 = require("node:path");
+var DAY = 864e5;
+async function retroScope(root, opts = {}) {
+  const env = opts.env ?? process.env;
+  const now = opts.now ?? Date.now();
+  const dir = (0, import_node_path11.resolve)(root);
+  const home = await retroHome(dir, env);
+  const book = new RetroBook(home);
+  const retros = (await book.list()).filter((r) => r.root === dir);
+  const lastRetro = retros.filter((r) => r.finishedAt !== null).at(-1) ?? null;
+  const unfinished = retros.filter((r) => r.finishedAt === null);
+  const options = [];
+  let since;
+  let source;
+  if (opts.all) [since, source] = [null, "all"];
+  else if (opts.since) [since, source] = [opts.since, "given"];
+  else if (lastRetro) [since, source] = [new Date(Date.parse(lastRetro.until) + 1), "last-retro"];
+  else {
+    const whole = await projectHistory(dir, { env });
+    for (const [label, days] of [
+      ["last 7 days", 7],
+      ["last 30 days", 30]
+    ]) {
+      const from = now - days * DAY;
+      const ts = whole.stores.flatMap((s) => s.threads).filter((t) => Date.parse(t.lastActivityAt) >= from);
+      options.push({
+        label,
+        since: new Date(from).toISOString(),
+        flag: `--since ${days}d`,
+        threads: ts.length,
+        bytes: ts.reduce((n, t) => n + t.bytes, 0)
+      });
+    }
+    options.push({ label: "whole history", since: null, flag: "--all", threads: whole.threads, bytes: whole.bytes });
+    const pick = options.find((o) => o.threads > 0) ?? options[0];
+    since = pick.since ? new Date(pick.since) : null;
+    source = "proposed";
+  }
+  const history = await projectHistory(dir, { since, env });
+  return {
+    root: dir,
+    home,
+    since: history.since,
+    until: new Date(now).toISOString(),
+    source,
+    history,
+    estimate: estimate(history),
+    lastRetro,
+    unfinished,
+    preferences: await book.preferences(),
+    options,
+    toVerify: lastRetro ? adoptedChanges(lastRetro) : []
+  };
+}
+var tokensOf = (chars) => Math.ceil(chars / 4);
+function estimate(h) {
+  const threads = h.stores.flatMap((s) => s.threads);
+  const tokens = tokensOf(threads.reduce((n, t) => n + threadText(t).length, 0));
+  return {
+    tokens,
+    classifyJev: Math.round(10 + threads.length * 0.25),
+    classifyModel: Math.round(45 + threads.length),
+    analysis: Math.round(60 + tokens / 1e3)
+  };
+}
 var who = (by, agent) => by === "user" ? "User" : agent ?? "Agent";
 function entryText(e) {
   switch (e.kind) {
@@ -1471,21 +1615,21 @@ async function retroThreads(retro, env = process.env) {
   return { history, threads };
 }
 async function writeRetroFile(book, id, name, content) {
-  const file = (0, import_node_path9.join)(await book.workDir(id), name);
-  await (0, import_promises7.writeFile)(file, content);
+  const file = (0, import_node_path11.join)(await book.workDir(id), name);
+  await (0, import_promises9.writeFile)(file, content);
   return file;
 }
 
 // src/retroAudit.ts
-var import_node_child_process3 = require("node:child_process");
+var import_node_child_process4 = require("node:child_process");
 var AUDIT_COMMAND = "/doctor prompt-audit";
 var AUDIT_MIN_VERSION = [2, 1, 283];
 var AUDIT_MODEL = "opus";
 var AUDIT_TIMEOUT_MS = 15 * 6e4;
-var runProcess = (command, args, { cwd, env, timeoutMs }) => new Promise((resolve6) => {
-  (0, import_node_child_process3.execFile)(command, args, { cwd, env, timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
+var runProcess = (command, args, { cwd, env, timeoutMs }) => new Promise((resolve8) => {
+  (0, import_node_child_process4.execFile)(command, args, { cwd, env, timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
     const e = err;
-    resolve6({
+    resolve8({
       stdout,
       stderr,
       code: e ? typeof e.code === "number" ? e.code : null : 0,
@@ -1550,8 +1694,241 @@ async function runAudit(root, claudeDir, env, run = runProcess, timeoutMs = AUDI
   };
 }
 
+// src/retroInsights.ts
+var import_node_fs2 = require("node:fs");
+var import_promises10 = require("node:fs/promises");
+var import_node_path12 = require("node:path");
+var import_node_readline = require("node:readline");
+var INSIGHTS_COMMAND = "/insights";
+var INSIGHTS_SOURCE = "Claude Code /insights";
+var INSIGHTS_TIMEOUT_MS = 15 * 6e4;
+var FIELDS_MODEL = "haiku";
+var FIELDS_FILE = "insights-fields.json";
+var KEYS = ["session_id", "project_path", "start_time"];
+var DEFAULT_FIELDS = {
+  session_id: "session_id",
+  project_path: "project_path",
+  start_time: "start_time"
+};
+async function runInsights(root, env, run = runProcess, timeoutMs = INSIGHTS_TIMEOUT_MS) {
+  const claude = env.LR_CLAUDE_BIN?.trim() || "claude";
+  const r = await run(claude, ["-p", INSIGHTS_COMMAND, "--output-format", "json"], { cwd: root, env, timeoutMs });
+  if (r.timedOut) return { kind: "failed", reason: `it took more than ${Math.round(timeoutMs / 6e4)} min` };
+  let out;
+  try {
+    out = JSON.parse(r.stdout);
+  } catch {
+    const why = (r.stderr || r.stdout).trim().split("\n").at(-1) ?? "";
+    return { kind: "failed", reason: `Claude Code ended with code ${r.code ?? "?"}${why ? `: ${why}` : ""}` };
+  }
+  if (out.is_error === true)
+    return { kind: "failed", reason: typeof out.result === "string" ? out.result.split("\n")[0] : "an error" };
+  return {
+    kind: "done",
+    costUsd: typeof out.total_cost_usd === "number" ? out.total_cost_usd : null,
+    durationMs: typeof out.duration_ms === "number" ? out.duration_ms : null
+  };
+}
+var fieldsFile = (env) => (0, import_node_path12.join)(localReviewHome(env), FIELDS_FILE);
+async function readFieldMaps(env) {
+  const maps = [{ ...DEFAULT_FIELDS }];
+  try {
+    const raw = JSON.parse(await (0, import_promises10.readFile)(fieldsFile(env), "utf8"));
+    for (const f of Array.isArray(raw.formats) ? raw.formats : []) {
+      const m = f;
+      if (KEYS.every((k) => typeof m[k] === "string" && m[k])) maps.push(m);
+    }
+  } catch {
+  }
+  return maps;
+}
+async function writeFieldMaps(env, maps) {
+  const file = fieldsFile(env);
+  await (0, import_promises10.mkdir)(localReviewHome(env), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  await (0, import_promises10.writeFile)(tmp, JSON.stringify({ formats: maps.slice(1) }, null, 2) + "\n");
+  await (0, import_promises10.rename)(tmp, file);
+}
+function keysWith(f, maps) {
+  for (const map of maps) {
+    const k = keysOf(f, map);
+    if (k) return { ...k, map };
+  }
+  return null;
+}
+function shapeOf(v) {
+  if (v === null) return "null";
+  if (Array.isArray(v)) return "list";
+  if (typeof v === "object") return "object";
+  if (typeof v === "number" || typeof v === "boolean") return typeof v;
+  if (typeof v !== "string") return typeof v;
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(v) && !Number.isNaN(Date.parse(v))) return "ISO date and time";
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)) return "UUID";
+  if ((0, import_node_path12.isAbsolute)(v) && !/\s{2}/.test(v) && !v.includes("\n")) return "absolute path";
+  return "text";
+}
+function describeFields(files) {
+  const out = {};
+  for (const f of files) for (const [k, v] of Object.entries(f)) (out[k] ??= /* @__PURE__ */ new Set()).add(shapeOf(v));
+  return Object.fromEntries(Object.entries(out).map(([k, s]) => [k, [...s].sort()]));
+}
+function keysOf(f, map) {
+  const id = f[map.session_id];
+  const folder = f[map.project_path];
+  const start = f[map.start_time];
+  if (typeof id !== "string" || !id.trim()) return null;
+  if (typeof folder !== "string" || !(0, import_node_path12.isAbsolute)(folder)) return null;
+  if (typeof start !== "string" || Number.isNaN(Date.parse(start))) return null;
+  return { id, folder, start: new Date(start).toISOString() };
+}
+async function askFieldMap(files, root, env, run = runProcess) {
+  const prompt = [
+    "These are the fields of JSON files that describe sessions of an AI coding agent, with the shapes of their values (the values are not shown).",
+    "For each of these keys, name the field that holds it: session_id (the id of the session), project_path (the folder the session was started in), start_time (when the session started).",
+    'Answer with one JSON object only, like {"session_id": "<field>", "project_path": "<field>", "start_time": "<field>"}; use null for a key no field holds.',
+    "",
+    JSON.stringify(describeFields(files), null, 2)
+  ].join("\n");
+  const claude = env.LR_CLAUDE_BIN?.trim() || "claude";
+  const r = await run(
+    claude,
+    [
+      "-p",
+      prompt,
+      "--model",
+      FIELDS_MODEL,
+      "--output-format",
+      "json",
+      "--permission-mode",
+      "default",
+      "--disallowedTools",
+      "Bash",
+      "Edit",
+      "Write",
+      "NotebookEdit",
+      "Read",
+      "Glob",
+      "Grep",
+      "WebFetch",
+      "WebSearch"
+    ],
+    { cwd: root, env, timeoutMs: 12e4 }
+  );
+  try {
+    const result = JSON.parse(r.stdout).result;
+    const text = typeof result === "string" ? result : "";
+    const json = /\{[\s\S]*\}/.exec(text)?.[0];
+    const raw = json ? JSON.parse(json) : {};
+    const map = {};
+    for (const k of KEYS) if (typeof raw[k] === "string" && raw[k]) map[k] = raw[k];
+    return map;
+  } catch {
+    return {};
+  }
+}
+var readJson = async (file) => {
+  try {
+    const raw = JSON.parse(await (0, import_promises10.readFile)(file, "utf8"));
+    return typeof raw === "object" && raw !== null && !Array.isArray(raw) ? raw : null;
+  } catch {
+    return null;
+  }
+};
+async function readInsights(usageDir, root, env, run) {
+  const metaDir = (0, import_node_path12.join)(usageDir, "session-meta");
+  const names = (await (0, import_promises10.readdir)(metaDir).catch(() => [])).filter((n) => n.endsWith(".json")).sort();
+  const files = [];
+  for (const n of names) {
+    const f = await readJson((0, import_node_path12.join)(metaDir, n));
+    if (f) files.push(f);
+  }
+  const maps = await readFieldMaps(env);
+  const failing = files.filter((f) => !keysWith(f, maps));
+  if (failing.length > 0) {
+    const found2 = await askFieldMap(failing.slice(0, 20), root, env, run);
+    const candidate = { ...DEFAULT_FIELDS, ...found2 };
+    if (failing.some((f) => keysOf(f, candidate))) {
+      maps.push(candidate);
+      await writeFieldMaps(env, maps).catch(() => void 0);
+    }
+  }
+  const sessions = [];
+  for (const f of files) {
+    const k = keysWith(f, maps);
+    if (!k) continue;
+    const summary = await readJson((0, import_node_path12.join)(usageDir, "facets", `${k.id}.json`));
+    sessions.push({ id: k.id, folder: k.folder, start: k.start, facts: factsOf(f, k.map), summary });
+  }
+  return { sessions, files: files.length };
+}
+function factsOf(f, map) {
+  const skip = /* @__PURE__ */ new Set([map.session_id, map.project_path, map.start_time, "transcript_mtime"]);
+  const out = {};
+  const put = (k, v) => {
+    if (typeof v === "number" || typeof v === "boolean") out[k] = v;
+    else if (typeof v === "string" && v.trim()) out[k] = v.length > 300 ? `${v.slice(0, 299)}\u2026` : v;
+  };
+  for (const [k, v] of Object.entries(f)) {
+    if (skip.has(k) || Array.isArray(v)) continue;
+    if (typeof v === "object" && v !== null) for (const [k2, v2] of Object.entries(v)) put(`${k}.${k2}`, v2);
+    else put(k, v);
+  }
+  return out;
+}
+async function projectFolders(root, env) {
+  const top = (0, import_node_path12.resolve)(root);
+  const folders = /* @__PURE__ */ new Set([top]);
+  for (const wt of await worktreesOf2(top)) folders.add(wt);
+  for (const s of await projectStores(top, env))
+    if (s.origin === "worktree" || s.origin === "below") folders.add(s.root);
+  for (const f of [...folders]) folders.add(await (0, import_promises10.realpath)(f).catch(() => f));
+  return [...folders];
+}
+var inFolders = (path, folders) => folders.some((f) => path === f || path.startsWith(f.endsWith(import_node_path12.sep) ? f : f + import_node_path12.sep));
+var inPeriod = (start, since, until) => (since === null || start >= since) && start <= until;
+async function projectSessions(usageDir, root, period, env, run) {
+  const { sessions, files } = await readInsights(usageDir, root, env, run);
+  const folders = await projectFolders(root, env);
+  const kept = sessions.filter((s) => inFolders(s.folder, folders) && inPeriod(s.start, period.since, period.until)).sort((a, b) => a.start.localeCompare(b.start)).map((s) => ({ id: s.id, start: s.start, folder: s.folder, facts: s.facts, summary: s.summary }));
+  return { sessions: kept, files, read: sessions.length };
+}
+async function transcriptStart(file) {
+  const lines = (0, import_node_readline.createInterface)({ input: (0, import_node_fs2.createReadStream)(file, { encoding: "utf8" }), crlfDelay: Infinity });
+  let cwd = null;
+  let start = null;
+  try {
+    for await (const line of lines) {
+      let e;
+      try {
+        e = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (cwd === null && typeof e.cwd === "string") cwd = e.cwd;
+      if (start === null && typeof e.timestamp === "string") start = e.timestamp;
+      if (cwd !== null && start !== null) break;
+    }
+  } finally {
+    lines.close();
+  }
+  return cwd !== null && start !== null && !Number.isNaN(Date.parse(start)) ? { cwd, start: new Date(start).toISOString() } : null;
+}
+async function countSessions(claudeDir, root, period, env) {
+  const projects = (0, import_node_path12.join)(claudeDir, "projects");
+  const folders = await projectFolders(root, env);
+  let n = 0;
+  for (const dir of await (0, import_promises10.readdir)(projects).catch(() => [])) {
+    const names = await (0, import_promises10.readdir)((0, import_node_path12.join)(projects, dir)).catch(() => []);
+    for (const name of names.filter((x) => x.endsWith(".jsonl"))) {
+      const s = await transcriptStart((0, import_node_path12.join)(projects, dir, name));
+      if (s && inFolders(s.cwd, folders) && inPeriod(s.start, period.since, period.until)) n++;
+    }
+  }
+  return n;
+}
+
 // src/retroJev.ts
-var import_promises8 = require("node:fs/promises");
+var import_promises11 = require("node:fs/promises");
 var JEV_URL = "https://jevtypesafeai.com/api/v1/decide";
 var INTRO = "Code review thread between a developer and their AI coding agent. ";
 var QUESTIONS = {
@@ -1575,7 +1952,7 @@ async function readJevKey(env = process.env) {
   const s = await jevKeyStatus(env);
   if (!s.exists) throw new Error(`no Jev key: ${s.path} does not exist (lr retro key tells how to add one)`);
   if (!s.ok) throw new Error(`the Jev key file is not safe, fix it first: ${s.fixes.join("; ")}`);
-  const key = (await (0, import_promises8.readFile)(s.path, "utf8")).trim();
+  const key = (await (0, import_promises11.readFile)(s.path, "utf8")).trim();
   if (!key) throw new Error(`the Jev key file ${s.path} is empty`);
   return key;
 }
@@ -1631,8 +2008,8 @@ async function classifyWithJev(threads, rules, deps) {
 }
 
 // src/retroConversation.ts
-var import_promises9 = require("node:fs/promises");
-var import_node_path10 = require("node:path");
+var import_promises12 = require("node:fs/promises");
+var import_node_path13 = require("node:path");
 function linkedReplies(t) {
   return t.conversation.flatMap(
     (e) => e.kind === "comment" && e.author === "agent" && e.session ? [{ session: e.session.id, ...e.session.message ? { message: e.session.message } : {}, at: e.at }] : []
@@ -1641,26 +2018,26 @@ function linkedReplies(t) {
 var SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/;
 async function transcriptsOf(claudeDir, session) {
   if (!SAFE_ID.test(session)) return [];
-  const projects = (0, import_node_path10.join)(claudeDir, "projects");
+  const projects = (0, import_node_path13.join)(claudeDir, "projects");
   let folders;
   try {
-    folders = await (0, import_promises9.readdir)(projects);
+    folders = await (0, import_promises12.readdir)(projects);
   } catch {
     return [];
   }
   const found2 = [];
   for (const folder of folders.sort()) {
-    const main = (0, import_node_path10.join)(projects, folder, `${session}.jsonl`);
+    const main = (0, import_node_path13.join)(projects, folder, `${session}.jsonl`);
     if (await readable(main)) found2.push(main);
     try {
-      const sub = (0, import_node_path10.join)(projects, folder, session, "subagents");
-      for (const f of (await (0, import_promises9.readdir)(sub)).sort()) if (f.endsWith(".jsonl")) found2.push((0, import_node_path10.join)(sub, f));
+      const sub = (0, import_node_path13.join)(projects, folder, session, "subagents");
+      for (const f of (await (0, import_promises12.readdir)(sub)).sort()) if (f.endsWith(".jsonl")) found2.push((0, import_node_path13.join)(sub, f));
     } catch {
     }
   }
   return found2;
 }
-var readable = (file) => (0, import_promises9.stat)(file).then(
+var readable = (file) => (0, import_promises12.stat)(file).then(
   (s) => s.isFile(),
   () => false
 );
@@ -1780,7 +2157,7 @@ function excerpt(entries, at, budget = EXCERPT_BUDGET) {
   if (usage) lines.push(`- This turn up to there: ${usage}`);
   return lines.join("\n");
 }
-async function threadConversations(thread, claudeDir, read = (f) => (0, import_promises9.readFile)(f, "utf8")) {
+async function threadConversations(thread, claudeDir, read = (f) => (0, import_promises12.readFile)(f, "utf8")) {
   const replies = linkedReplies(thread);
   const sessions = [...new Set(replies.map((r) => r.session))];
   const head = `# The agent's conversation for thread ${thread.id}`;
@@ -1844,19 +2221,19 @@ The conversation exists (${files[0]}), but this reply was not found in it: read 
 }
 
 // src/retroSetup.ts
-var import_promises10 = require("node:fs/promises");
-var import_node_path11 = require("node:path");
+var import_promises13 = require("node:fs/promises");
+var import_node_path14 = require("node:path");
 var FILE_CAP = 24e3;
 var SETUP_BUDGET = 1e5;
 var orNull = (p) => p.catch(() => null);
-var exists = async (p) => await orNull((0, import_promises10.stat)(p)) !== null;
+var exists = async (p) => await orNull((0, import_promises13.stat)(p)) !== null;
 async function markdown(dir, depth = 3) {
   if (depth < 0) return [];
-  const names = await (0, import_promises10.readdir)(dir).catch(() => []);
+  const names = await (0, import_promises13.readdir)(dir).catch(() => []);
   const out = [];
   for (const name of names.sort()) {
-    const p = (0, import_node_path11.join)(dir, name);
-    const st = await orNull((0, import_promises10.stat)(p));
+    const p = (0, import_node_path14.join)(dir, name);
+    const st = await orNull((0, import_promises13.stat)(p));
     if (!st) continue;
     if (st.isDirectory()) out.push(...await markdown(p, depth - 1));
     else if (name.endsWith(".md")) out.push(p);
@@ -1864,18 +2241,18 @@ async function markdown(dir, depth = 3) {
   return out;
 }
 var isInside = (path, dir) => {
-  const rel = (0, import_node_path11.relative)(dir, path);
-  return rel !== "" && !rel.startsWith("..") && !(0, import_node_path11.isAbsolute)(rel);
+  const rel = (0, import_node_path14.relative)(dir, path);
+  return rel !== "" && !rel.startsWith("..") && !(0, import_node_path14.isAbsolute)(rel);
 };
 function projectDirs(root, repos, home) {
   const parents = [];
-  let dir = (0, import_node_path11.dirname)((0, import_node_path11.resolve)(root));
-  const top = (0, import_node_path11.resolve)(home);
-  while (dir !== (0, import_node_path11.dirname)(dir) && isInside(dir, top)) {
+  let dir = (0, import_node_path14.dirname)((0, import_node_path14.resolve)(root));
+  const top = (0, import_node_path14.resolve)(home);
+  while (dir !== (0, import_node_path14.dirname)(dir) && isInside(dir, top)) {
     parents.unshift(dir);
-    dir = (0, import_node_path11.dirname)(dir);
+    dir = (0, import_node_path14.dirname)(dir);
   }
-  return [.../* @__PURE__ */ new Set([...parents, (0, import_node_path11.resolve)(root), ...repos.map((r) => (0, import_node_path11.resolve)(r))])];
+  return [.../* @__PURE__ */ new Set([...parents, (0, import_node_path14.resolve)(root), ...repos.map((r) => (0, import_node_path14.resolve)(r))])];
 }
 async function found(root, repos, home, claudeDir) {
   const files = [];
@@ -1885,20 +2262,20 @@ async function found(root, repos, home, claudeDir) {
   const dirs = projectDirs(root, repos, home);
   for (const d of dirs)
     for (const name of ["CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md"])
-      await add((0, import_node_path11.join)(d, name), "rules", "project");
-  await add((0, import_node_path11.join)(claudeDir, "CLAUDE.md"), "rules", "user");
+      await add((0, import_node_path14.join)(d, name), "rules", "project");
+  await add((0, import_node_path14.join)(claudeDir, "CLAUDE.md"), "rules", "user");
   const setupOf = async (claude, agents, scope) => {
-    for (const f of await markdown((0, import_node_path11.join)(claude, "rules"))) await add(f, "rules", scope);
-    for (const f of await markdown((0, import_node_path11.join)(claude, "skills"), 2))
-      if ((0, import_node_path11.basename)(f) === "SKILL.md") await add(f, "skill", scope);
-    for (const f of await markdown((0, import_node_path11.join)(claude, "commands"))) await add(f, "command", scope);
-    for (const f of await markdown((0, import_node_path11.join)(claude, "agents"))) await add(f, "agent", scope);
-    for (const name of ["settings.json", "settings.local.json"]) await add((0, import_node_path11.join)(claude, name), "hooks", scope);
+    for (const f of await markdown((0, import_node_path14.join)(claude, "rules"))) await add(f, "rules", scope);
+    for (const f of await markdown((0, import_node_path14.join)(claude, "skills"), 2))
+      if ((0, import_node_path14.basename)(f) === "SKILL.md") await add(f, "skill", scope);
+    for (const f of await markdown((0, import_node_path14.join)(claude, "commands"))) await add(f, "command", scope);
+    for (const f of await markdown((0, import_node_path14.join)(claude, "agents"))) await add(f, "agent", scope);
+    for (const name of ["settings.json", "settings.local.json"]) await add((0, import_node_path14.join)(claude, name), "hooks", scope);
     for (const f of await markdown(agents)) await add(f, "other", scope);
   };
-  for (const d of [(0, import_node_path11.resolve)(root), ...repos.map((r) => (0, import_node_path11.resolve)(r))])
-    await setupOf((0, import_node_path11.join)(d, ".claude"), (0, import_node_path11.join)(d, ".agents"), "project");
-  await setupOf(claudeDir, (0, import_node_path11.join)(home, ".agents"), "user");
+  for (const d of [(0, import_node_path14.resolve)(root), ...repos.map((r) => (0, import_node_path14.resolve)(r))])
+    await setupOf((0, import_node_path14.join)(d, ".claude"), (0, import_node_path14.join)(d, ".agents"), "project");
+  await setupOf(claudeDir, (0, import_node_path14.join)(home, ".agents"), "user");
   return files;
 }
 function header(text) {
@@ -1916,13 +2293,13 @@ function hooksOf(text) {
     return null;
   }
 }
-async function collectSetup(root, repos, home, claudeDir = (0, import_node_path11.join)(home, ".claude"), budget = SETUP_BUDGET) {
+async function collectSetup(root, repos, home, claudeDir = (0, import_node_path14.join)(home, ".claude"), budget = SETUP_BUDGET) {
   const out = [];
   let used = 0;
   const all = await found(root, repos, home, claudeDir);
   const order = (f) => (f.kind === "rules" || f.kind === "hooks" ? 0 : 1) + (f.scope === "user" ? 2 : 0);
   for (const f of [...all].sort((a, b) => order(a) - order(b))) {
-    const raw = await orNull((0, import_promises10.readFile)(f.path, "utf8"));
+    const raw = await orNull((0, import_promises13.readFile)(f.path, "utf8"));
     if (raw === null) continue;
     let content = f.kind === "hooks" ? hooksOf(raw) : raw;
     if (content === null) continue;
@@ -1949,8 +2326,8 @@ var TITLES = {
 };
 function renderSetup(root, home, files) {
   const label = (p) => {
-    if (isInside(p, (0, import_node_path11.resolve)(root))) return (0, import_node_path11.relative)(root, p);
-    if (isInside(p, (0, import_node_path11.resolve)(home))) return "~/" + (0, import_node_path11.relative)(home, p);
+    if (isInside(p, (0, import_node_path14.resolve)(root))) return (0, import_node_path14.relative)(root, p);
+    if (isInside(p, (0, import_node_path14.resolve)(home))) return "~/" + (0, import_node_path14.relative)(home, p);
     return p;
   };
   const lines = [
@@ -1989,30 +2366,55 @@ var RETRO_CLI_USAGE = `lr-retro \u2014 the Claude Code part of Local Review's re
                                              read-only Claude Code; several minutes), in a file of
                                              the retro, for its analysis
 
+  lr-retro sessions [--root <dir>] [--since <date> | --all]
+                                             How many Claude Code sessions the project had in the
+                                             period of the next retro (as lr retro scope)
+  lr-retro insights <retro-id> [--root <dir>]
+                                             Run Claude Code's /insights (a separate Claude Code,
+                                             about a minute), then keep what it knows of the
+                                             sessions of the project and of the retro's period, for
+                                             its analysis
+
   lr-retro conversation <retro-id> <thread-id> [--root <dir>]
                                              Read back Claude Code's conversation where the agent
                                              replied in that thread (the steps that led to each
                                              reply), while Claude Code keeps it (30 days by
                                              default); the retro records it was read back`;
+var localDay = (iso) => {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
 var RULES_CAP = 8e3;
 async function runRetroCli(args, io) {
   try {
     const { values, positionals } = (0, import_node_util.parseArgs)({
       args,
-      options: { root: { type: "string" } },
+      options: { root: { type: "string" }, since: { type: "string" }, all: { type: "boolean" } },
       allowPositionals: true
     });
     const [action, id, threadId] = positionals;
-    if (action !== "setup" && action !== "jev" && action !== "audit" && action !== "conversation") {
+    const actions = ["setup", "jev", "audit", "conversation", "insights", "sessions"];
+    if (action === void 0 || !actions.includes(action)) {
       io.out(RETRO_CLI_USAGE);
       return action === void 0 || action === "help" ? 0 : 1;
     }
-    if (!id) throw new Error("missing <retro-id>");
     const root = values.root ?? io.cwd;
+    const home = io.env.HOME?.trim() || (0, import_node_os3.homedir)();
+    const claudeDir = io.env.CLAUDE_CONFIG_DIR?.trim() || (0, import_node_path15.join)(home, ".claude");
+    if (action === "sessions") {
+      if (values.since !== void 0 && values.all) throw new Error("give --since or --all, not both");
+      const since = values.since === void 0 ? void 0 : parseDateArg(values.since);
+      if (since === null) throw new Error(`--since takes a date (2026-10-01) or a number of days ago (7d)`);
+      const scope = await retroScope(root, { ...since ? { since } : {}, all: values.all === true, env: io.env });
+      const n2 = await countSessions(claudeDir, scope.root, scope, io.env);
+      io.out(
+        `${n2} Claude Code session${n2 === 1 ? "" : "s"} in this project ` + (scope.since ? `since ${localDay(scope.since)}` : "over the whole history") + "."
+      );
+      return 0;
+    }
+    if (!id) throw new Error("missing <retro-id>");
     const book = new RetroBook(await retroHome(root, io.env));
     const retro = await book.get(id);
-    const home = io.env.HOME?.trim() || (0, import_node_os3.homedir)();
-    const claudeDir = io.env.CLAUDE_CONFIG_DIR?.trim() || (0, import_node_path12.join)(home, ".claude");
     const repos = retro.stores.map((s) => s.root);
     if (action === "conversation") {
       if (!threadId) throw new Error("missing <thread-id>");
@@ -2034,6 +2436,42 @@ async function runRetroCli(args, io) {
       io.out(
         `Written: ${file}
 ${files.length} setup files (${files.filter((f) => f.kind === "rules").length} rules files)` + (header2 ? `, ${header2} shown by their header only (over the size budget: read them if needed)` : "") + "."
+      );
+      return 0;
+    }
+    if (action === "insights") {
+      const ran = await runInsights(retro.root, io.env, io.run);
+      const { sessions, files, read } = await projectSessions(
+        (0, import_node_path15.join)(claudeDir, "usage-data"),
+        retro.root,
+        retro,
+        io.env,
+        io.run
+      );
+      if (files > 0 && read === 0) {
+        io.err(
+          `lr-retro: /insights has ${files} session file(s), but none could be read: its format changed. The retro goes on without the sessions; tell the user to report it as a bug of Local Review.`
+        );
+        return 1;
+      }
+      if (files === 0 && ran.kind === "failed") {
+        io.err(`lr-retro: /insights failed (${ran.reason}): the retro goes on without the sessions.`);
+        return 1;
+      }
+      const file = await recordRetroSessions(
+        book,
+        retro.id,
+        INSIGHTS_SOURCE,
+        sessions,
+        ran.kind === "done" ? ran : { costUsd: null, durationMs: null }
+      );
+      const withSummary = sessions.filter((s) => s.summary).length;
+      io.out(
+        [
+          `Written: ${file}`,
+          `${sessions.length} Claude Code session${sessions.length === 1 ? "" : "s"} of this project in the period, ${withSummary} with a summary by /insights: lr retro input --for analysis includes them.`,
+          ...ran.kind === "failed" ? [`(/insights did not run: ${ran.reason}; its last results were used.)`] : []
+        ].join("\n")
       );
       return 0;
     }
