@@ -14,11 +14,11 @@ The heavy work is done by sub-agents with a fresh context (classification, analy
 
 ## 1. Where things stand
 
-Run `lr retro scope --root <dir>`. It prints the period (since the last retro), the comment stores found, the threads, the size, an estimate of the time, the last retro and the user's retro preferences.
+Run `lr retro scope --root <dir>`. It prints the proposed period (since the last retro), the comment stores found, the threads, the size, an estimate of the time, the periods to choose from, the last retro and the user's retro preferences.
 
 If it lists an **unfinished retro**, ask whether to continue it (run `lr retro show <id> --root <dir>` and resume at the step where it stopped) or to start a new one.
 
-If the period holds **no thread** (nothing was commented since the last retro), there is nothing to look back at: say so in one sentence. When there is a last retro, still offer the question of step 2 (changing the retro itself) and save the preferences. Then stop: no retro is started.
+Run `lr-retro sessions --root <dir>` too: it says, for the same periods, your Claude Code sessions and the reports they need. If **no period** holds a thread or a session (nothing was commented and no session was run), there is nothing to look back at: say so in one sentence. When there is a last retro, still offer the question of step 2 (changing the retro itself) and save the preferences. Then stop: no retro is started. When only the proposed period is empty, go on: the user chooses another one at step 3.
 
 ## 2. Feedback on the last retro (only when there is one)
 
@@ -36,13 +36,19 @@ When `lr retro scope` says that this retro **will check the changes adopted** la
 
 ## 3. The scope: first validation
 
-Run `lr-retro sessions --root <dir>` (with the same `--since <date>` or `--all` as `lr retro scope`, if any): it counts your Claude Code sessions of the project in that period, and says how many need a **report** (a separate Claude Code with Opus reads each session, at the start of the retro), how many already have one (kept from an earlier retro), and an estimate of the time and cost of the new ones. Announce, in a few lines: the project, the comment stores found, the period, the number of threads, **the number of your sessions** (the retro reads what `/insights` knows of them, and a report on each one), **the reports to write with their estimated time and cost** (an equivalent at the API list price: on a subscription, tokens counted against the usage limits, not a bill), the size and the estimated time. When `lr retro scope` says the **history is not kept** on this machine, say so: the threads the user deleted are erased, so the retro does not see them. For a **first retro**, `lr retro scope` lists periods to choose from: ask which one (the proposed one recommended). Then ask to confirm: "Start the retro" / "Change the period" / "Cancel". For another period, run `lr retro scope --root <dir> --since <date>` (or `--all`) and `lr-retro sessions` with the same option, and announce it again.
+`lr retro scope` and `lr-retro sessions` (step 1) list the same **periods to choose from**, at every retro: since the last retro (or, for a first retro, the last 7 days), the last 30 days and the whole history, the proposed one first. For each, `lr retro scope` gives its threads and size (and says when it **reads again threads of the last retro**), and `lr-retro sessions` its Claude Code sessions, the **reports** to write (a separate Claude Code with Opus reads each session, at the start of the retro), those already written (kept from an earlier retro), and the estimated time and cost of the new ones.
+
+Announce, in a few lines: the project, the comment stores found, and that the retro reads the threads, your sessions (what `/insights` knows of them, and a report on each one) and your setup. When `lr retro scope` says the **history is not kept** on this machine, say so: the threads the user deleted are erased, so the retro does not see them.
+
+Then ask **one AskUserQuestion**: "Which period should the retro cover?", with **one option per period listed** (the proposed one first, "(Recommended)") and a last option "Cancel". Each option's description gives **its own numbers**, from both commands: threads, sessions, reports to write with their estimated time and cost (an equivalent at the API list price: on a subscription, tokens counted against the usage limits, not a bill), reports already written, and "reads again the threads of the last retro" when it does. Never write a vague number ("and more sessions"): every option has its figures. Choosing a period starts the retro on it (step 4). When the user types another date instead, run `lr retro scope --root <dir> --since <date>` and `lr-retro sessions --root <dir> --since <date>`, give its numbers the same way, and ask to confirm: "Start the retro" / "Cancel".
 
 ## 4. Start
 
 ```bash
 lr retro start --root <dir> [--since <date> | --all]
 ```
+
+with the option of the period chosen (as listed: none for "since the last retro", `--since 30d`, `--all`…).
 
 It prints the retro id (`rt_…`). If the user said something about the last retro's changes anyway, record it in a sentence: `lr retro feedback <id> --root <dir> --body "<their words>"`.
 

@@ -3003,32 +3003,38 @@ async function retroScope(root, opts = {}) {
   const retros = (await book2.list()).filter((r) => r.root === dir);
   const lastRetro = retros.filter((r) => r.finishedAt !== null).at(-1) ?? null;
   const unfinished = retros.filter((r) => r.finishedAt === null);
-  const options = [];
+  const afterLast = lastRetro ? Date.parse(lastRetro.until) + 1 : null;
+  let options = [];
   let since;
   let source;
   if (opts.all) [since, source] = [null, "all"];
   else if (opts.since) [since, source] = [opts.since, "given"];
-  else if (lastRetro) [since, source] = [new Date(Date.parse(lastRetro.until) + 1), "last-retro"];
   else {
     const whole = await projectHistory(dir, { env });
-    for (const [label2, days] of [
-      ["last 7 days", 7],
-      ["last 30 days", 30]
-    ]) {
-      const from = now - days * DAY2;
-      const ts = whole.stores.flatMap((s) => s.threads).filter((t) => Date.parse(t.lastActivityAt) >= from);
-      options.push({
+    const threads = whole.stores.flatMap((s) => s.threads);
+    const option = (label2, from, flag) => {
+      const ts = from === null ? threads : threads.filter((t) => Date.parse(t.lastActivityAt) >= from);
+      return {
         label: label2,
-        since: new Date(from).toISOString(),
-        flag: `--since ${days}d`,
+        since: from === null ? null : new Date(from).toISOString(),
+        flag,
         threads: ts.length,
-        bytes: ts.reduce((n, t) => n + t.bytes, 0)
-      });
-    }
-    options.push({ label: "whole history", since: null, flag: "--all", threads: whole.threads, bytes: whole.bytes });
-    const pick = options.find((o) => o.threads > 0) ?? options[0];
+        bytes: ts.reduce((n, t) => n + t.bytes, 0),
+        proposed: false,
+        overlapsLastRetro: afterLast !== null && (from === null || from < afterLast)
+      };
+    };
+    const days = (n) => option(`last ${n} days`, now - n * DAY2, `--since ${n}d`);
+    options = [
+      ...afterLast !== null ? [option("since the last retro", afterLast, "")] : [days(7)],
+      days(30),
+      option("whole history", null, "--all")
+    ];
+    const pick = afterLast !== null ? options[0] : options.find((o) => o.threads > 0) ?? options[0];
+    pick.proposed = true;
+    options = [pick, ...options.filter((o) => o !== pick)];
     since = pick.since ? new Date(pick.since) : null;
-    source = "proposed";
+    source = afterLast !== null ? "last-retro" : "proposed";
   }
   const history2 = await projectHistory(dir, { since, env });
   return {
@@ -3793,8 +3799,11 @@ function renderScope(s, keepHistory) {
     ) : ["- none: nothing has been commented in this project yet"]
   ];
   if (s.options.length > 0) {
-    lines.push("", "## Periods for a first retro", "");
-    for (const o of s.options) lines.push(`- ${o.label} (${o.flag}): ${o.threads} threads, ${formatBytes(o.bytes)}`);
+    lines.push("", "## Periods to choose from", "");
+    for (const o of s.options)
+      lines.push(
+        `- ${o.label} (${o.flag || "the default"}${o.proposed ? ", proposed" : ""}): ${o.threads} threads, ${formatBytes(o.bytes)}` + (o.overlapsLastRetro ? " (reads again threads of the last retro)" : "")
+      );
   }
   lines.push("", "## Last retro", "");
   if (!s.lastRetro) lines.push("None: this would be the first retro of this project.");

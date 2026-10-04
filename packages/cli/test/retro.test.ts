@@ -342,8 +342,10 @@ describe('lr retro', () => {
     expect(out).toContain('proposed for a first retro');
     expect(out).toContain('**Threads**: 3 (3 open, 0 needs-info');
     expect(out).toContain('- api (below): 3 threads');
-    expect(out).toContain('- last 7 days (--since 7d): 3 threads');
+    expect(out).toContain('## Periods to choose from');
+    expect(out).toContain('- last 7 days (--since 7d, proposed): 3 threads');
     expect(out).toContain('- whole history (--all): 3 threads');
+    expect(out).not.toContain('reads again threads of the last retro');
     expect(out).toContain('None: this would be the first retro of this project.');
     expect(out).toMatch(/\*\*Time\*\* \(estimate\): classification \d+ min with Jev/);
     const json = JSON.parse((await lr(['retro', 'scope', '--format', 'json', '--all'])).out);

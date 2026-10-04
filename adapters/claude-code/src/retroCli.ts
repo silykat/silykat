@@ -105,33 +105,60 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
       const since = values.since === undefined ? undefined : parseDateArg(values.since);
       if (since === null) throw new Error(`--since takes a date (2026-10-01) or a number of days ago (7d)`);
       const scope = await retroScope(root, { ...(since ? { since } : {}), all: values.all === true, env: io.env });
-      const transcripts = await projectTranscripts(claudeDir, scope.root, scope, io.env);
-      const n = transcripts.length;
       const book = new RetroBook(await retroHome(scope.root, io.env));
       const own = await (io.session ?? currentSession)(io.env);
-      const plan = await planReports(book, transcripts, own ? { exclude: new Set([own]) } : {});
-      const writing = plan.candidates.filter((c) => c.action === 'write');
-      const toWrite = writing.length;
-      const kept = plan.candidates.length - toWrite;
-      const est = await estimateReports(
-        book,
-        writing.map((c) => c.analytics.counts.typed_prompts),
-      );
+      /** The sessions of a period, and the reports they need. */
+      const period = async (from: string | null) => {
+        const transcripts = await projectTranscripts(
+          claudeDir,
+          scope.root,
+          { since: from, until: scope.until },
+          io.env,
+        );
+        const plan = await planReports(book, transcripts, own ? { exclude: new Set([own]) } : {});
+        const writing = plan.candidates.filter((c) => c.action === 'write');
+        const est = await estimateReports(
+          book,
+          writing.map((c) => c.analytics.counts.typed_prompts),
+        );
+        return {
+          sessions: transcripts.length,
+          plan,
+          toWrite: writing.length,
+          kept: plan.candidates.length - writing.length,
+          est,
+        };
+      };
+      const p = await period(scope.since);
       io.out(
         [
-          `${n} Claude Code session${n === 1 ? '' : 's'} in this project ` +
+          `${p.sessions} Claude Code session${p.sessions === 1 ? '' : 's'} in this project ` +
             (scope.since ? `since ${localDay(scope.since)}` : 'over the whole history') +
             '.',
-          `Reports on them: ${toWrite} to write` +
-            (toWrite
-              ? ` (about ${minutes(est.ms)} with ${REPORT_CONCURRENCY} at once, and about $${est.costUsd.toFixed(2)} at the API list price: on a subscription, tokens counted against the usage limits, not a bill)`
+          `Reports on them: ${p.toWrite} to write` +
+            (p.toWrite
+              ? ` (about ${minutes(p.est.ms)} with ${REPORT_CONCURRENCY} at once, and about $${p.est.costUsd.toFixed(2)} at the API list price: on a subscription, tokens counted against the usage limits, not a bill)`
               : '') +
-            `, ${kept} already written` +
-            (plan.noPrompt ? `, ${plan.noPrompt} without any prompt typed by the user (not analysed)` : '') +
-            (plan.current ? ', and this session (not analysed)' : '') +
+            `, ${p.kept} already written` +
+            (p.plan.noPrompt ? `, ${p.plan.noPrompt} without any prompt typed by the user (not analysed)` : '') +
+            (p.plan.current ? ', and this session (not analysed)' : '') +
             '.',
         ].join('\n'),
       );
+      // The periods to choose from, as lr retro scope lists them: what each one would cost.
+      if (scope.options.length > 0) {
+        const lines = ['', 'Periods to choose from (as lr retro scope lists them):'];
+        for (const o of scope.options) {
+          const x = o.since === scope.since ? p : await period(o.since);
+          lines.push(
+            `- ${o.label} (${o.flag || 'the default'}${o.proposed ? ', proposed' : ''}): ${x.sessions} session${x.sessions === 1 ? '' : 's'}, ` +
+              `${x.toWrite} report${x.toWrite === 1 ? '' : 's'} to write` +
+              (x.toWrite ? ` (about ${minutes(x.est.ms)}, about $${x.est.costUsd.toFixed(2)})` : '') +
+              `, ${x.kept} already written`,
+          );
+        }
+        io.out(lines.join('\n'));
+      }
       return 0;
     }
     if (!id) throw new Error('missing <retro-id>');

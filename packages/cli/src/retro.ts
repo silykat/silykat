@@ -236,8 +236,12 @@ function renderScope(s: RetroScope, keepHistory: boolean): string {
       : ['- none: nothing has been commented in this project yet']),
   ];
   if (s.options.length > 0) {
-    lines.push('', '## Periods for a first retro', '');
-    for (const o of s.options) lines.push(`- ${o.label} (${o.flag}): ${o.threads} threads, ${formatBytes(o.bytes)}`);
+    lines.push('', '## Periods to choose from', '');
+    for (const o of s.options)
+      lines.push(
+        `- ${o.label} (${o.flag || 'the default'}${o.proposed ? ', proposed' : ''}): ${o.threads} threads, ${formatBytes(o.bytes)}` +
+          (o.overlapsLastRetro ? ' (reads again threads of the last retro)' : ''),
+      );
   }
   lines.push('', '## Last retro', '');
   if (!s.lastRetro) lines.push('None: this would be the first retro of this project.');

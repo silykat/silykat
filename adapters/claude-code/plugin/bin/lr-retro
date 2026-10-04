@@ -1871,32 +1871,38 @@ async function retroScope(root, opts = {}) {
   const retros = (await book.list()).filter((r) => r.root === dir);
   const lastRetro = retros.filter((r) => r.finishedAt !== null).at(-1) ?? null;
   const unfinished = retros.filter((r) => r.finishedAt === null);
-  const options = [];
+  const afterLast = lastRetro ? Date.parse(lastRetro.until) + 1 : null;
+  let options = [];
   let since;
   let source;
   if (opts.all) [since, source] = [null, "all"];
   else if (opts.since) [since, source] = [opts.since, "given"];
-  else if (lastRetro) [since, source] = [new Date(Date.parse(lastRetro.until) + 1), "last-retro"];
   else {
     const whole = await projectHistory(dir, { env });
-    for (const [label, days] of [
-      ["last 7 days", 7],
-      ["last 30 days", 30]
-    ]) {
-      const from = now - days * DAY;
-      const ts = whole.stores.flatMap((s) => s.threads).filter((t) => Date.parse(t.lastActivityAt) >= from);
-      options.push({
+    const threads = whole.stores.flatMap((s) => s.threads);
+    const option = (label, from, flag) => {
+      const ts = from === null ? threads : threads.filter((t) => Date.parse(t.lastActivityAt) >= from);
+      return {
         label,
-        since: new Date(from).toISOString(),
-        flag: `--since ${days}d`,
+        since: from === null ? null : new Date(from).toISOString(),
+        flag,
         threads: ts.length,
-        bytes: ts.reduce((n, t) => n + t.bytes, 0)
-      });
-    }
-    options.push({ label: "whole history", since: null, flag: "--all", threads: whole.threads, bytes: whole.bytes });
-    const pick = options.find((o) => o.threads > 0) ?? options[0];
+        bytes: ts.reduce((n, t) => n + t.bytes, 0),
+        proposed: false,
+        overlapsLastRetro: afterLast !== null && (from === null || from < afterLast)
+      };
+    };
+    const days = (n) => option(`last ${n} days`, now - n * DAY, `--since ${n}d`);
+    options = [
+      ...afterLast !== null ? [option("since the last retro", afterLast, "")] : [days(7)],
+      days(30),
+      option("whole history", null, "--all")
+    ];
+    const pick = afterLast !== null ? options[0] : options.find((o) => o.threads > 0) ?? options[0];
+    pick.proposed = true;
+    options = [pick, ...options.filter((o) => o !== pick)];
     since = pick.since ? new Date(pick.since) : null;
-    source = "proposed";
+    source = afterLast !== null ? "last-retro" : "proposed";
   }
   const history = await projectHistory(dir, { since, env });
   return {
@@ -3649,24 +3655,46 @@ async function runRetroCli(args, io) {
       const since = values.since === void 0 ? void 0 : parseDateArg(values.since);
       if (since === null) throw new Error(`--since takes a date (2026-10-01) or a number of days ago (7d)`);
       const scope = await retroScope(root, { ...since ? { since } : {}, all: values.all === true, env: io.env });
-      const transcripts = await projectTranscripts(claudeDir, scope.root, scope, io.env);
-      const n2 = transcripts.length;
       const book2 = new RetroBook(await retroHome(scope.root, io.env));
       const own = await (io.session ?? currentSession)(io.env);
-      const plan = await planReports(book2, transcripts, own ? { exclude: /* @__PURE__ */ new Set([own]) } : {});
-      const writing2 = plan.candidates.filter((c) => c.action === "write");
-      const toWrite = writing2.length;
-      const kept = plan.candidates.length - toWrite;
-      const est = await estimateReports(
-        book2,
-        writing2.map((c) => c.analytics.counts.typed_prompts)
-      );
+      const period = async (from) => {
+        const transcripts = await projectTranscripts(
+          claudeDir,
+          scope.root,
+          { since: from, until: scope.until },
+          io.env
+        );
+        const plan = await planReports(book2, transcripts, own ? { exclude: /* @__PURE__ */ new Set([own]) } : {});
+        const writing2 = plan.candidates.filter((c) => c.action === "write");
+        const est = await estimateReports(
+          book2,
+          writing2.map((c) => c.analytics.counts.typed_prompts)
+        );
+        return {
+          sessions: transcripts.length,
+          plan,
+          toWrite: writing2.length,
+          kept: plan.candidates.length - writing2.length,
+          est
+        };
+      };
+      const p = await period(scope.since);
       io.out(
         [
-          `${n2} Claude Code session${n2 === 1 ? "" : "s"} in this project ` + (scope.since ? `since ${localDay(scope.since)}` : "over the whole history") + ".",
-          `Reports on them: ${toWrite} to write` + (toWrite ? ` (about ${minutes(est.ms)} with ${REPORT_CONCURRENCY} at once, and about $${est.costUsd.toFixed(2)} at the API list price: on a subscription, tokens counted against the usage limits, not a bill)` : "") + `, ${kept} already written` + (plan.noPrompt ? `, ${plan.noPrompt} without any prompt typed by the user (not analysed)` : "") + (plan.current ? ", and this session (not analysed)" : "") + "."
+          `${p.sessions} Claude Code session${p.sessions === 1 ? "" : "s"} in this project ` + (scope.since ? `since ${localDay(scope.since)}` : "over the whole history") + ".",
+          `Reports on them: ${p.toWrite} to write` + (p.toWrite ? ` (about ${minutes(p.est.ms)} with ${REPORT_CONCURRENCY} at once, and about $${p.est.costUsd.toFixed(2)} at the API list price: on a subscription, tokens counted against the usage limits, not a bill)` : "") + `, ${p.kept} already written` + (p.plan.noPrompt ? `, ${p.plan.noPrompt} without any prompt typed by the user (not analysed)` : "") + (p.plan.current ? ", and this session (not analysed)" : "") + "."
         ].join("\n")
       );
+      if (scope.options.length > 0) {
+        const lines = ["", "Periods to choose from (as lr retro scope lists them):"];
+        for (const o of scope.options) {
+          const x = o.since === scope.since ? p : await period(o.since);
+          lines.push(
+            `- ${o.label} (${o.flag || "the default"}${o.proposed ? ", proposed" : ""}): ${x.sessions} session${x.sessions === 1 ? "" : "s"}, ${x.toWrite} report${x.toWrite === 1 ? "" : "s"} to write` + (x.toWrite ? ` (about ${minutes(x.est.ms)}, about $${x.est.costUsd.toFixed(2)})` : "") + `, ${x.kept} already written`
+          );
+        }
+        io.out(lines.join("\n"));
+      }
       return 0;
     }
     if (!id) throw new Error("missing <retro-id>");

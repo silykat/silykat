@@ -601,6 +601,12 @@ describe('lr-retro sessions and lr-retro reports', () => {
       costUsd: 0.4,
       tokens: 100,
     });
+    // Without a period asked for: the figures of every period to choose from.
+    const periods = await run(['sessions', '--root', root], undefined, 's-own');
+    expect(periods.out).toContain('Periods to choose from (as lr retro scope lists them):');
+    expect(periods.out).toMatch(/- last 7 days \(--since 7d, proposed\): \d+ sessions?, \d+ reports? to write/);
+    expect(periods.out).toContain('- whole history (--all): 3 sessions, 0 reports to write, 1 already written');
+
     // Run again in the same retro: written for it all the same, and what it took is kept.
     const again = await run(['reports', r.id, '--root', root], runner, 's-own');
     expect(again.out).toContain('0 written, 1 kept from before.');

@@ -26,15 +26,19 @@ import {
 /** How the period of a retro was chosen. */
 export type PeriodSource = 'last-retro' | 'given' | 'proposed' | 'all';
 
-/** A period offered for a first retro, with what it holds. */
+/** A period offered for a retro, with what it holds. */
 export interface PeriodOption {
   label: string;
   /** `null`: the whole history. */
   since: string | null;
-  /** How to ask for it: `--since 7d`, `--all`. */
+  /** How to ask for it: `--since 7d`, `--all`; empty for the period of the last retro on (the default). */
   flag: string;
   threads: number;
   bytes: number;
+  /** The period proposed: the one a retro covers when none is asked for. */
+  proposed: boolean;
+  /** It starts before the end of the last retro: it reads again threads that retro read. */
+  overlapsLastRetro: boolean;
 }
 
 /** Rough durations, in seconds: they are announced to the user before anything is spent. */
@@ -58,7 +62,7 @@ export interface RetroScope {
   /** Retros started and never finished. */
   unfinished: RetroState[];
   preferences: Preference[];
-  /** For a first retro: the periods to choose from. */
+  /** The periods to choose from (none when a period is asked for), the proposed one first. */
   options: PeriodOption[];
   /** The changes adopted at the last retro, that this one will check. */
   toVerify: AdoptedChange[];
@@ -69,7 +73,9 @@ const DAY = 86_400_000;
 /**
  * What a retro of the project `root` would cover: since the last finished retro, or `since` when
  * given (`null` with `all`). A first retro proposes the last 7 days (a retro a week), or longer
- * when they hold nothing.
+ * when they hold nothing. Without a period asked for, it lists the periods to choose from, with what
+ * each holds: since the last retro (when there is one), the last 7 days (first retro) or 30 days,
+ * and the whole history.
  */
 export async function retroScope(
   root: string,
@@ -83,34 +89,40 @@ export async function retroScope(
   const retros = (await book.list()).filter((r) => r.root === dir);
   const lastRetro = retros.filter((r) => r.finishedAt !== null).at(-1) ?? null;
   const unfinished = retros.filter((r) => r.finishedAt === null);
+  // Just after the last retro: what it read is not read again.
+  const afterLast = lastRetro ? Date.parse(lastRetro.until) + 1 : null;
 
-  const options: PeriodOption[] = [];
+  let options: PeriodOption[] = [];
   let since: Date | null;
   let source: PeriodSource;
   if (opts.all) [since, source] = [null, 'all'];
   else if (opts.since) [since, source] = [opts.since, 'given'];
-  // Just after the last retro: what it read is not read again.
-  else if (lastRetro) [since, source] = [new Date(Date.parse(lastRetro.until) + 1), 'last-retro'];
   else {
     const whole = await projectHistory(dir, { env });
-    for (const [label, days] of [
-      ['last 7 days', 7],
-      ['last 30 days', 30],
-    ] as const) {
-      const from = now - days * DAY;
-      const ts = whole.stores.flatMap((s) => s.threads).filter((t) => Date.parse(t.lastActivityAt) >= from);
-      options.push({
+    const threads = whole.stores.flatMap((s) => s.threads);
+    const option = (label: string, from: number | null, flag: string): PeriodOption => {
+      const ts = from === null ? threads : threads.filter((t) => Date.parse(t.lastActivityAt) >= from);
+      return {
         label,
-        since: new Date(from).toISOString(),
-        flag: `--since ${days}d`,
+        since: from === null ? null : new Date(from).toISOString(),
+        flag,
         threads: ts.length,
         bytes: ts.reduce((n, t) => n + t.bytes, 0),
-      });
-    }
-    options.push({ label: 'whole history', since: null, flag: '--all', threads: whole.threads, bytes: whole.bytes });
-    const pick = options.find((o) => o.threads > 0) ?? options[0]!;
+        proposed: false,
+        overlapsLastRetro: afterLast !== null && (from === null || from < afterLast),
+      };
+    };
+    const days = (n: number) => option(`last ${n} days`, now - n * DAY, `--since ${n}d`);
+    options = [
+      ...(afterLast !== null ? [option('since the last retro', afterLast, '')] : [days(7)]),
+      days(30),
+      option('whole history', null, '--all'),
+    ];
+    const pick = afterLast !== null ? options[0]! : (options.find((o) => o.threads > 0) ?? options[0]!);
+    pick.proposed = true;
+    options = [pick, ...options.filter((o) => o !== pick)];
     since = pick.since ? new Date(pick.since) : null;
-    source = 'proposed';
+    source = afterLast !== null ? 'last-retro' : 'proposed';
   }
   const history = await projectHistory(dir, { since, env });
   return {
