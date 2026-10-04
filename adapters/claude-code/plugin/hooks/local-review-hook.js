@@ -1449,6 +1449,7 @@ var RETRO_EVENTS = /* @__PURE__ */ new Set([
   "retro.undone",
   "retro.conversation",
   "retro.sessions",
+  "retro.reports",
   "retro.finished"
 ]);
 var RETRO_ID = /^rt_[0-9A-HJKMNP-TV-Z]{26}$/;
@@ -1507,6 +1508,8 @@ function foldRetro(events, warnings = [], future = false) {
     applied: {},
     conversations: {},
     sessions: null,
+    reports: null,
+    overview: null,
     finishedAt: null,
     readOnly: future,
     warnings
@@ -1527,6 +1530,7 @@ function foldRetro(events, warnings = [], future = false) {
         r.watch = e.watch;
         r.dropped = e.dropped;
         r.verifications = e.verifications ?? [];
+        r.overview = e.overview ?? null;
         r.decisions = {};
         r.applied = {};
         break;
@@ -1557,6 +1561,17 @@ function foldRetro(events, warnings = [], future = false) {
           durationMs: e.durationMs ?? null
         };
         break;
+      case "retro.reports": {
+        const sum = (a, b) => b === void 0 ? a ?? null : (a ?? 0) + b;
+        r.reports = {
+          source: e.source,
+          list: Array.isArray(e.sessions) ? e.sessions : [],
+          costUsd: sum(r.reports?.costUsd, e.costUsd),
+          durationMs: sum(r.reports?.durationMs, e.durationMs),
+          tokens: sum(r.reports?.tokens, e.tokens)
+        };
+        break;
+      }
       case "retro.finished":
         r.finishedAt ??= e.at;
         break;

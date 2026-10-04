@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import {
   parseDateArg,
+  readSessionReport,
   recordRetroSessions,
   RetroBook,
   retroHome,
@@ -12,7 +13,15 @@ import {
   writeRetroFile,
 } from '@local-review/core';
 import { AUDIT_COMMAND, runAudit, type Runner } from './retroAudit';
-import { countSessions, INSIGHTS_SOURCE, projectSessions, runInsights } from './retroInsights';
+import { INSIGHTS_SOURCE, projectSessions, projectTranscripts, runInsights } from './retroInsights';
+import {
+  currentSession,
+  estimateReports,
+  planReports,
+  REPORT_CONCURRENCY,
+  REPORTS_SOURCE,
+  writeReports,
+} from './sessionReports';
 import { classifyWithJev, readJevKey, type JevDeps } from './retroJev';
 import { threadConversations } from './retroConversation';
 import { collectSetup, renderSetup } from './retroSetup';
@@ -31,7 +40,13 @@ export const RETRO_CLI_USAGE = `lr-retro — the Claude Code part of Local Revie
 
   lr-retro sessions [--root <dir>] [--since <date> | --all]
                                              How many Claude Code sessions the project had in the
-                                             period of the next retro (as lr retro scope)
+                                             period of the next retro (as lr retro scope), how many
+                                             need a report, and what writing them would take
+  lr-retro reports <retro-id> [--root <dir>]
+                                             Write a report on each Claude Code session of the
+                                             project and of the retro's period (one separate Claude
+                                             Code each, with Opus, several at once), or reuse the
+                                             one already written, for its analysis
   lr-retro insights <retro-id> [--root <dir>]
                                              Run Claude Code's /insights (a separate Claude Code,
                                              about a minute), then keep what it knows of the
@@ -52,6 +67,8 @@ export interface RetroCliIo {
   fetch?: JevDeps['fetch'];
   /** Starts a process (the audit's Claude Code). */
   run?: Runner;
+  /** The Claude Code session this command runs in, when known (the retro's own: not reported on). */
+  session?: (env: Record<string, string | undefined>) => Promise<string | undefined>;
 }
 
 /** A date as people read it: its local day. */
@@ -59,6 +76,9 @@ const localDay = (iso: string) => {
   const d = new Date(iso);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
+
+/** A duration, in minutes. */
+const minutes = (ms: number) => `${Math.max(1, Math.round(ms / 60_000))} min`;
 
 /** The rules files, as context for each Jev decision. */
 const RULES_CAP = 8000;
@@ -71,7 +91,7 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
       allowPositionals: true,
     });
     const [action, id, threadId] = positionals;
-    const actions = ['setup', 'jev', 'audit', 'conversation', 'insights', 'sessions'];
+    const actions = ['setup', 'jev', 'audit', 'conversation', 'insights', 'sessions', 'reports'];
     if (action === undefined || !actions.includes(action)) {
       io.out(RETRO_CLI_USAGE);
       return action === undefined || action === 'help' ? 0 : 1;
@@ -85,11 +105,32 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
       const since = values.since === undefined ? undefined : parseDateArg(values.since);
       if (since === null) throw new Error(`--since takes a date (2026-10-01) or a number of days ago (7d)`);
       const scope = await retroScope(root, { ...(since ? { since } : {}), all: values.all === true, env: io.env });
-      const n = await countSessions(claudeDir, scope.root, scope, io.env);
+      const transcripts = await projectTranscripts(claudeDir, scope.root, scope, io.env);
+      const n = transcripts.length;
+      const book = new RetroBook(await retroHome(scope.root, io.env));
+      const own = await (io.session ?? currentSession)(io.env);
+      const plan = await planReports(book, transcripts, own ? { exclude: new Set([own]) } : {});
+      const writing = plan.candidates.filter((c) => c.action === 'write');
+      const toWrite = writing.length;
+      const kept = plan.candidates.length - toWrite;
+      const est = await estimateReports(
+        book,
+        writing.map((c) => c.analytics.counts.typed_prompts),
+      );
       io.out(
-        `${n} Claude Code session${n === 1 ? '' : 's'} in this project ` +
-          (scope.since ? `since ${localDay(scope.since)}` : 'over the whole history') +
-          '.',
+        [
+          `${n} Claude Code session${n === 1 ? '' : 's'} in this project ` +
+            (scope.since ? `since ${localDay(scope.since)}` : 'over the whole history') +
+            '.',
+          `Reports on them: ${toWrite} to write` +
+            (toWrite
+              ? ` (about ${minutes(est.ms)} with ${REPORT_CONCURRENCY} at once, and about $${est.costUsd.toFixed(2)} at the API list price: on a subscription, tokens counted against the usage limits, not a bill)`
+              : '') +
+            `, ${kept} already written` +
+            (plan.noPrompt ? `, ${plan.noPrompt} without any prompt typed by the user (not analysed)` : '') +
+            (plan.current ? ', and this session (not analysed)' : '') +
+            '.',
+        ].join('\n'),
       );
       return 0;
     }
@@ -122,6 +163,52 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
           '.',
       );
       return 0;
+    }
+    if (action === 'reports') {
+      const transcripts = await projectTranscripts(claudeDir, retro.root, retro, io.env);
+      const own = await (io.session ?? currentSession)(io.env);
+      const plan = await planReports(book, transcripts, {
+        retroId: retro.id,
+        ...(own ? { exclude: new Set([own]) } : {}),
+      });
+      const done = await writeReports(book, plan, io.env, io.run);
+      // What this run did, for the user; then, for the journal, a report written by an earlier run of
+      // the same retro counts as written for it.
+      const count = (status: string) => done.refs.filter((r) => r.status === status).length;
+      const written = count('analysed');
+      const kept = count('reused');
+      const refs = await Promise.all(
+        done.refs.map(async (ref) =>
+          ref.status === 'reused' &&
+          !ref.reason &&
+          ((await readSessionReport(book, ref.id))?.generatedAt ?? '') >= retro.startedAt
+            ? { ...ref, status: 'analysed' as const }
+            : ref,
+        ),
+      );
+      await book.record(retro.id, [
+        {
+          type: 'retro.reports',
+          source: REPORTS_SOURCE,
+          sessions: refs,
+          durationMs: done.durationMs,
+          ...(done.costUsd !== null ? { costUsd: done.costUsd } : {}),
+          ...(done.tokens !== null ? { tokens: done.tokens } : {}),
+        },
+      ]);
+      const failed = done.refs.filter((r) => r.status === 'failed');
+      io.out(
+        [
+          `Reports on the ${done.refs.length} Claude Code session${done.refs.length === 1 ? '' : 's'} of this project in the period: ` +
+            `${written} written, ${kept} kept from before` +
+            (failed.length ? `, ${failed.length} could not be written` : '') +
+            (written ? `, in ${minutes(done.durationMs)}` : '') +
+            (done.costUsd !== null ? ` (about $${done.costUsd.toFixed(2)} at the API list price)` : '') +
+            '. lr retro input --for analysis includes them.',
+          ...failed.map((r) => `- ${r.id}: ${r.reason ?? 'failed'}`),
+        ].join('\n'),
+      );
+      return written + kept > 0 || done.refs.length === 0 ? 0 : 1;
     }
     if (action === 'insights') {
       const ran = await runInsights(retro.root, io.env, io.run);

@@ -321,26 +321,46 @@ async function transcriptStart(file: string): Promise<{ cwd: string; start: stri
     : null;
 }
 
+/** A conversation of Claude Code: its session, file, folder and start. */
+export interface ProjectTranscript {
+  id: string;
+  file: string;
+  cwd: string;
+  start: string;
+}
+
 /**
- * How many Claude Code sessions a project had in a period, counted in Claude Code's own
- * conversations (one file per session in `projects/<folder>/`, sub-agents apart): exact even before
- * `/insights` runs.
+ * The Claude Code sessions of a project in a period, from Claude Code's own conversations (one file
+ * per session in `projects/<folder>/`, sub-agents apart): exact even before `/insights` runs. Oldest
+ * first.
  */
+export async function projectTranscripts(
+  claudeDir: string,
+  root: string,
+  period: { since: string | null; until: string },
+  env: Env,
+): Promise<ProjectTranscript[]> {
+  const projects = join(claudeDir, 'projects');
+  const folders = await projectFolders(root, env);
+  const out: ProjectTranscript[] = [];
+  for (const dir of await readdir(projects).catch(() => [] as string[])) {
+    const names = await readdir(join(projects, dir)).catch(() => [] as string[]);
+    for (const name of names.filter((x) => x.endsWith('.jsonl'))) {
+      const file = join(projects, dir, name);
+      const s = await transcriptStart(file);
+      if (s && inFolders(s.cwd, folders) && inPeriod(s.start, period.since, period.until))
+        out.push({ id: name.slice(0, -'.jsonl'.length), file, ...s });
+    }
+  }
+  return out.sort((a, b) => a.start.localeCompare(b.start));
+}
+
+/** How many Claude Code sessions a project had in a period (see `projectTranscripts`). */
 export async function countSessions(
   claudeDir: string,
   root: string,
   period: { since: string | null; until: string },
   env: Env,
 ): Promise<number> {
-  const projects = join(claudeDir, 'projects');
-  const folders = await projectFolders(root, env);
-  let n = 0;
-  for (const dir of await readdir(projects).catch(() => [] as string[])) {
-    const names = await readdir(join(projects, dir)).catch(() => [] as string[]);
-    for (const name of names.filter((x) => x.endsWith('.jsonl'))) {
-      const s = await transcriptStart(join(projects, dir, name));
-      if (s && inFolders(s.cwd, folders) && inPeriod(s.start, period.since, period.until)) n++;
-    }
-  }
-  return n;
+  return (await projectTranscripts(claudeDir, root, period, env)).length;
 }

@@ -1,6 +1,6 @@
 ---
 name: retro-analyst
-description: Analysis step of a Local Review retro. Reads every review thread of the period together with the Claude Code sessions of the project (from /insights), the Claude Code setup, the audit of the setup, the classification, the statistics and the previous retros, and records sourced proposals (to keep, remove or improve) with lr. Launched by the local-review retro skill.
+description: Analysis step of a Local Review retro. Reads every review thread of the period together with the Claude Code sessions of the project (from /insights, and a report on each session), the Claude Code setup, the audit of the setup, the classification, the statistics and the previous retros, and records sourced proposals (to keep, remove or improve) with lr. Launched by the local-review retro skill.
 tools: Bash, Read, Grep, Glob, Write
 model: opus
 ---
@@ -11,7 +11,7 @@ The prompt gives you the retro id, the project folder and, when it was run, the 
 
 ## 1. Read everything, together
 
-1. `lr retro input <retro-id> --root <project> --for analysis`: it writes a file and prints its path. It holds the user's **retro preferences** (apply them), the **previous retros** (decisions, excluded subjects, subjects to watch), **statistics** computed without a model, **every thread of the period** with its classification (indicative) and signals, and, when the retro found them, **the agent's sessions** of the project in the period (below).
+1. `lr retro input <retro-id> --root <project> --for analysis`: it writes a file and prints its path. It holds the user's **retro preferences** (apply them), the **previous retros** (decisions, excluded subjects, subjects to watch), **statistics** computed without a model, **every thread of the period** with its classification (indicative) and signals, and, when the retro found them, **the agent's sessions** of the project in the period and **the reports on them** (below).
 2. `lr-retro setup <retro-id> --root <project>`: it writes the **setup** of Claude Code for this project: the rules files (`CLAUDE.md` of the folder, its parents and repositories, `CLAUDE.local.md`, `~/.claude/CLAUDE.md`), skills, commands, sub-agents, rules and hooks of the project and of the user. Files over the size budget only show their header: read them when a proposal concerns them.
 
 3. The **audit** (`audit: <path>` in the prompt, when there is one): the report of `/doctor prompt-audit`, Claude Code's own audit of the setup (stale, contradictory or duplicated rules, instructions that no longer match the code…), with where each finding is.
@@ -26,6 +26,18 @@ The section **"The agent's sessions in this project"** lists the Claude Code ses
 - A summary is a model's account, not the developer's words: weigh it accordingly, and prefer threads when both say the same.
 - Apply the developer's **retro preferences** to them too (e.g. what not to propose).
 - Cite a session in `sessions`, with **words copied exactly from its summary** (they are checked by program): `"sessions": [{ "session": "<id>", "excerpt": "<words of its summary>" }]`. A session without a summary can be cited by its id alone (its facts are shown).
+
+### The reports on the agent's sessions
+
+The section **"Reports on the agent's sessions"** holds one report per session of the period, written by a model that read the session's records: its summary, goal and outcome, the **signals judged relevant** (corrections, frictions, tool errors, permission blocks, repeated requests…), each pointing at a **moment** of the conversation by its `uuid`, the **patterns** that recur in it (rituals, requests made again and again), **observations on the setup** (skills used or never used, rules, hooks, sub-agents) and **leads**. The whole report, with the signals computed without a model (`analytics`), is in its file: read it when a moment needs more context.
+
+- Look for what **recurs from one session to the next**: the same correction, the same friction, the same ritual. That is what makes a proposal; a lead seen in one session only goes to `watch`.
+- Cite a report in `sessions`, with **words copied exactly from it** and the **moments** it cites: `{ "session": "<id>", "excerpt": "<words of the report>", "moments": ["<uuid>", …] }`. Both are checked by program: copy the uuids as the report gives them.
+- **Reconcile them with `/insights`**: a session can be in both sections, told twice. One problem is raised **once**, in one proposal, whatever the sources that show it; two proposals never aim at the same change (same file, same cause). A session counts once as evidence.
+- A report is a model's account, not the developer's words: weigh it accordingly, and prefer threads when both say the same.
+- Apply the developer's **retro preferences** to the reports too (e.g. what not to propose, what to leave out of the overview).
+
+Then write the **overview of the sessions**: what recurs across them (patterns, frictions, rituals), for the developer to find leads of their own (tasks to automate, ways of working), even when it makes no proposal. Eight items at most, each on the sessions where it was seen: `"overview": { "summary": "2 or 3 sentences", "items": [{ "kind": "pattern | friction | ritual", "title": "…", "description": "…", "sessions": ["<id>", …], "idea": "optional: a lead" }] }`. Omit it when there is no report.
 
 ### Ambiguous threads: read the agent's conversation back
 
@@ -71,7 +83,7 @@ Choose the target from the threads only. When nothing in them tells where it bel
 **Guard rails, checked by program** (`lr retro check` and `lr retro propose`):
 
 - at least **2 pieces of evidence** per proposal: threads of the period and sessions of the retro (except a finding of the audit). A preference seen in a single thread or session goes to `watch`, not to the proposals. A proposal on sessions only is shown as such to the developer;
-- every session cited is one the retro reads, and its excerpt is words of its summary;
+- every session cited is one the retro reads, its excerpt words of its summary or report, and its moments ones its report cites;
 - no "keep" for a rule the developer had to enforce in the period (list them in `enforcedIn`; threads classified as an ignored rule count too): it becomes "improve";
 - **one cause** per proposal (`causes` has exactly one item);
 - the target is asked when `targetEvidence` is empty for a new rule;
@@ -100,7 +112,13 @@ Write the proposals as JSON, in the developer's language for the texts, with its
       "why": "The common cause of the threads, and what the change must avoid.",
       "causes": ["the UTC convention is not written anywhere"],
       "evidence": [{ "thread": "t_…", "excerpt": "a short quote of the thread" }],
-      "sessions": [{ "session": "…", "excerpt": "words copied from its summary" }],
+      "sessions": [
+        {
+          "session": "…",
+          "excerpt": "words copied from its summary or report",
+          "moments": ["uuid cited by its report"]
+        }
+      ],
       "enforcedIn": [],
       "target": "project-shared",
       "targetWhy": "why this target",
@@ -111,13 +129,17 @@ Write the proposals as JSON, in the developer's language for the texts, with its
     }
   ],
   "watch": [{ "subject": "…", "why": "…", "evidence": [{ "thread": "t_…", "excerpt": "…" }] }],
-  "verify": [{ "change": "rt_…/p1", "threads": ["t_…"], "note": "what you saw, in a sentence" }]
+  "verify": [{ "change": "rt_…/p1", "threads": ["t_…"], "note": "what you saw, in a sentence" }],
+  "overview": {
+    "summary": "…",
+    "items": [{ "kind": "ritual", "title": "…", "description": "…", "sessions": ["…"], "idea": "…" }]
+  }
 }
 ```
 
 - `kind`: rule, hook, skill, command, agent, doc, setting or other. `file`: the file of the existing rule, or where the change goes. `rule`: the existing rule word for word (required for keep and remove; `null` for a new one). `change`: the exact text to add or the exact edit (empty for keep). `targetEvidence`: the threads that show where it belongs (e.g. "the whole team does it"), empty when nothing tells. `recommendation`: accepted, modified or excluded, your advice. `audit`: `null`, or the audit finding it comes from.
 - `verify`: one item per change adopted at the last retro (`change` is its reference, as listed in the input); omit it when the input lists none. `revisits`, on a proposal: the reference of the change it revises (its `target` may then be left out: it stays where that change was made).
-- Cite thread and session ids exactly as written in the input, with a short excerpt that shows the point. `sessions` is optional.
+- Cite thread and session ids exactly as written in the input, with a short excerpt that shows the point. `sessions` is optional; `moments` only for a session with a report.
 
 Write this JSON with the Write tool in the file `lr retro input` named (`…/proposals.json`), then check it with the command it printed:
 
@@ -131,4 +153,4 @@ If a command is refused (a permission), do not work around it: answer that you w
 
 ## 4. Answer
 
-Answer the main session in **one or two lines** only: how many proposals per column were recorded (how many from the audit, how many resting on sessions), how many subjects to watch, how many changes of the last retro you checked (and how many did not reduce the feedback), and how many conversations you read back (and how many were no longer available). Never paste the threads or the proposals: the main session reads them with `lr retro show`.
+Answer the main session in **one or two lines** only: how many proposals per column were recorded (how many from the audit, how many resting on sessions), how many items in the overview of the sessions, how many subjects to watch, how many changes of the last retro you checked (and how many did not reduce the feedback), and how many conversations you read back (and how many were no longer available). Never paste the threads or the proposals: the main session reads them with `lr retro show`.

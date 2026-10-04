@@ -321,11 +321,11 @@ describe('lr-retro sessions and lr-retro insights', () => {
     const line = (ts: string) => JSON.stringify({ cwd: root, timestamp: ts });
     await writeFile(join(projects, 's1.jsonl'), `${line(at(20))}\n`);
     await writeFile(join(projects, 's2.jsonl'), `${line(at(2))}\n`);
-    expect((await run(['sessions', '--root', root, '--since', '2026-09-10'])).out).toBe(
-      '1 Claude Code session in this project since 2026-09-10.\n',
+    expect((await run(['sessions', '--root', root, '--since', '2026-09-10'])).out).toMatch(
+      /^1 Claude Code session in this project since 2026-09-10\.\n/,
     );
-    expect((await run(['sessions', '--root', root, '--all'])).out).toBe(
-      '2 Claude Code sessions in this project over the whole history.\n',
+    expect((await run(['sessions', '--root', root, '--all'])).out).toMatch(
+      /^2 Claude Code sessions in this project over the whole history\.\n/,
     );
     expect((await run(['sessions', '--root', root, '--since', 'soon'])).err).toContain('--since takes a date');
     expect((await run(['sessions', '--root', root, '--since', '7d', '--all'])).err).toContain('not both');
