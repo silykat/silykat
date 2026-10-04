@@ -7,6 +7,8 @@ import {
   buildAnchorContext,
   recordRetroSessions,
   RetroBook,
+  writeSessionReport,
+  type SessionReport,
   Store,
   writeConfig,
   type Anchor,
@@ -168,6 +170,166 @@ describe("lr retro with the agent's sessions", () => {
       "Reading the agent's sessions (Claude Code /insights) took 1 min and about $0.70 at the API list price " +
         '(on a subscription, tokens counted against your usage limits, not a bill).',
     );
+  });
+});
+
+describe("lr retro with reports on the agent's sessions", () => {
+  const report = (session: string, over: Partial<SessionReport> = {}): SessionReport => ({
+    v: 1,
+    session,
+    agent: 'Claude Code',
+    folder: work,
+    start: '2026-09-22T10:00:00.000Z',
+    end: '2026-09-22T11:00:00.000Z',
+    covered: { lines: 40 },
+    generatedAt: '2026-09-23T10:00:00.000Z',
+    model: 'opus',
+    run: { costUsd: 0.42, durationMs: 96_000, tokens: 163_000 },
+    checks: { citedMoments: 2, unknownMoments: [] },
+    analysis: {
+      session_id: session,
+      summary: 'The user asked for UTC dates twice. The agent kept local times.',
+      outcome: 'achieved',
+      signals: {
+        collaboration: {
+          corrections: {
+            occurrences: 3,
+            relevant: [{ agent: 'main', uuid: 'u-correct-1', verdict: 'The user asked for UTC again', quote: 'UTC!' }],
+            not_relevant: [{ uuid: 'u-thanks', reason: 'approval' }],
+          },
+        },
+      },
+      patterns: [{ name: 'Dates', description: 'Dates come back in every session', evidence: ['u-correct-1'] }],
+    },
+    analytics: { counts: { typed_prompts: 7 }, agents: [{ id: 'main' }], signals: {} },
+    ...over,
+  });
+
+  it('gives them to the analysis, checks the moments cited, records and shows the overview', async () => {
+    const t = await project();
+    const id = (await lr(['retro', 'start', '--all'])).out.match(/rt_\w+/)![0];
+    const book = new RetroBook(work);
+    await writeSessionReport(book, report('sess-r1'));
+    await writeSessionReport(book, report('sess-r2', { start: '2026-09-24T10:00:00.000Z' }));
+    await writeSessionReport(book, report('sess-old'));
+    await book.record(id, [
+      {
+        type: 'retro.reports',
+        source: 'Claude Code session records',
+        sessions: [
+          { id: 'sess-r1', start: '2026-09-22T10:00:00.000Z', status: 'analysed' },
+          { id: 'sess-r2', start: '2026-09-24T10:00:00.000Z', status: 'reused' },
+          { id: 'sess-fail', start: '2026-09-25T10:00:00.000Z', status: 'failed', reason: 'timeout' },
+        ],
+        costUsd: 0.42,
+        durationMs: 96_000,
+        tokens: 163_000,
+      },
+    ]);
+
+    const input = await lr(['retro', 'input', id, '--for', 'analysis']);
+    expect(input.out).toContain('3 threads and 2 reports on its sessions');
+    const text = await readFile(input.out.match(/Written: (.+)/)![1]!, 'utf8');
+    expect(text).toContain("## Reports on the agent's sessions (2)");
+    expect(text).toContain(join(work, '.local-review', 'retros', 'sessions'));
+    expect(text).toContain('### Session sess-r1');
+    expect(text).toContain('The user asked for UTC again');
+    expect(text).not.toContain('u-thanks'); // the signals judged not relevant are left out
+    expect(text).not.toContain('sess-old'); // not a session of this retro
+
+    const withMoments = (moments: string[], excerpt = 'The agent kept local times') =>
+      utcProposal(t, { sessions: [{ session: 'sess-r1', excerpt, moments }] });
+    const unknown = await lr(
+      ['retro', 'check', id, '--body', '-'],
+      JSON.stringify({ proposals: [withMoments(['u-invented'])] }),
+    );
+    expect(unknown.code).toBe(1);
+    expect(unknown.out).toContain('moment(s) u-invented not in its report');
+    const invented = await lr(
+      ['retro', 'check', id, '--body', '-'],
+      JSON.stringify({ proposals: [withMoments(['u-correct-1'], 'The agent loved UTC')] }),
+    );
+    expect(invented.out).toContain('is not in its summary or report');
+
+    const recorded = await lr(
+      ['retro', 'propose', id, '--body', '-'],
+      JSON.stringify({
+        proposals: [withMoments(['u-correct-1'])],
+        overview: {
+          summary: 'Dates come back in most sessions.',
+          items: [
+            {
+              kind: 'friction',
+              title: 'Local times',
+              description: 'The agent keeps local times.',
+              sessions: ['sess-r1', 'sess-r2', 'sess-unknown'],
+              idea: 'A hook that checks the dates',
+            },
+            { kind: 'ritual', title: 'Nowhere', description: 'Only in other sessions', sessions: ['sess-old'] },
+          ],
+        },
+      }),
+    );
+    expect(recorded.code).toBe(0);
+    expect(recorded.out).toContain('overview of the sessions: 1 item(s)');
+    expect(recorded.out).toContain('session sess-unknown is not one the retro reads, left out');
+
+    const state = await book.get(id);
+    expect(state.proposals[0]!.sessions).toEqual([
+      {
+        session: 'sess-r1',
+        start: '2026-09-22T10:00:00.000Z',
+        excerpt: 'The agent kept local times',
+        moments: ['u-correct-1'],
+      },
+    ]);
+    expect(state.overview?.items).toEqual([
+      {
+        kind: 'friction',
+        title: 'Local times',
+        description: 'The agent keeps local times.',
+        sessions: ['sess-r1', 'sess-r2'],
+        idea: 'A hook that checks the dates',
+      },
+    ]);
+
+    const shown = (await lr(['retro', 'show', id])).out;
+    expect(shown).toContain(
+      "Reports on the agent's sessions: 2 (1 written for this retro, 1 kept from before), 1 could not be written; 1 proposal points at moments of them.",
+    );
+    expect(shown).toContain('## Your sessions with the agent: what recurs');
+    expect(shown).toContain(
+      '- **Friction: Local times** (2 sessions: sess-r1, sess-r2). The agent keeps local times. Lead: A hook that checks the dates',
+    );
+    expect(shown).toContain('"The agent kept local times" (moment u-correc)');
+    const json = JSON.parse((await lr(['retro', 'show', id, '--format', 'json'])).out);
+    expect(json.overview.summary).toBe('Dates come back in most sessions.');
+
+    const finished = (await lr(['retro', 'finish', id])).out;
+    expect(finished).toContain(
+      "Reports on the agent's sessions: 1 written (1 kept from earlier retros, at no cost), in 2 min, 163 k tokens, " +
+        'about $0.42 at the API list price (on a subscription, tokens counted against your usage limits, not a bill).',
+    );
+  });
+
+  it('cites a session by its report alone: its first sentence is shown', async () => {
+    const t = await project();
+    const id = (await lr(['retro', 'start', '--all'])).out.match(/rt_\w+/)![0];
+    const book = new RetroBook(work);
+    await writeSessionReport(book, report('sess-r1'));
+    await book.record(id, [
+      {
+        type: 'retro.reports',
+        source: 'Claude Code session records',
+        sessions: [{ id: 'sess-r1', start: '2026-09-22T10:00:00.000Z', status: 'analysed' }],
+      },
+    ]);
+    const recorded = await lr(
+      ['retro', 'propose', id, '--body', '-'],
+      JSON.stringify({ proposals: [utcProposal(t, { sessions: ['sess-r1'] })] }),
+    );
+    expect(recorded.code).toBe(0);
+    expect((await book.get(id)).proposals[0]!.sessions![0]!.excerpt).toBe('The user asked for UTC dates twice.');
   });
 });
 

@@ -3,6 +3,13 @@ import { dirname, join, resolve } from 'node:path';
 import {
   analysisInput,
   readRetroSessions,
+  readSessionReport,
+  reportMoments,
+  reportsDir,
+  reportText,
+  type GuardSession,
+  type SessionReport,
+  type SessionsOverview,
   type RetroSession,
   type SessionEvidence,
   readConfig,
@@ -327,11 +334,20 @@ async function input(c: Ctx): Promise<number> {
   const missing = r.threads.filter((id) => !threads.has(id));
   let content: string;
   let sessions: RetroSession[] = [];
+  let reports: SessionReport[] = [];
   if (kind === 'classify') content = classifyInput(r, threads);
   else {
     const previous = (await b.list()).filter((x) => x.id !== r.id && x.startedAt < r.startedAt);
     sessions = await retroSessions(b, r);
-    content = analysisInput({ retro: r, threads, previous, preferences: await b.preferences(), sessions });
+    reports = await retroReports(b, r);
+    content = analysisInput({
+      retro: r,
+      threads,
+      previous,
+      preferences: await b.preferences(),
+      sessions,
+      ...(reports.length ? { reports: { list: reports, dir: reportsDir(b) } } : {}),
+    });
   }
   const file = await writeRetroFile(b, r.id, `${kind}-input.md`, content);
   const lines = content.split('\n').length;
@@ -350,6 +366,7 @@ async function input(c: Ctx): Promise<number> {
       bytes: Buffer.byteLength(content),
       threads: threads.size,
       sessions: sessions.length,
+      reports: reports.length,
       missing,
       answer,
       next,
@@ -357,7 +374,11 @@ async function input(c: Ctx): Promise<number> {
     () =>
       [
         `Written: ${file}`,
-        `${threads.size} threads${sessions.length ? ` and ${sessions.length} sessions of the agent` : ''}, ${lines} lines, ${formatBytes(Buffer.byteLength(content))}. Read it all (in parts if needed).`,
+        `${andList([
+          `${threads.size} threads`,
+          ...(sessions.length ? [`${sessions.length} session${sessions.length === 1 ? '' : 's'} of the agent`] : []),
+          ...(reports.length ? [`${reports.length} report${reports.length === 1 ? '' : 's'} on its sessions`] : []),
+        ])}, ${lines} lines, ${formatBytes(Buffer.byteLength(content))}. Read it all (in parts if needed).`,
         ...(missing.length
           ? [`${missing.length} thread(s) of the retro are no longer found: ${missing.join(', ')}`]
           : []),
@@ -373,9 +394,40 @@ async function retroSessions(b: RetroBook, r: RetroState): Promise<RetroSession[
   return (await readRetroSessions(b, r.id)).filter((x) => listed.has(x.id));
 }
 
-/** A session in a list: its date and the start of its id, and the words of its summary cited. */
+/** `a`, `a and b`, `a, b and c`. */
+const andList = (xs: readonly string[]) =>
+  xs.length <= 1 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`;
+
+/** The reports on the agent's sessions the retro reads: those its journal lists as written. */
+async function retroReports(b: RetroBook, r: RetroState): Promise<SessionReport[]> {
+  const ids = (r.reports?.list ?? []).filter((x) => x.status !== 'failed').map((x) => x.id);
+  const found = await Promise.all(ids.map((id) => readSessionReport(b, id)));
+  return found.filter((x): x is SessionReport => x !== null);
+}
+
+/** The sessions the guard rails know: those read from the agent's records, and those with a report. */
+async function guardSessions(b: RetroBook, r: RetroState): Promise<Map<string, GuardSession>> {
+  const out = new Map<string, GuardSession>();
+  for (const x of await retroSessions(b, r)) out.set(x.id, { start: x.start, summary: x.summary });
+  for (const rep of await retroReports(b, r)) {
+    const summary = typeof rep.analysis.summary === 'string' ? rep.analysis.summary : '';
+    out.set(rep.session, {
+      start: out.get(rep.session)?.start ?? rep.start,
+      summary: out.get(rep.session)?.summary ?? null,
+      report: { text: reportText(rep), moments: reportMoments(rep), summary: firstSentence(summary) },
+    });
+  }
+  return out;
+}
+
+const firstSentence = (text: string) => (/^.*?[.!?](?=\s|$)/s.exec(text.trim())?.[0] ?? text.trim()).slice(0, 300);
+
+/** A session in a list: its date and the start of its id, the words cited, and the moments pointed at. */
 const sessionLine = (e: SessionEvidence) =>
-  `session ${e.session.slice(0, 8)} (${day(e.start)})${e.excerpt ? `: "${e.excerpt}"` : ', facts only'}`;
+  `session ${e.session.slice(0, 8)} (${day(e.start)})${e.excerpt ? `: "${e.excerpt}"` : ', facts only'}` +
+  (e.moments?.length
+    ? ` (moment${e.moments.length === 1 ? '' : 's'} ${e.moments.map((m) => m.slice(0, 8)).join(', ')})`
+    : '');
 
 /** What a proposal rests on, in a few words: its threads and sessions, then `audit` when it comes from one. */
 function sourceOf(p: Proposal, audit: string): string {
@@ -456,7 +508,7 @@ async function check(c: Ctx, record: boolean): Promise<number> {
     labels: r.classification?.labels ?? {},
     exclusions: exclusionsOf(previous),
     adopted: changesToVerify(r, previous),
-    sessions: new Map((await retroSessions(b, r)).map((x) => [x.id, { start: x.start, summary: x.summary }])),
+    sessions: await guardSessions(b, r),
   });
   const rejected = result.rejected.length > 0;
   if (record && !rejected)
@@ -467,6 +519,7 @@ async function check(c: Ctx, record: boolean): Promise<number> {
         watch: result.watch,
         dropped: result.dropped,
         ...(result.verifications.length ? { verifications: result.verifications } : {}),
+        ...(result.overview ? { overview: result.overview } : {}),
       },
     ]);
   if (c.json) c.io.out(JSON.stringify({ recorded: record && !rejected, ...result }, null, 2));
@@ -497,6 +550,7 @@ function renderGuards(g: GuardResult, recorded: boolean, record: boolean): strin
         (p.revisits ? `, revises ${changeRef(p.revisits)}` : ''),
     );
   for (const w of g.watch) lines.push(`- ${w.id} [watch] ${w.subject}`);
+  if (g.overview) lines.push(`- overview of the sessions: ${g.overview.items.length} item(s)`);
   for (const d of g.dropped) lines.push(`- left out: ${d.subject} (${d.reason})`);
   for (const n of g.notes) lines.push(`  note: ${n}`);
   return lines.join('\n');
@@ -711,7 +765,9 @@ async function show(c: Ctx): Promise<number> {
         `${fromSessions} proposal${fromSessions === 1 ? '' : 's'} rest${fromSessions === 1 ? 's' : ''} on them.`,
     );
   }
+  if (r.reports) lines.push('', reportsLine(r));
   if (r.preferences.length) lines.push('', 'Preferences: ' + r.preferences.map((p) => `${p.id} ${p.body}`).join(' · '));
+  if (r.overview) lines.push('', ...renderOverview(r.overview));
   if (r.verifications.length || r.feedback.length) {
     lines.push('', "## The last retro's changes: did they help?", '');
     for (const f of r.feedback) lines.push(`- **What you said about them**: ${f}`);
@@ -751,6 +807,37 @@ async function show(c: Ctx): Promise<number> {
   }
   c.io.out(lines.join('\n').trimEnd());
   return 0;
+}
+
+/** The reports on the agent's sessions a retro reads, in a line. */
+function reportsLine(r: RetroState): string {
+  const list = r.reports?.list ?? [];
+  const n = (status: string) => list.filter((x) => x.status === status).length;
+  const ok = n('analysed') + n('reused');
+  const fromReports = r.proposals.filter((p) => p.sessions?.some((s) => s.moments?.length)).length;
+  return (
+    `Reports on the agent's sessions: ${ok} (${n('analysed')} written for this retro, ${n('reused')} kept from before)` +
+    (n('failed') ? `, ${n('failed')} could not be written` : '') +
+    (r.proposals.length
+      ? `; ${fromReports} proposal${fromReports === 1 ? '' : 's'} point${fromReports === 1 ? 's' : ''} at moments of them.`
+      : '.')
+  );
+}
+
+const OVERVIEW_TITLE = { pattern: 'Pattern', friction: 'Friction', ritual: 'Ritual' } as const;
+
+/** What recurs across the agent's sessions, for the user to find leads of their own. */
+export function renderOverview(o: SessionsOverview): string[] {
+  return [
+    '## Your sessions with the agent: what recurs',
+    '',
+    ...(o.summary ? [o.summary, ''] : []),
+    ...o.items.map(
+      (i) =>
+        `- **${OVERVIEW_TITLE[i.kind]}: ${i.title}** (${i.sessions.length} session${i.sessions.length === 1 ? '' : 's'}: ${i.sessions.map((s) => s.slice(0, 8)).join(', ')}). ${i.description}` +
+        (i.idea ? ` Lead: ${i.idea}` : ''),
+    ),
+  ];
 }
 
 const DECISION_ALIASES: Record<string, Decision> = {
@@ -828,6 +915,7 @@ async function finish(c: Ctx): Promise<number> {
       ...files.map((f) => `- ${f}`),
       ...(done.watch.length ? ['', 'To watch:', ...done.watch.map((w) => `- ${w.subject}`)] : []),
       ...sessionsCost(done),
+      ...reportsCost(done),
     ].join('\n'),
   );
 }
@@ -843,6 +931,27 @@ function sessionsCost(r: RetroState): string[] {
       : ` and about $${s.costUsd.toFixed(2)} at the API list price (on a subscription, tokens counted against your usage limits, not a bill)`;
   return ['', `Reading the agent's sessions (${s.source})${time}${cost}.`];
 }
+
+/** What writing the reports on the agent's sessions took, at the end of the retro. */
+function reportsCost(r: RetroState): string[] {
+  const s = r.reports;
+  if (!s) return [];
+  const written = s.list.filter((x) => x.status === 'analysed').length;
+  const reused = s.list.filter((x) => x.status === 'reused').length;
+  const time = s.durationMs === null ? '' : `, in ${Math.max(1, Math.round(s.durationMs / 60_000))} min`;
+  const tokens = s.tokens === null ? '' : `, ${formatTokens(s.tokens)} tokens`;
+  const cost =
+    s.costUsd === null
+      ? ''
+      : `, about $${s.costUsd.toFixed(2)} at the API list price (on a subscription, tokens counted against your usage limits, not a bill)`;
+  return [
+    '',
+    `Reports on the agent's sessions: ${written} written${reused ? ` (${reused} kept from earlier retros, at no cost)` : ''}${written ? `${time}${tokens}${cost}` : ''}.`,
+  ];
+}
+
+const formatTokens = (n: number) =>
+  n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)} M` : n >= 1000 ? `${Math.round(n / 1000)} k` : String(n);
 
 async function list(c: Ctx): Promise<number> {
   const all = await (await book(c)).list();
