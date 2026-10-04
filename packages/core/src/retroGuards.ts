@@ -20,6 +20,10 @@ import {
   type Verdict,
   type Verification,
   type WatchItem,
+  OVERVIEW_KINDS,
+  type OverviewItem,
+  type OverviewKind,
+  type SessionsOverview,
 } from './retro';
 import { defaultExcerpt, excerptOf, summaryText, type SessionEvidence } from './retroSessions';
 
@@ -226,8 +230,17 @@ export interface GuardContext {
   exclusions: readonly Exclusion[];
   /** The changes adopted at the last retro: each must be checked against the threads of this period. */
   adopted?: readonly AdoptedChange[];
-  /** The agent's sessions the retro reads (by id), with their summary when there is one. */
-  sessions?: ReadonlyMap<string, { start: string; summary: Record<string, unknown> | null }>;
+  /**
+   * The agent's sessions the retro reads (by id), with their summary when there is one, and their
+   * report: its text (excerpts are words of it) and the moments it knows.
+   */
+  sessions?: ReadonlyMap<string, GuardSession>;
+}
+
+export interface GuardSession {
+  start: string;
+  summary: Record<string, unknown> | null;
+  report?: { text: string; moments: ReadonlySet<string>; summary: string };
 }
 
 export interface Rejected {
@@ -248,6 +261,8 @@ export interface GuardResult {
   rejected: Rejected[];
   /** What the guard rails changed, for the record: moved to the watch list, a keep turned into improve… */
   notes: string[];
+  /** What recurs across the agent's sessions, when the analysis wrote it. */
+  overview: SessionsOverview | null;
 }
 
 type Raw = Record<string, unknown>;
@@ -272,18 +287,70 @@ function auditOf(x: unknown): AuditFinding | null {
   return location && finding ? { location, finding } : null;
 }
 
-/** The sessions a proposal cites: `[{session, excerpt}]`, or ids alone. */
-function sessionsOf(x: unknown): { session: string; excerpt: string }[] {
+/** The sessions a proposal cites: `[{session, excerpt, moments}]`, or ids alone. */
+function sessionsOf(x: unknown): { session: string; excerpt: string; moments: string[] }[] {
   if (!Array.isArray(x)) return [];
-  const out: { session: string; excerpt: string }[] = [];
+  const out: { session: string; excerpt: string; moments: string[] }[] = [];
   for (const e of x) {
-    if (typeof e === 'string' && e.trim()) out.push({ session: e.trim(), excerpt: '' });
-    else if (isRecord(e) && text(e.session)) out.push({ session: text(e.session), excerpt: text(e.excerpt) });
+    if (typeof e === 'string' && e.trim()) out.push({ session: e.trim(), excerpt: '', moments: [] });
+    else if (isRecord(e) && text(e.session))
+      out.push({ session: text(e.session), excerpt: text(e.excerpt), moments: [...new Set(ids(e.moments))] });
   }
   return out;
 }
 
 const ids = (x: unknown): string[] => (Array.isArray(x) ? x.map(text).filter((s) => s !== '') : []);
+
+/**
+ * A session the retro reads, as a proposal cites it, checked: its excerpt words of its summary or of
+ * its report, its moments ones its report knows.
+ */
+function checkSession(
+  c: { session: string; excerpt: string; moments: string[] },
+  known: GuardSession,
+  reasons: string[],
+): SessionEvidence {
+  const sources = [known.summary ? summaryText(known.summary) : '', known.report?.text ?? ''].filter(Boolean);
+  let excerpt = '';
+  if (!c.excerpt) excerpt = (known.summary ? defaultExcerpt(known.summary) : '') || (known.report?.summary ?? '');
+  else if (sources.some((t) => excerptOf(c.excerpt, t))) excerpt = c.excerpt;
+  else if (sources.length > 0)
+    reasons.push(
+      `the excerpt of session ${c.session} is not in its summary or report: copy their words exactly ("${c.excerpt.slice(0, 60)}")`,
+    );
+  const unknown = c.moments.filter((m) => !known.report?.moments.has(m));
+  if (unknown.length > 0)
+    reasons.push(
+      known.report
+        ? `session ${c.session}: moment(s) ${unknown.join(', ')} not in its report: copy the "uuid" of a moment its report cites`
+        : `session ${c.session} has no report: it cannot cite moments`,
+    );
+  return { session: c.session, start: known.start, excerpt, ...(c.moments.length ? { moments: c.moments } : {}) };
+}
+
+/** What recurs across the sessions, as the analysis wrote it: items on sessions the retro reads only. */
+function overviewOf(x: unknown, ctx: GuardContext, result: GuardResult): SessionsOverview | null {
+  if (!isRecord(x)) return null;
+  const items: OverviewItem[] = [];
+  for (const raw of Array.isArray(x.items) ? x.items.filter(isRecord) : []) {
+    const title = text(raw.title);
+    const kind = text(raw.kind).toLowerCase() as OverviewKind;
+    const all = [...new Set(ids(raw.sessions))];
+    const sessions = all.filter((id) => ctx.sessions?.has(id));
+    for (const id of all.filter((id) => !ctx.sessions?.has(id)))
+      result.notes.push(`overview "${title}": session ${id} is not one the retro reads, left out`);
+    if (!title || sessions.length === 0) continue;
+    items.push({
+      kind: OVERVIEW_KINDS.includes(kind) ? kind : 'pattern',
+      title,
+      description: text(raw.description),
+      sessions,
+      ...(text(raw.idea) ? { idea: text(raw.idea) } : {}),
+    });
+  }
+  const summary = text(x.summary);
+  return summary || items.length ? { summary, items } : null;
+}
 
 /**
  * The guard rails of the proposals of a retro, applied by program whatever the agent that wrote them:
@@ -294,8 +361,10 @@ const ids = (x: unknown): string[] => (Array.isArray(x) ? x.map(text).filter((s)
  * - a subject excluded in an earlier retro comes back only with at least 2 new threads.
  *
  * A proposal may rest on the agent's sessions of the period too (`sessions`): each must be one the
- * retro reads, and its excerpt words of the session's summary, as written there. They count as
- * evidence like threads; a proposal on sessions only says so (`sessionsOnly`).
+ * retro reads, its excerpt words of the session's summary or report, as written there, and its
+ * moments ones its report cites. They count as evidence like threads; a proposal on sessions only
+ * says so (`sessionsOnly`). What recurs across the sessions (`overview`) cites sessions the retro
+ * reads only.
  *
  * A proposal that comes from an audit of the setup (`audit`: a stale or contradictory rule…) rests on
  * that finding: it needs no thread, and only removes or rewrites what exists ("remove" or "improve").
@@ -303,7 +372,15 @@ const ids = (x: unknown): string[] => (Array.isArray(x) ? x.map(text).filter((s)
  * `input` is the agent's output: `{ proposals: [...], watch: [...] }`.
  */
 export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
-  const result: GuardResult = { proposals: [], watch: [], dropped: [], verifications: [], rejected: [], notes: [] };
+  const result: GuardResult = {
+    proposals: [],
+    watch: [],
+    dropped: [],
+    verifications: [],
+    rejected: [],
+    notes: [],
+    overview: null,
+  };
   if (!isRecord(input) || !Array.isArray(input.proposals)) {
     result.rejected.push({ index: 0, subject: '', reasons: ['expected a JSON object with a "proposals" array'] });
     return result;
@@ -368,7 +445,8 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
     const citedSessions = sessionsOf(raw.sessions);
     if (cited.length === 0 && citedSessions.length === 0 && !audit)
       reasons.push('"evidence" is missing: the threads that support it, with an excerpt each');
-    // Sessions: ones the retro reads, quoted from their summary (never the analysis' own words).
+    // Sessions: ones the retro reads, quoted from their summary or report (never the analysis' own
+    // words), at moments their report knows.
     const sessions: SessionEvidence[] = [];
     for (const c of citedSessions) {
       if (sessions.some((x) => x.session === c.session)) continue;
@@ -377,16 +455,7 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
         result.notes.push(`${subject}: session ${c.session} is not one the retro reads, left out of its evidence`);
         continue;
       }
-      let excerpt = '';
-      if (known.summary) {
-        if (!c.excerpt) excerpt = defaultExcerpt(known.summary);
-        else if (excerptOf(c.excerpt, summaryText(known.summary))) excerpt = c.excerpt;
-        else
-          reasons.push(
-            `the excerpt of session ${c.session} is not in its summary: copy words of the summary exactly ("${c.excerpt.slice(0, 60)}")`,
-          );
-      }
-      sessions.push({ session: c.session, start: known.start, excerpt });
+      sessions.push(checkSession(c, known, reasons));
     }
     if (column !== 'keep' && !text(raw.change)) reasons.push('"change" is missing: the exact change');
     if (column === 'keep' && !text(raw.rule)) reasons.push('a "keep" names the existing rule it keeps ("rule")');
@@ -520,6 +589,7 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
     });
   }
   result.verifications = verifications;
+  result.overview = overviewOf(input.overview, ctx, result);
 
   for (const w of watchInput) {
     const subject = text(w.subject);

@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import { isStoreRoot } from './agentView';
 import { ulid } from './ids';
 import type { RetroSessionRef, SessionEvidence } from './retroSessions';
+import type { SessionReportRef } from './sessionReports';
 import { LOOSE_ROOT } from './sessions';
 import { worktreeTopOf } from './topics';
 import { STORE_DIR } from './types';
@@ -16,6 +17,8 @@ import { STORE_DIR } from './types';
  * .local-review/retros/preferences.jsonl  how the user wants their retros (append-only)
  * .local-review/retros/<retro-id>/        files written for the agents of a retro (regenerated), and
  *                                         the agent's sessions it reads (sessions.json)
+ * .local-review/retros/sessions/          the reports on the agent's sessions, kept for the next
+ *                                         retros (see `sessionReports.ts`)
  * ```
  *
  * Older versions of Local Review never read `retros/`: adding it changes nothing for them. Its
@@ -167,6 +170,28 @@ export interface Dropped {
   reason: string;
 }
 
+/**
+ * What recurs across the agent's sessions of the period (patterns, frictions, rituals), seen by the
+ * analysis in the reports on the sessions: for the user to find leads of their own.
+ */
+export interface SessionsOverview {
+  summary: string;
+  items: OverviewItem[];
+}
+
+export type OverviewKind = 'pattern' | 'friction' | 'ritual';
+export const OVERVIEW_KINDS: readonly OverviewKind[] = ['pattern', 'friction', 'ritual'];
+
+export interface OverviewItem {
+  kind: OverviewKind;
+  title: string;
+  description: string;
+  /** The sessions it was seen in. */
+  sessions: string[];
+  /** A lead, e.g. a task to automate. */
+  idea?: string;
+}
+
 /** A label given to a thread by the classification step. */
 export interface ThreadLabel {
   /** A category of `FEEDBACK_CATEGORIES`. */
@@ -244,6 +269,8 @@ export type RetroEvent = BaseRetroEvent &
         dropped: Dropped[];
         /** The check of the changes adopted at the last retro (missing when there were none). */
         verifications?: Verification[];
+        /** What recurs across the agent's sessions (missing without reports on them). */
+        overview?: SessionsOverview;
       }
     | { type: 'retro.decided'; proposal: string; decision: Decision; target?: Target; note?: string }
     | { type: 'retro.applied'; proposal: string; files: string[] }
@@ -259,6 +286,19 @@ export type RetroEvent = BaseRetroEvent &
      * records they come from), with what reading them cost, when known. The last one counts.
      */
     | { type: 'retro.sessions'; source: string; sessions: RetroSessionRef[]; costUsd?: number; durationMs?: number }
+    /**
+     * The reports on the agent's sessions of the project and of the period the retro reads (kept in
+     * `retros/sessions/`), with what writing the new ones took. The last list counts; what each run
+     * took adds up.
+     */
+    | {
+        type: 'retro.reports';
+        source: string;
+        sessions: SessionReportRef[];
+        costUsd?: number;
+        durationMs?: number;
+        tokens?: number;
+      }
     | { type: 'retro.finished' }
   );
 
@@ -275,6 +315,7 @@ const RETRO_EVENTS: ReadonlySet<string> = new Set<RetroEvent['type']>([
   'retro.undone',
   'retro.conversation',
   'retro.sessions',
+  'retro.reports',
   'retro.finished',
 ]);
 const PREFERENCE_EVENTS: ReadonlySet<string> = new Set<PreferenceEvent['type']>([
@@ -321,6 +362,16 @@ export interface RetroState {
   conversations: Record<string, ConversationRecord>;
   /** The agent's sessions it reads, when its adapter found them. */
   sessions: { source: string; list: RetroSessionRef[]; costUsd: number | null; durationMs: number | null } | null;
+  /** The reports on the agent's sessions it reads, when its adapter wrote them. */
+  reports: {
+    source: string;
+    list: SessionReportRef[];
+    costUsd: number | null;
+    durationMs: number | null;
+    tokens: number | null;
+  } | null;
+  /** What recurs across the agent's sessions, seen by the analysis. */
+  overview: SessionsOverview | null;
   finishedAt: string | null;
   /** Written by a newer version of Local Review: never write to it. */
   readOnly: boolean;
@@ -392,6 +443,8 @@ export function foldRetro(events: readonly RetroEvent[], warnings: string[] = []
     applied: {},
     conversations: {},
     sessions: null,
+    reports: null,
+    overview: null,
     finishedAt: null,
     readOnly: future,
     warnings,
@@ -413,6 +466,7 @@ export function foldRetro(events: readonly RetroEvent[], warnings: string[] = []
         r.watch = e.watch;
         r.dropped = e.dropped;
         r.verifications = e.verifications ?? [];
+        r.overview = e.overview ?? null;
         r.decisions = {};
         r.applied = {};
         break;
@@ -444,6 +498,19 @@ export function foldRetro(events: readonly RetroEvent[], warnings: string[] = []
           durationMs: e.durationMs ?? null,
         };
         break;
+      case 'retro.reports': {
+        // Run again (e.g. after a failure): the last list counts, and what each run took adds up.
+        const sum = (a: number | null | undefined, b: number | undefined) =>
+          b === undefined ? (a ?? null) : (a ?? 0) + b;
+        r.reports = {
+          source: e.source,
+          list: Array.isArray(e.sessions) ? e.sessions : [],
+          costUsd: sum(r.reports?.costUsd, e.costUsd),
+          durationMs: sum(r.reports?.durationMs, e.durationMs),
+          tokens: sum(r.reports?.tokens, e.tokens),
+        };
+        break;
+      }
       case 'retro.finished':
         r.finishedAt ??= e.at;
         break;

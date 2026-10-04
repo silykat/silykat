@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import { deletionLabel, type HistoryEntry, type ThreadHistory } from './history';
 import { projectHistory, type ProjectHistory } from './project';
 import { renderSessions, type RetroSession } from './retroSessions';
+import { renderSessionReports, type SessionReport } from './sessionReports';
 import {
   FEEDBACK_CATEGORIES,
   RetroBook,
@@ -246,6 +247,8 @@ export interface AnalysisContext {
   preferences: readonly Preference[];
   /** The agent's sessions of the project and of the period, when its adapter found them. */
   sessions?: readonly RetroSession[];
+  /** The reports on those sessions, when its adapter wrote them, and the folder they are kept in. */
+  reports?: { list: readonly SessionReport[]; dir: string };
 }
 
 /** Numbers of the period, without a model. */
@@ -330,6 +333,7 @@ export function analysisInput(ctx: AnalysisContext): string {
       return threadText(thread, store) + (extra.length ? `\n(${extra.join(' · ')})` : '') + '\n';
     }),
     ...renderSessions(ctx.sessions ?? []),
+    ...(ctx.reports ? renderSessionReports(ctx.reports.list, ctx.reports.dir) : []),
   ].join('\n');
 }
 
