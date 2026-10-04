@@ -112,19 +112,23 @@ sequenceDiagram
   participant S as Retro session (skill)
   participant L as lr retro
   participant D as Audit (lr-retro audit)
+  participant I as Sessions (lr-retro insights)
   participant C as Classifier sub-agent
   participant A as Analyst sub-agent
   participant P as Applier sub-agent
   S->>L: scope (period since the last retro, stores, size, time)
+  S->>I: lr-retro sessions (count of the project's sessions in the period)
   S->>U: feedback on the last retro, then the scope to confirm
   S->>L: start (the period's thread ids are recorded)
   S-)D: in the background: /doctor prompt-audit, read-only
+  S-)I: in the background: /insights, then the project's sessions of the period
+  I->>L: retro.sessions (the sessions kept), sessions.json
   S->>C: classify (Jev through lr-retro jev, or itself)
   C->>L: input --for classify, then classification
   D-->>S: audit report (retros/<id>/audit.md)
   S->>A: analyse (fresh context), with the audit report
-  A->>L: input --for analysis + lr-retro setup, then check and propose
-  L->>L: guard rails, numbers of each proposal, check of the last retro's changes
+  A->>L: input --for analysis (threads and sessions) + lr-retro setup, then check and propose
+  L->>L: guard rails (sessions cited checked against retro.sessions), numbers, check of the last retro's changes
   S->>L: show (overview)
   S->>U: did the last retro's changes help? (their numbers)
   loop each proposal, in the order of the discussion
@@ -147,6 +151,7 @@ sequenceDiagram
 - **The classification**: the labels (one of 14 categories, plus two scores: a project rule missing from the rules files, an existing rule ignored) feed the statistics and the "keep" guard rail. With a key, `lr-retro jev` asks [Jev](https://jevtypesafeai.com/), 4 requests at a time: the only network call of Local Review, in the adapter, never in `core`, `lr` or the extension. The key (`~/.config/local-review/jev-key`, or `$JEV_API_KEY`) is checked without being read by `lr retro key` (owner only, in no repository), and read only by `lr-retro jev`, which never prints it.
 - **The presentation** (`lr retro show <id> --next`, or `<proposal>`): one proposal at a time, in the order of the discussion (improve, remove, keep), always in the same parts under a separator, so that the agent shows the user the same thing every time. The agent adds the exact change (a diff of the file, or the whole new file), records the decision, and hands the validated change, word for word, to a sub-agent (`retro-applier`) that applies it in the background, checks it and records the files, while the discussion goes on; changes to the same file are applied one at a time.
 - **The audit** (`lr-retro audit`, `adapters/claude-code/src/retroAudit.ts`): Claude Code's `/doctor prompt-audit` (2.1.283 or later), run by the retro in the background during the classification, in a separate `claude -p`, with Opus, in the project folder, read-only (`--disallowedTools Bash Edit Write NotebookEdit`) and allowed to read the user's `~/.claude` (`--add-dir`). Its report goes to `retros/<id>/audit.md` and to the analysis, which turns its findings into "remove" or "improve" proposals. Skipped when Claude Code is older; stopped after 15 minutes.
+- **The agent's sessions** (`lr-retro sessions` and `lr-retro insights`, `adapters/claude-code/src/retroInsights.ts`; `core/src/retroSessions.ts`): `lr-retro sessions` counts the Claude Code sessions of the project in the period for the scope, from Claude Code's own conversations (`projects/*/<session>.jsonl`: the first `cwd` and `timestamp`; sub-agents apart). `lr-retro insights`, in the background next to the audit, runs `claude -p /insights` (which brings its cache up to date, incrementally), then reads its cache, `usage-data/session-meta/<id>.json` (facts counted without a model, every session of the machine) and `usage-data/facets/<id>.json` (a summary written by a model, for the longer sessions). It keeps the sessions **of the project** (started in the project folder, a folder below, or a git worktree of its repositories: `projectFolders`) **and of the period**; the report (`report.html`), which mixes every project, is never read. These files are internal to Claude Code: the reader depends on three fields of the facts only (`session_id`, `project_path`, `start_time`); when some files are read by no known format, Haiku (`claude -p --model haiku`, no tools) is given the fields' names and the shapes of their values (never the values); its answer is kept as a new format in `$LOCAL_REVIEW_HOME/insights-fields.json` when it reads some of those files, and that format is read without a model from then on. The cache may mix formats (it keeps the summaries of older versions): each file is read with the first format that reads it. Facts files that none of this reads make it fail, for the user to report. The sessions kept go to `retros/<id>/sessions.json` (agent-neutral: `RetroSession`), and their list, with what `/insights` cost and took, to the journal (`retro.sessions`): the analysis input includes them, the guard rails check that a session cited is in that list and that its excerpt is words of its summary (else the summary's own words are shown), and `lr retro finish` says what reading them cost, an equivalent at the API list price. A proposal counts its sessions as evidence (at least 2 threads or sessions); one on sessions only is marked `sessionsOnly`.
 - **The agent's conversations** (`lr-retro conversation`, see below): for an ambiguous thread whose replies are linked to a conversation, the analyst reads it back; `retro.conversation` records whether it was still available, and `lr retro show` lists them.
 - **The setup** (`lr-retro setup`, `adapters/claude-code/src/retroSetup.ts`): the rules files (`CLAUDE.md` of the folder, its parents and repositories, `CLAUDE.local.md`, `~/.claude/CLAUDE.md`), then the `.claude/` and `.agents/` folders of the project and of the user (`$CLAUDE_CONFIG_DIR` when set): rules, skills, commands, sub-agents, and only the `hooks` of the settings files (the rest may hold secrets). Rules and hooks are given in full; skills, commands and sub-agents too until about 100 KB, then by their header only.
 

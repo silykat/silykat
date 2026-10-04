@@ -21,6 +21,7 @@ import {
   type Verification,
   type WatchItem,
 } from './retro';
+import { defaultExcerpt, excerptOf, summaryText, type SessionEvidence } from './retroSessions';
 
 /** Statistics of a period, computed without a model. */
 export interface RetroStats {
@@ -225,6 +226,8 @@ export interface GuardContext {
   exclusions: readonly Exclusion[];
   /** The changes adopted at the last retro: each must be checked against the threads of this period. */
   adopted?: readonly AdoptedChange[];
+  /** The agent's sessions the retro reads (by id), with their summary when there is one. */
+  sessions?: ReadonlyMap<string, { start: string; summary: Record<string, unknown> | null }>;
 }
 
 export interface Rejected {
@@ -269,6 +272,17 @@ function auditOf(x: unknown): AuditFinding | null {
   return location && finding ? { location, finding } : null;
 }
 
+/** The sessions a proposal cites: `[{session, excerpt}]`, or ids alone. */
+function sessionsOf(x: unknown): { session: string; excerpt: string }[] {
+  if (!Array.isArray(x)) return [];
+  const out: { session: string; excerpt: string }[] = [];
+  for (const e of x) {
+    if (typeof e === 'string' && e.trim()) out.push({ session: e.trim(), excerpt: '' });
+    else if (isRecord(e) && text(e.session)) out.push({ session: text(e.session), excerpt: text(e.excerpt) });
+  }
+  return out;
+}
+
 const ids = (x: unknown): string[] => (Array.isArray(x) ? x.map(text).filter((s) => s !== '') : []);
 
 /**
@@ -278,6 +292,10 @@ const ids = (x: unknown): string[] => (Array.isArray(x) ? x.map(text).filter((s)
  * - one subject (one cause) per proposal;
  * - the target is asked when nothing in the threads tells it;
  * - a subject excluded in an earlier retro comes back only with at least 2 new threads.
+ *
+ * A proposal may rest on the agent's sessions of the period too (`sessions`): each must be one the
+ * retro reads, and its excerpt words of the session's summary, as written there. They count as
+ * evidence like threads; a proposal on sessions only says so (`sessionsOnly`).
  *
  * A proposal that comes from an audit of the setup (`audit`: a stale or contradictory rule…) rests on
  * that finding: it needs no thread, and only removes or rewrites what exists ("remove" or "improve").
@@ -347,8 +365,29 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
     if (audit && column === 'keep') reasons.push('an audit finding removes or rewrites a rule: "remove" or "improve"');
     // `threads` (a list of ids) is taken for `evidence`, without excerpts.
     const cited = evidenceOf(raw.evidence ?? raw.threads);
-    if (cited.length === 0 && !audit)
+    const citedSessions = sessionsOf(raw.sessions);
+    if (cited.length === 0 && citedSessions.length === 0 && !audit)
       reasons.push('"evidence" is missing: the threads that support it, with an excerpt each');
+    // Sessions: ones the retro reads, quoted from their summary (never the analysis' own words).
+    const sessions: SessionEvidence[] = [];
+    for (const c of citedSessions) {
+      if (sessions.some((x) => x.session === c.session)) continue;
+      const known = ctx.sessions?.get(c.session);
+      if (!known) {
+        result.notes.push(`${subject}: session ${c.session} is not one the retro reads, left out of its evidence`);
+        continue;
+      }
+      let excerpt = '';
+      if (known.summary) {
+        if (!c.excerpt) excerpt = defaultExcerpt(known.summary);
+        else if (excerptOf(c.excerpt, summaryText(known.summary))) excerpt = c.excerpt;
+        else
+          reasons.push(
+            `the excerpt of session ${c.session} is not in its summary: copy words of the summary exactly ("${c.excerpt.slice(0, 60)}")`,
+          );
+      }
+      sessions.push({ session: c.session, start: known.start, excerpt });
+    }
     if (column !== 'keep' && !text(raw.change)) reasons.push('"change" is missing: the exact change');
     if (column === 'keep' && !text(raw.rule)) reasons.push('a "keep" names the existing rule it keeps ("rule")');
     const causes = ids(raw.causes);
@@ -379,11 +418,11 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
       if (inPeriod(e.thread)) evidence.push(e);
       else result.notes.push(`${subject}: thread ${e.thread} is not in the period, left out of its evidence`);
     }
-    if (evidence.length === 0 && !audit) {
+    if (evidence.length === 0 && sessions.length === 0 && !audit) {
       result.rejected.push({
         index,
         subject,
-        reasons: ['none of the threads it cites is in the period: copy their ids exactly'],
+        reasons: ['none of the threads or sessions it cites is in the period: copy their ids exactly'],
       });
       return;
     }
@@ -394,9 +433,9 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
       result.dropped.push(droppedFor(subject, exclusion.excluded));
       return;
     }
-    if (evidence.length < 2 && !audit) {
-      watchInput.push({ subject, why: raw.why, evidence });
-      result.notes.push(`${subject}: a single thread, moved to the watch list`);
+    if (evidence.length + sessions.length < 2 && !audit) {
+      watchInput.push({ subject, why: raw.why, evidence, sessions });
+      result.notes.push(`${subject}: a single thread or session, moved to the watch list`);
       return;
     }
     const reopens: Proposal['reopens'] = exclusion
@@ -450,6 +489,8 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
       why: text(raw.why),
       cause: causes[0]!,
       evidence,
+      ...(sessions.length ? { sessions } : {}),
+      ...(evidence.length === 0 && sessions.length > 0 && !audit ? { sessionsOnly: true } : {}),
       figures: figuresOf(evidence.map((e) => ctx.threads.get(e.thread)!)),
       target,
       targetWhy: text(raw.targetWhy),
@@ -483,13 +524,21 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
   for (const w of watchInput) {
     const subject = text(w.subject);
     const evidence = evidenceOf(w.evidence).filter((e) => inPeriod(e.thread));
-    if (!subject || evidence.length === 0) continue;
+    // Sessions come checked from a proposal moved here; the agent's own watch items cite threads.
+    const sessions = Array.isArray(w.sessions) ? (w.sessions as SessionEvidence[]) : [];
+    if (!subject || evidence.length + sessions.length === 0) continue;
     const exclusion = excludedBy(subject, evidence, text(w.reopens));
     if (exclusion && exclusion.newThreads.length < 2) {
       result.dropped.push(droppedFor(subject, exclusion.excluded));
       continue;
     }
-    result.watch.push({ id: `w${result.watch.length + 1}`, subject, why: text(w.why), evidence });
+    result.watch.push({
+      id: `w${result.watch.length + 1}`,
+      subject,
+      why: text(w.why),
+      evidence,
+      ...(sessions.length ? { sessions } : {}),
+    });
   }
   return result;
 }

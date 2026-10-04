@@ -2,6 +2,7 @@ import { writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { deletionLabel, type HistoryEntry, type ThreadHistory } from './history';
 import { projectHistory, type ProjectHistory } from './project';
+import { renderSessions, type RetroSession } from './retroSessions';
 import {
   FEEDBACK_CATEGORIES,
   RetroBook,
@@ -243,6 +244,8 @@ export interface AnalysisContext {
   threads: ReadonlyMap<string, { thread: ThreadHistory; store: string }>;
   previous: readonly RetroState[];
   preferences: readonly Preference[];
+  /** The agent's sessions of the project and of the period, when its adapter found them. */
+  sessions?: readonly RetroSession[];
 }
 
 /** Numbers of the period, without a model. */
@@ -326,6 +329,7 @@ export function analysisInput(ctx: AnalysisContext): string {
       ].filter(Boolean);
       return threadText(thread, store) + (extra.length ? `\n(${extra.join(' · ')})` : '') + '\n';
     }),
+    ...renderSessions(ctx.sessions ?? []),
   ].join('\n');
 }
 

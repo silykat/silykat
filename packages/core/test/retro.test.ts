@@ -185,6 +185,68 @@ describe('guard rails', () => {
     expect(r.proposals[0]!.figures).toMatchObject({ threads: 2, questions: 0 });
   });
 
+  describe("with the agent's sessions", () => {
+    const summary = { friction_detail: 'The user rejected the first fix.', brief_summary: 'Claude fixed the tests.' };
+    const sessions = new Map([
+      ['s1', { start: '2026-09-20T10:00:00.000Z', summary }],
+      ['s2', { start: '2026-09-21T10:00:00.000Z', summary: null }],
+    ]);
+
+    it('counts cited sessions as evidence, quoted from their summary, and says when there is no thread', () => {
+      const r = checkProposals(
+        {
+          proposals: [
+            proposal({
+              evidence: [],
+              sessions: [
+                { session: 's1', excerpt: '…rejected   the first fix' },
+                's2',
+                { session: 's-unknown', excerpt: 'x' },
+                's1',
+              ],
+            }),
+            proposal({ subject: 'Mixed', evidence: ev(a), sessions: ['s1'] }),
+          ],
+        },
+        ctx({ sessions }),
+      );
+      expect(r.rejected).toEqual([]);
+      expect(r.proposals[0]).toMatchObject({
+        sessionsOnly: true,
+        sessions: [
+          { session: 's1', start: '2026-09-20T10:00:00.000Z', excerpt: '…rejected   the first fix' },
+          { session: 's2', start: '2026-09-21T10:00:00.000Z', excerpt: '' },
+        ],
+        figures: { threads: 0 },
+      });
+      expect(r.notes).toContain(
+        'Dates are UTC: session s-unknown is not one the retro reads, left out of its evidence',
+      );
+      // A thread and a session make two pieces of evidence; without an excerpt, the summary's own words.
+      expect(r.proposals[1]).toMatchObject({ subject: 'Mixed', sessions: [{ excerpt: summary.friction_detail }] });
+      expect(r.proposals[1]!.sessionsOnly).toBeUndefined();
+    });
+
+    it("refuses an excerpt that is not in the session's summary, and watches a single session", () => {
+      const bad = checkProposals(
+        {
+          proposals: [proposal({ evidence: [], sessions: [{ session: 's1', excerpt: 'The user was happy.' }, 's2'] })],
+        },
+        ctx({ sessions }),
+      );
+      expect(bad.rejected[0]!.reasons[0]).toContain('the excerpt of session s1 is not in its summary');
+      const one = checkProposals({ proposals: [proposal({ evidence: [], sessions: ['s1'] })] }, ctx({ sessions }));
+      expect(one.proposals).toEqual([]);
+      expect(one.watch[0]).toMatchObject({ evidence: [], sessions: [{ session: 's1' }] });
+      const none = checkProposals({ proposals: [proposal({ evidence: [], sessions: ['s9'] })] }, ctx({ sessions }));
+      expect(none.rejected[0]!.reasons[0]).toContain('none of the threads or sessions it cites');
+      // Without sessions read, a citation of one is left out.
+      expect(
+        checkProposals({ proposals: [proposal({ sessions: ['s1'] })] }, ctx()).proposals[0]!.sessions,
+      ).toBeUndefined();
+    });
+  });
+
   it('moves a single-thread preference to the watch list, and drops what no thread supports', () => {
     const r = checkProposals(
       {
@@ -203,7 +265,7 @@ describe('guard rails', () => {
     ]);
     expect(r.dropped).toEqual([]);
     expect(r.rejected).toEqual([
-      { index: 2, subject: 'Ghost', reasons: [expect.stringContaining('none of the threads it cites')] },
+      { index: 2, subject: 'Ghost', reasons: [expect.stringContaining('none of the threads or sessions it cites')] },
     ]);
     expect(r.notes.join('\n')).toContain('t_unknown is not in the period');
   });

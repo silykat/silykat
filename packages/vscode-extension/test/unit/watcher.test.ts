@@ -57,6 +57,17 @@ describe('watchStore', () => {
     expect(await seenThread()).toBe(true);
   });
 
+  it('reads the journals written while its watches start, then follows the new ones', async () => {
+    const old = 't_01M3N11R6T6FGRBA67E69JRDSC';
+    write(old);
+    start();
+    // Past the settling delay: the journals already there are read once the watches are active.
+    await new Promise((r) => setTimeout(r, 800));
+    expect(seen).toContain(old);
+    write();
+    expect(await seenThread()).toBe(true);
+  });
+
   it('stops when disposed', async () => {
     write('t_01M3N11R6T6FGRBA67E69JRDSC');
     start();

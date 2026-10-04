@@ -2,6 +2,7 @@ import { appendFile, mkdir, readdir, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { isStoreRoot } from './agentView';
 import { ulid } from './ids';
+import type { RetroSessionRef, SessionEvidence } from './retroSessions';
 import { LOOSE_ROOT } from './sessions';
 import { worktreeTopOf } from './topics';
 import { STORE_DIR } from './types';
@@ -13,7 +14,8 @@ import { STORE_DIR } from './types';
  * ```text
  * .local-review/retros/<retro-id>.jsonl   one append-only journal per retro
  * .local-review/retros/preferences.jsonl  how the user wants their retros (append-only)
- * .local-review/retros/<retro-id>/        files written for the agents of a retro (regenerated)
+ * .local-review/retros/<retro-id>/        files written for the agents of a retro (regenerated), and
+ *                                         the agent's sessions it reads (sessions.json)
  * ```
  *
  * Older versions of Local Review never read `retros/`: adding it changes nothing for them. Its
@@ -86,6 +88,10 @@ export interface Proposal {
   /** The single cause it addresses (one subject per proposal). */
   cause: string;
   evidence: Evidence[];
+  /** The agent's sessions it rests on too, each with words of its summary. */
+  sessions?: SessionEvidence[];
+  /** It rests on the agent's sessions only, without any thread: summaries by a model, not the user's words. */
+  sessionsOnly?: boolean;
   figures: Figures;
   target: Target;
   targetWhy: string;
@@ -152,6 +158,7 @@ export interface WatchItem {
   subject: string;
   why: string;
   evidence: Evidence[];
+  sessions?: SessionEvidence[];
 }
 
 /** What the guard rails left out, and why. */
@@ -247,6 +254,11 @@ export type RetroEvent = BaseRetroEvent &
      * (agents delete their conversations after a while).
      */
     | { type: 'retro.conversation'; thread: string; sessions: string[]; available: boolean }
+    /**
+     * The agent's sessions of the project and of the period the retro reads (`source`: the agent's
+     * records they come from), with what reading them cost, when known. The last one counts.
+     */
+    | { type: 'retro.sessions'; source: string; sessions: RetroSessionRef[]; costUsd?: number; durationMs?: number }
     | { type: 'retro.finished' }
   );
 
@@ -262,6 +274,7 @@ const RETRO_EVENTS: ReadonlySet<string> = new Set<RetroEvent['type']>([
   'retro.applied',
   'retro.undone',
   'retro.conversation',
+  'retro.sessions',
   'retro.finished',
 ]);
 const PREFERENCE_EVENTS: ReadonlySet<string> = new Set<PreferenceEvent['type']>([
@@ -306,6 +319,8 @@ export interface RetroState {
   applied: Record<string, string[]>;
   /** The threads whose agent conversation the analysis looked for: read back, or no longer available. */
   conversations: Record<string, ConversationRecord>;
+  /** The agent's sessions it reads, when its adapter found them. */
+  sessions: { source: string; list: RetroSessionRef[]; costUsd: number | null; durationMs: number | null } | null;
   finishedAt: string | null;
   /** Written by a newer version of Local Review: never write to it. */
   readOnly: boolean;
@@ -376,6 +391,7 @@ export function foldRetro(events: readonly RetroEvent[], warnings: string[] = []
     decisions: {},
     applied: {},
     conversations: {},
+    sessions: null,
     finishedAt: null,
     readOnly: future,
     warnings,
@@ -419,6 +435,14 @@ export function foldRetro(events: readonly RetroEvent[], warnings: string[] = []
         // Read once is enough: a later failure to find it again does not undo it.
         if (!r.conversations[e.thread]?.available)
           r.conversations[e.thread] = { sessions: e.sessions, available: e.available, at: e.at };
+        break;
+      case 'retro.sessions':
+        r.sessions = {
+          source: e.source,
+          list: Array.isArray(e.sessions) ? e.sessions : [],
+          costUsd: e.costUsd ?? null,
+          durationMs: e.durationMs ?? null,
+        };
         break;
       case 'retro.finished':
         r.finishedAt ??= e.at;

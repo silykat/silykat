@@ -1448,6 +1448,7 @@ var RETRO_EVENTS = /* @__PURE__ */ new Set([
   "retro.applied",
   "retro.undone",
   "retro.conversation",
+  "retro.sessions",
   "retro.finished"
 ]);
 var RETRO_ID = /^rt_[0-9A-HJKMNP-TV-Z]{26}$/;
@@ -1505,6 +1506,7 @@ function foldRetro(events, warnings = [], future = false) {
     decisions: {},
     applied: {},
     conversations: {},
+    sessions: null,
     finishedAt: null,
     readOnly: future,
     warnings
@@ -1546,6 +1548,14 @@ function foldRetro(events, warnings = [], future = false) {
       case "retro.conversation":
         if (!r.conversations[e.thread]?.available)
           r.conversations[e.thread] = { sessions: e.sessions, available: e.available, at: e.at };
+        break;
+      case "retro.sessions":
+        r.sessions = {
+          source: e.source,
+          list: Array.isArray(e.sessions) ? e.sessions : [],
+          costUsd: e.costUsd ?? null,
+          durationMs: e.durationMs ?? null
+        };
         break;
       case "retro.finished":
         r.finishedAt ??= e.at;
