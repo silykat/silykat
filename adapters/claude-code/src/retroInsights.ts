@@ -286,11 +286,12 @@ export async function projectSessions(
   period: { since: string | null; until: string },
   env: Env,
   run?: Runner,
+  exclude: ReadonlySet<string> = new Set(),
 ): Promise<{ sessions: RetroSession[]; files: number; read: number }> {
   const { sessions, files } = await readInsights(usageDir, root, env, run);
   const folders = await projectFolders(root, env);
   const kept = sessions
-    .filter((s) => inFolders(s.folder, folders) && inPeriod(s.start, period.since, period.until))
+    .filter((s) => !exclude.has(s.id) && inFolders(s.folder, folders) && inPeriod(s.start, period.since, period.until))
     .sort((a, b) => a.start.localeCompare(b.start))
     .map((s) => ({ id: s.id, start: s.start, folder: s.folder, facts: s.facts, summary: s.summary }));
   return { sessions: kept, files, read: sessions.length };

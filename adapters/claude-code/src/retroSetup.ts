@@ -94,6 +94,48 @@ async function found(root: string, repos: readonly string[], home: string, claud
   return files;
 }
 
+/** A skill, command or sub-agent of the setup, named as Claude Code names it. */
+export interface SetupTool {
+  kind: 'skill' | 'command' | 'agent';
+  name: string;
+  scope: 'project' | 'user';
+  file: string;
+  /** What goes with it: a skill's folder, else its file. */
+  path: string;
+}
+
+/** The `name:` of a front matter, if any. */
+const frontName = (text: string) => /^---\n[\s\S]*?^name:\s*["']?([^"'\n]+?)["']?\s*$/m.exec(text)?.[1]?.trim();
+
+/**
+ * The skills, commands and sub-agents of a project's setup and of the user's: a skill is named after
+ * its folder, a command after its path in `commands/` (`a/b.md` is `/a:b`), a sub-agent by the `name`
+ * of its front matter, else its file.
+ */
+export async function setupTools(
+  root: string,
+  repos: readonly string[],
+  home: string,
+  claudeDir = join(home, '.claude'),
+): Promise<SetupTool[]> {
+  const out: SetupTool[] = [];
+  for (const f of await found(root, repos, home, claudeDir)) {
+    if (f.kind !== 'skill' && f.kind !== 'command' && f.kind !== 'agent') continue;
+    const text = (await orNull(readFile(f.path, 'utf8'))) ?? '';
+    if (f.kind === 'skill') {
+      // Claude Code loads `skills/<name>/SKILL.md` only: a SKILL.md deeper down belongs to that skill.
+      if (basename(dirname(dirname(f.path))) !== 'skills') continue;
+      out.push({ ...f, kind: 'skill', name: basename(dirname(f.path)), file: f.path, path: dirname(f.path) });
+    } else if (f.kind === 'command') {
+      const dir = f.path.slice(0, f.path.lastIndexOf('/commands/') + '/commands/'.length);
+      const name = f.path.slice(dir.length, -'.md'.length).split('/').join(':');
+      out.push({ ...f, kind: 'command', name, file: f.path, path: f.path });
+    } else
+      out.push({ ...f, kind: 'agent', name: frontName(text) ?? basename(f.path, '.md'), file: f.path, path: f.path });
+  }
+  return out;
+}
+
 /** The front matter of a skill, command or agent: its name and description. */
 function header(text: string): string {
   const m = /^---\n([\s\S]*?)\n---/.exec(text);

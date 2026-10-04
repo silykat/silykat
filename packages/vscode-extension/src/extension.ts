@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { AgentRepliesUi, type Notifier } from './agentReplies';
 import { ArchiveUi } from './archive';
 import { HistoryUi, type ErasePrompt } from './history';
+import { RetroSessionsSetting } from './retroSessions';
 import { ReviewController, type ChooseHandler, type ConfirmHandler } from './controller';
 import { simulateAgentReply, type SimulateArgs } from './dev/simulateAgentReply';
 import { DeliveriesUi, type NoSubscriberPrompt, type Warner } from './deliveries';
@@ -72,6 +73,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
   const retroReminder = new RetroReminderUi(review.onDidChange);
   const archive = new ArchiveUi(review, log);
   const history = new HistoryUi(() => review.rootPaths(), log);
+  const retroSessions = new RetroSessionsSetting(log);
   context.subscriptions.push(
     log,
     review,
@@ -82,6 +84,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
     retroReminder,
     archive,
     history,
+    retroSessions,
   );
 
   context.subscriptions.push(

@@ -26,6 +26,7 @@ import {
   type SessionsOverview,
 } from './retro';
 import { defaultExcerpt, excerptOf, summaryText, type SessionEvidence } from './retroSessions';
+import { TOOL_TITLE, toolOfFile, usesOf, type SetupUsage, type ToolUsage } from './retroUsage';
 
 /** Statistics of a period, computed without a model. */
 export interface RetroStats {
@@ -235,6 +236,11 @@ export interface GuardContext {
    * report: its text (excerpts are words of it) and the moments it knows.
    */
   sessions?: ReadonlyMap<string, GuardSession>;
+  /**
+   * How much the tools of the setup were used, and how to resolve the files the proposals name (the
+   * project folder, and the home folder for `~/`).
+   */
+  usage?: SetupUsage & { root: string; home?: string };
 }
 
 export interface GuardSession {
@@ -265,47 +271,47 @@ export interface GuardResult {
   overview: SessionsOverview | null;
 }
 
-type Raw = Record<string, unknown>;
+export type Raw = Record<string, unknown>;
 
-const isRecord = (x: unknown): x is Raw => typeof x === 'object' && x !== null && !Array.isArray(x);
-const text = (x: unknown): string => (typeof x === 'string' ? x.trim() : '');
+export const isRawRecord = (x: unknown): x is Raw => typeof x === 'object' && x !== null && !Array.isArray(x);
+export const textOf = (x: unknown): string => (typeof x === 'string' ? x.trim() : '');
 
-function evidenceOf(x: unknown): Evidence[] {
+export function evidenceOf(x: unknown): Evidence[] {
   if (!Array.isArray(x)) return [];
   const out: Evidence[] = [];
   for (const e of x) {
     if (typeof e === 'string') out.push({ thread: e.trim(), excerpt: '' });
-    else if (isRecord(e) && text(e.thread)) out.push({ thread: text(e.thread), excerpt: text(e.excerpt) });
+    else if (isRawRecord(e) && textOf(e.thread)) out.push({ thread: textOf(e.thread), excerpt: textOf(e.excerpt) });
   }
   return out;
 }
 
-function auditOf(x: unknown): AuditFinding | null {
-  if (!isRecord(x)) return null;
-  const location = text(x.location);
-  const finding = text(x.finding);
+export function auditOf(x: unknown): AuditFinding | null {
+  if (!isRawRecord(x)) return null;
+  const location = textOf(x.location);
+  const finding = textOf(x.finding);
   return location && finding ? { location, finding } : null;
 }
 
 /** The sessions a proposal cites: `[{session, excerpt, moments}]`, or ids alone. */
-function sessionsOf(x: unknown): { session: string; excerpt: string; moments: string[] }[] {
+export function sessionsOf(x: unknown): { session: string; excerpt: string; moments: string[] }[] {
   if (!Array.isArray(x)) return [];
   const out: { session: string; excerpt: string; moments: string[] }[] = [];
   for (const e of x) {
     if (typeof e === 'string' && e.trim()) out.push({ session: e.trim(), excerpt: '', moments: [] });
-    else if (isRecord(e) && text(e.session))
-      out.push({ session: text(e.session), excerpt: text(e.excerpt), moments: [...new Set(ids(e.moments))] });
+    else if (isRawRecord(e) && textOf(e.session))
+      out.push({ session: textOf(e.session), excerpt: textOf(e.excerpt), moments: [...new Set(idsOf(e.moments))] });
   }
   return out;
 }
 
-const ids = (x: unknown): string[] => (Array.isArray(x) ? x.map(text).filter((s) => s !== '') : []);
+export const idsOf = (x: unknown): string[] => (Array.isArray(x) ? x.map(textOf).filter((s) => s !== '') : []);
 
 /**
  * A session the retro reads, as a proposal cites it, checked: its excerpt words of its summary or of
  * its report, its moments ones its report knows.
  */
-function checkSession(
+export function checkSession(
   c: { session: string; excerpt: string; moments: string[] },
   known: GuardSession,
   reasons: string[],
@@ -329,13 +335,13 @@ function checkSession(
 }
 
 /** What recurs across the sessions, as the analysis wrote it: items on sessions the retro reads only. */
-function overviewOf(x: unknown, ctx: GuardContext, result: GuardResult): SessionsOverview | null {
-  if (!isRecord(x)) return null;
+export function overviewOf(x: unknown, ctx: GuardContext, result: Pick<GuardResult, 'notes'>): SessionsOverview | null {
+  if (!isRawRecord(x)) return null;
   const items: OverviewItem[] = [];
-  for (const raw of Array.isArray(x.items) ? x.items.filter(isRecord) : []) {
-    const title = text(raw.title);
-    const kind = text(raw.kind).toLowerCase() as OverviewKind;
-    const all = [...new Set(ids(raw.sessions))];
+  for (const raw of Array.isArray(x.items) ? x.items.filter(isRawRecord) : []) {
+    const title = textOf(raw.title);
+    const kind = textOf(raw.kind).toLowerCase() as OverviewKind;
+    const all = [...new Set(idsOf(raw.sessions))];
     const sessions = all.filter((id) => ctx.sessions?.has(id));
     for (const id of all.filter((id) => !ctx.sessions?.has(id)))
       result.notes.push(`overview "${title}": session ${id} is not one the retro reads, left out`);
@@ -343,12 +349,12 @@ function overviewOf(x: unknown, ctx: GuardContext, result: GuardResult): Session
     items.push({
       kind: OVERVIEW_KINDS.includes(kind) ? kind : 'pattern',
       title,
-      description: text(raw.description),
+      description: textOf(raw.description),
       sessions,
-      ...(text(raw.idea) ? { idea: text(raw.idea) } : {}),
+      ...(textOf(raw.idea) ? { idea: textOf(raw.idea) } : {}),
     });
   }
-  const summary = text(x.summary);
+  const summary = textOf(x.summary);
   return summary || items.length ? { summary, items } : null;
 }
 
@@ -368,6 +374,8 @@ function overviewOf(x: unknown, ctx: GuardContext, result: GuardResult): Session
  *
  * A proposal that comes from an audit of the setup (`audit`: a stale or contradictory rule…) rests on
  * that finding: it needs no thread, and only removes or rewrites what exists ("remove" or "improve").
+ * When it is about a skill, command or sub-agent that was never used (`usage`), the user is asked
+ * whether to remove it or keep it (`unused`, with the fix kept for the second case).
  *
  * `input` is the agent's output: `{ proposals: [...], watch: [...] }`.
  */
@@ -381,12 +389,12 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
     notes: [],
     overview: null,
   };
-  if (!isRecord(input) || !Array.isArray(input.proposals)) {
+  if (!isRawRecord(input) || !Array.isArray(input.proposals)) {
     result.rejected.push({ index: 0, subject: '', reasons: ['expected a JSON object with a "proposals" array'] });
     return result;
   }
   const inPeriod = (id: string) => ctx.threads.has(id);
-  const watchInput: Raw[] = Array.isArray(input.watch) ? input.watch.filter(isRecord) : [];
+  const watchInput: Raw[] = Array.isArray(input.watch) ? input.watch.filter(isRawRecord) : [];
 
   /**
    * The excluded subject this one is, if any: said so (`reopens`), worded alike, or resting on 2 of
@@ -410,33 +418,33 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
     reason: `you excluded "${x.subject}" on ${x.at.slice(0, 10)}, and fewer than 2 new threads raise it again`,
   });
 
-  const verifications = verify(input.verify, ctx, result);
+  const verifications = verifyChanges(input.verify, ctx, result);
   const revisable = new Map(verifications.map((v) => [changeRef(v), v]));
   const revisionsRejected = new Set<string>();
 
   input.proposals.forEach((raw, i) => {
     const index = i + 1;
-    if (!isRecord(raw)) {
+    if (!isRawRecord(raw)) {
       result.rejected.push({ index, subject: '', reasons: ['not an object'] });
       return;
     }
-    const subject = text(raw.subject) || text(raw.title);
+    const subject = textOf(raw.subject) || textOf(raw.title);
     const reasons: string[] = [];
     // "To improve", "Improve": the column's name as people write it.
-    const column = text(raw.column)
+    const column = textOf(raw.column)
       .toLowerCase()
       .replace(/^to\s+/, '') as Column;
     if (!COLUMNS.includes(column)) reasons.push(`"column" must be one of ${COLUMNS.join(', ')}`);
-    const revisitRef = text(raw.revisits);
+    const revisitRef = textOf(raw.revisits);
     const revisited = revisitRef ? revisable.get(revisitRef) : undefined;
     // A change that revises one adopted at the last retro stays where that one was made.
-    const target = (text(raw.target) || revisited?.target || '') as Target;
+    const target = (textOf(raw.target) || revisited?.target || '') as Target;
     if (!TARGETS.includes(target)) reasons.push(`"target" must be one of ${TARGETS.join(', ')}`);
-    const kind = (text(raw.kind) || 'rule') as ProposalKind;
+    const kind = (textOf(raw.kind) || 'rule') as ProposalKind;
     if (!PROPOSAL_KINDS.includes(kind)) reasons.push(`"kind" must be one of ${PROPOSAL_KINDS.join(', ')}`);
     if (!subject) reasons.push('"subject" is missing');
-    if (!text(raw.why)) reasons.push('"why" is missing: the common cause, and what the change must avoid');
-    if (!text(raw.file)) reasons.push('"file" is missing: the file of the rule, or where the change goes');
+    if (!textOf(raw.why)) reasons.push('"why" is missing: the common cause, and what the change must avoid');
+    if (!textOf(raw.file)) reasons.push('"file" is missing: the file of the rule, or where the change goes');
     const audit = auditOf(raw.audit);
     if (raw.audit != null && !audit) reasons.push('"audit" needs a "location" and a "finding"');
     if (audit && column === 'keep') reasons.push('an audit finding removes or rewrites a rule: "remove" or "improve"');
@@ -457,15 +465,15 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
       }
       sessions.push(checkSession(c, known, reasons));
     }
-    if (column !== 'keep' && !text(raw.change)) reasons.push('"change" is missing: the exact change');
-    if (column === 'keep' && !text(raw.rule)) reasons.push('a "keep" names the existing rule it keeps ("rule")');
-    const causes = ids(raw.causes);
+    if (column !== 'keep' && !textOf(raw.change)) reasons.push('"change" is missing: the exact change');
+    if (column === 'keep' && !textOf(raw.rule)) reasons.push('a "keep" names the existing rule it keeps ("rule")');
+    const causes = idsOf(raw.causes);
     if (causes.length === 0) reasons.push('"causes" is missing: the one cause this proposal addresses');
     if (causes.length > 1)
       reasons.push(`one subject per proposal: it mixes ${causes.length} causes, split it into one proposal per cause`);
     const confidence = typeof raw.confidence === 'number' ? raw.confidence : NaN;
     if (!(confidence >= 0 && confidence <= 1)) reasons.push('"confidence" must be a number from 0 to 1');
-    const recommendation = (text(raw.recommendation) || 'accepted') as Decision;
+    const recommendation = (textOf(raw.recommendation) || 'accepted') as Decision;
     if (!DECISIONS.includes(recommendation)) reasons.push(`"recommendation" must be one of ${DECISIONS.join(', ')}`);
     if (revisitRef && !revisited)
       reasons.push(
@@ -497,7 +505,7 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
     }
 
     // An excluded subject comes back only for new feedback: neither proposed nor watched without it.
-    const exclusion = excludedBy(subject, evidence, text(raw.reopens));
+    const exclusion = excludedBy(subject, evidence, textOf(raw.reopens));
     if (exclusion && exclusion.newThreads.length < 2) {
       result.dropped.push(droppedFor(subject, exclusion.excluded));
       return;
@@ -518,11 +526,11 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
 
     // No "keep" for a rule the user had to enforce in the period.
     let finalColumn = column;
-    let change = text(raw.change);
+    let change = textOf(raw.change);
     let finalKind = kind;
     let convertedFromKeep: Proposal['convertedFromKeep'];
     if (column === 'keep') {
-      const enforced = new Set(ids(raw.enforcedIn).filter(inPeriod));
+      const enforced = new Set(idsOf(raw.enforcedIn).filter(inPeriod));
       for (const e of evidence) {
         const l = ctx.labels[e.thread];
         if (l && (l.category === RULE_NOT_FOLLOWED || (l.ignoredRule ?? 0) >= 0.5)) enforced.add(e.thread);
@@ -542,27 +550,49 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
 
     // The target is asked when nothing tells it: an existing rule stays where it is; a new one
     // needs a thread that shows where it belongs.
-    const targetEvidence = ids(raw.targetEvidence).filter(inPeriod);
+    const targetEvidence = idsOf(raw.targetEvidence).filter(inPeriod);
     // A change that revises one adopted at the last retro stays where that one is.
-    const askTarget = finalColumn === 'improve' && !text(raw.rule) && targetEvidence.length === 0 && !revisited;
+    const askTarget = finalColumn === 'improve' && !textOf(raw.rule) && targetEvidence.length === 0 && !revisited;
+
+    // A tool the audit flags but nobody used: whether to keep it is the question, not how to fix it.
+    const unusedTool = audit ? unusedOf([textOf(raw.file), audit.location], ctx) : null;
+    let unused: Proposal['unused'];
+    if (unusedTool) {
+      const w = ctx.usage!.windows.find((x) => x.scope === unusedTool.scope);
+      unused = {
+        kind: unusedTool.kind,
+        name: unusedTool.name,
+        scope: unusedTool.scope,
+        path: unusedTool.path,
+        fix: finalColumn === 'improve' ? change : '',
+        sessions: w?.sessions ?? 0,
+        since: w?.since ?? null,
+        keptDays: w?.keptDays ?? 0,
+      };
+      finalColumn = 'remove';
+      change = `Remove the ${TOOL_TITLE[unusedTool.kind]} ${unusedTool.name}: ${unusedTool.path}`;
+      result.notes.push(
+        `${subject}: the ${TOOL_TITLE[unusedTool.kind]} ${unusedTool.name} was never used, asked whether to keep it or remove it`,
+      );
+    }
 
     result.proposals.push({
       id: `p${result.proposals.length + 1}`,
       column: finalColumn,
       subject,
-      title: text(raw.title) || subject,
+      title: textOf(raw.title) || subject,
       kind: finalKind,
-      file: text(raw.file),
-      rule: text(raw.rule) || null,
+      file: textOf(raw.file),
+      rule: textOf(raw.rule) || null,
       change,
-      why: text(raw.why),
+      why: textOf(raw.why),
       cause: causes[0]!,
       evidence,
       ...(sessions.length ? { sessions } : {}),
       ...(evidence.length === 0 && sessions.length > 0 && !audit ? { sessionsOnly: true } : {}),
       figures: figuresOf(evidence.map((e) => ctx.threads.get(e.thread)!)),
       target,
-      targetWhy: text(raw.targetWhy),
+      targetWhy: textOf(raw.targetWhy),
       askTarget,
       confidence,
       recommendation,
@@ -572,6 +602,7 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
       ...(revisited
         ? { revisits: { retro: revisited.retro, proposal: revisited.proposal, verdict: revisited.verdict } }
         : {}),
+      ...(unused ? { unused } : {}),
     });
   });
 
@@ -592,12 +623,12 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
   result.overview = overviewOf(input.overview, ctx, result);
 
   for (const w of watchInput) {
-    const subject = text(w.subject);
+    const subject = textOf(w.subject);
     const evidence = evidenceOf(w.evidence).filter((e) => inPeriod(e.thread));
     // Sessions come checked from a proposal moved here; the agent's own watch items cite threads.
     const sessions = Array.isArray(w.sessions) ? (w.sessions as SessionEvidence[]) : [];
     if (!subject || evidence.length + sessions.length === 0) continue;
-    const exclusion = excludedBy(subject, evidence, text(w.reopens));
+    const exclusion = excludedBy(subject, evidence, textOf(w.reopens));
     if (exclusion && exclusion.newThreads.length < 2) {
       result.dropped.push(droppedFor(subject, exclusion.excluded));
       continue;
@@ -605,7 +636,7 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
     result.watch.push({
       id: `w${result.watch.length + 1}`,
       subject,
-      why: text(w.why),
+      why: textOf(w.why),
       evidence,
       ...(sessions.length ? { sessions } : {}),
     });
@@ -613,15 +644,32 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
   return result;
 }
 
+/** The tool of the setup one of these files is about, when it was never used. */
+function unusedOf(files: readonly string[], ctx: GuardContext): ToolUsage | null {
+  const u = ctx.usage;
+  if (!u) return null;
+  for (const f of files.filter(Boolean)) {
+    const tool = toolOfFile(f, u.tools, u.root, u.home);
+    // Unused means something only when some session could have used it.
+    const counted = u.windows.find((w) => w.scope === tool?.scope)?.sessions ?? 0;
+    if (tool) return usesOf(tool) === 0 && counted > 0 ? tool : null;
+  }
+  return null;
+}
+
 /**
  * The check of the changes adopted at the last retro: the analysis names, for each one, the threads
  * of this period on the same subject (`verify: [{ change, threads, note }]`); the numbers and the
  * verdict are computed here. A change left unchecked is rejected.
  */
-function verify(input: unknown, ctx: GuardContext, result: GuardResult): Verification[] {
+export function verifyChanges(
+  input: unknown,
+  ctx: GuardContext,
+  result: Pick<GuardResult, 'notes' | 'rejected'>,
+): Verification[] {
   const adopted = ctx.adopted ?? [];
   const given = new Map<string, Raw>();
-  for (const x of Array.isArray(input) ? input.filter(isRecord) : []) given.set(text(x.change), x);
+  for (const x of Array.isArray(input) ? input.filter(isRawRecord) : []) given.set(textOf(x.change), x);
   const total = ctx.threads.size;
   const out: Verification[] = [];
   for (const c of adopted) {
@@ -638,7 +686,7 @@ function verify(input: unknown, ctx: GuardContext, result: GuardResult): Verific
       });
       continue;
     }
-    const all = [...new Set(ids(x.threads))];
+    const all = [...new Set(idsOf(x.threads))];
     const kept = all.filter((id) => ctx.threads.has(id));
     for (const id of all.filter((id) => !ctx.threads.has(id)))
       result.notes.push(`check of ${ref}: thread ${id} is not in the period, left out`);
@@ -647,7 +695,7 @@ function verify(input: unknown, ctx: GuardContext, result: GuardResult): Verific
       ...c,
       after,
       verdict: verdictOf(c.before, after),
-      ...(text(x.note) ? { note: text(x.note) } : {}),
+      ...(textOf(x.note) ? { note: textOf(x.note) } : {}),
     });
   }
   for (const ref of given.keys())

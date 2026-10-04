@@ -2,7 +2,10 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import {
+  AUDIT_FILE,
   parseDateArg,
+  readConfig,
+  type SessionsMode,
   readSessionReport,
   recordRetroSessions,
   RetroBook,
@@ -24,7 +27,8 @@ import {
 } from './sessionReports';
 import { classifyWithJev, readJevKey, type JevDeps } from './retroJev';
 import { threadConversations } from './retroConversation';
-import { collectSetup, renderSetup } from './retroSetup';
+import { collectSetup, renderSetup, setupTools } from './retroSetup';
+import { setupUsage } from './toolUsage';
 
 /** What is Claude Code's in a retro: its setup files, and the classification by Jev. */
 export const RETRO_CLI_USAGE = `lr-retro — the Claude Code part of Local Review's retros
@@ -53,6 +57,11 @@ export const RETRO_CLI_USAGE = `lr-retro — the Claude Code part of Local Revie
                                              sessions of the project and of the retro's period, for
                                              its analysis
 
+  lr-retro usage <retro-id> [--root <dir>]   Count how much each skill, command and sub-agent of the
+                                             setup was used, from Claude Code's sessions (the
+                                             project's tools on its sessions, the user's on every
+                                             project), without a model, for the analysis of the audit
+
   lr-retro conversation <retro-id> <thread-id> [--root <dir>]
                                              Read back Claude Code's conversation where the agent
                                              replied in that thread (the steps that led to each
@@ -77,6 +86,14 @@ const localDay = (iso: string) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
+/** How the next retro reads the sessions, as `lr-retro sessions` says it. */
+const MODE_LINE: Record<SessionsMode, string> = {
+  reports:
+    "The retro reads them through these reports (setting retro-sessions: reports; Claude Code's /insights is cheaper: lr config set retro-sessions insights).",
+  insights:
+    "The retro reads them through Claude Code's /insights (setting retro-sessions: insights; a report on each session is finer: lr config set retro-sessions reports).",
+};
+
 /** A duration, in minutes. */
 const minutes = (ms: number) => `${Math.max(1, Math.round(ms / 60_000))} min`;
 
@@ -91,7 +108,7 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
       allowPositionals: true,
     });
     const [action, id, threadId] = positionals;
-    const actions = ['setup', 'jev', 'audit', 'conversation', 'insights', 'sessions', 'reports'];
+    const actions = ['setup', 'jev', 'audit', 'conversation', 'insights', 'sessions', 'reports', 'usage'];
     if (action === undefined || !actions.includes(action)) {
       io.out(RETRO_CLI_USAGE);
       return action === undefined || action === 'help' ? 0 : 1;
@@ -129,6 +146,33 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
           est,
         };
       };
+      const mode = (await readConfig(io.env)).retroSessions;
+      if (mode === 'insights') {
+        // The agent's own summaries: /insights reads the sessions in about a minute, no report is written.
+        const count = async (from: string | null) =>
+          (await projectTranscripts(claudeDir, scope.root, { since: from, until: scope.until }, io.env)).filter(
+            (t) => t.id !== own,
+          ).length;
+        const n = await count(scope.since);
+        const lines = [
+          `${n} Claude Code session${n === 1 ? '' : 's'} in this project ` +
+            (scope.since ? `since ${localDay(scope.since)}` : 'over the whole history') +
+            (own ? ' (this session left out)' : '') +
+            '.',
+          `${MODE_LINE.insights} No report is written.`,
+        ];
+        if (scope.options.length > 0) {
+          lines.push('', 'Periods to choose from (as lr retro scope lists them):');
+          for (const o of scope.options) {
+            const x = o.since === scope.since ? n : await count(o.since);
+            lines.push(
+              `- ${o.label} (${o.flag || 'the default'}${o.proposed ? ', proposed' : ''}): ${x} session${x === 1 ? '' : 's'}, read by /insights (about a minute)`,
+            );
+          }
+        }
+        io.out(lines.join('\n'));
+        return 0;
+      }
       const p = await period(scope.since);
       io.out(
         [
@@ -143,6 +187,7 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
             (p.plan.noPrompt ? `, ${p.plan.noPrompt} without any prompt typed by the user (not analysed)` : '') +
             (p.plan.current ? ', and this session (not analysed)' : '') +
             '.',
+          MODE_LINE.reports,
         ].join('\n'),
       );
       // The periods to choose from, as lr retro scope lists them: what each one would cost.
@@ -180,6 +225,26 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
       io.out(result.text);
       return 0;
     }
+    if (action === 'usage') {
+      const own = await (io.session ?? currentSession)(io.env);
+      const tools = await setupTools(retro.root, repos, home, claudeDir);
+      const usage = await setupUsage(tools, claudeDir, retro.root, io.env, new Set(own ? [own] : []));
+      await book.record(retro.id, [{ type: 'retro.usage', ...usage }]);
+      const never = usage.tools.filter((t) => t.byUser + t.byAgent === 0);
+      io.out(
+        [
+          `Usage of the ${usage.tools.length} skills, commands and sub-agents of the setup, from Claude Code's sessions ` +
+            usage.windows
+              .map(
+                (w) =>
+                  `(${w.scope === 'project' ? "the project's" : "every project's, for the user's tools"}: ${w.sessions} session${w.sessions === 1 ? '' : 's'})`,
+              )
+              .join(' ') +
+            `: ${never.length} never used. lr retro input --for audit includes it.`,
+        ].join('\n'),
+      );
+      return 0;
+    }
     if (action === 'setup') {
       const files = await collectSetup(retro.root, repos, home, claudeDir);
       const file = await writeRetroFile(book, retro.id, 'setup.md', renderSetup(retro.root, home, files));
@@ -190,6 +255,16 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
           '.',
       );
       return 0;
+    }
+    if (action === 'reports' || action === 'insights') {
+      const wanted: SessionsMode = action;
+      if (retro.sessionsMode !== null && retro.sessionsMode !== wanted) {
+        io.out(
+          `Skipped: this retro reads the sessions ${retro.sessionsMode === 'reports' ? 'through a report on each one' : "through Claude Code's /insights"} ` +
+            '(setting retro-sessions when it started), never both.',
+        );
+        return 0;
+      }
     }
     if (action === 'reports') {
       const transcripts = await projectTranscripts(claudeDir, retro.root, retro, io.env);
@@ -239,12 +314,15 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
     }
     if (action === 'insights') {
       const ran = await runInsights(retro.root, io.env, io.run);
+      // The retro's own session is not one of the sessions it looks back at.
+      const own = await (io.session ?? currentSession)(io.env);
       const { sessions, files, read } = await projectSessions(
         join(claudeDir, 'usage-data'),
         retro.root,
         retro,
         io.env,
         io.run,
+        new Set(own ? [own] : []),
       );
       if (files > 0 && read === 0) {
         io.err(
@@ -288,7 +366,7 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
       const file = await writeRetroFile(
         book,
         retro.id,
-        'audit.md',
+        AUDIT_FILE,
         [
           `# Audit of the setup — ${AUDIT_COMMAND}`,
           '',

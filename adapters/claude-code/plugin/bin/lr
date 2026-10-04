@@ -25,7 +25,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 
 // src/cli.ts
 var import_promises17 = require("node:fs/promises");
-var import_node_path20 = require("node:path");
+var import_node_path21 = require("node:path");
 
 // ../core/src/types.ts
 var SCHEMA_VERSION = 2;
@@ -60,8 +60,8 @@ var newCommentId = () => `c_${ulid()}`;
 var newReviewId = () => `r_${ulid()}`;
 
 // ../core/src/anchorContext.ts
-function splitLines(text2) {
-  return text2.split(/\r\n|\r|\n/);
+function splitLines(text) {
+  return text.split(/\r\n|\r|\n/);
 }
 
 // ../core/src/events.ts
@@ -91,18 +91,18 @@ var REVIEW_EVENT_TYPES = /* @__PURE__ */ new Set([
 function serializeEvents(events) {
   return events.map((e) => JSON.stringify(e) + "\n").join("");
 }
-function parseJournal(text2, source = "journal") {
-  return parseEvents(text2, source, THREAD_EVENT_TYPES);
+function parseJournal(text, source = "journal") {
+  return parseEvents(text, source, THREAD_EVENT_TYPES);
 }
-function parseReviewJournal(text2, source = "review") {
-  return parseEvents(text2, source, REVIEW_EVENT_TYPES);
+function parseReviewJournal(text, source = "review") {
+  return parseEvents(text, source, REVIEW_EVENT_TYPES);
 }
-function parseEvents(text2, source, types) {
+function parseEvents(text, source, types) {
   const events = [];
   const warnings = [];
   let futureVersion = false;
-  const lastNewline = text2.lastIndexOf("\n");
-  const complete = lastNewline === -1 ? "" : text2.slice(0, lastNewline);
+  const lastNewline = text.lastIndexOf("\n");
+  const complete = lastNewline === -1 ? "" : text.slice(0, lastNewline);
   const lines = complete === "" ? [] : complete.split("\n");
   lines.forEach((line, i) => {
     if (line.trim() === "") return;
@@ -468,9 +468,9 @@ var Store = class {
     const read = await Promise.all(files.map((f) => (0, import_promises.readFile)((0, import_node_path.join)(this.threadsDir, f), "utf8")));
     const threads = [];
     files.forEach((file, i) => {
-      const text2 = read[i];
+      const text = read[i];
       const label2 = `threads/${file}`;
-      const parsed = parseJournal(text2, label2);
+      const parsed = parseJournal(text, label2);
       warnings.push(...parsed.warnings);
       if (parsed.events[0]?.type !== "thread.created") {
         warnings.push(`${label2}: no thread.created event, file skipped`);
@@ -479,7 +479,7 @@ var Store = class {
       const history2 = threadHistory(parsed.events, {
         reviews,
         futureVersion: parsed.futureVersion,
-        bytes: Buffer.byteLength(text2)
+        bytes: Buffer.byteLength(text)
       });
       if (history2) threads.push(history2);
     });
@@ -558,13 +558,13 @@ var Store = class {
   async submitReview(reviewId, summary) {
     await this.assertActiveReview(reviewId);
     const { threads: before2 } = await this.loadAll();
-    const text2 = summary?.trim();
+    const text = summary?.trim();
     const event = {
       v: FIRST_VERSION,
       type: "review.submitted",
       at: (/* @__PURE__ */ new Date()).toISOString(),
       by: "user",
-      ...text2 ? { summary: text2 } : {}
+      ...text ? { summary: text } : {}
     };
     await (0, import_promises.appendFile)(this.reviewFile(reviewId), serializeEvents([event]), { flag: "a" });
     for (const t of before2) {
@@ -660,15 +660,15 @@ var Store = class {
   }
   /** Edits a comment. Only its author can edit it. */
   async editComment(threadId, commentId, body2, by, agent) {
-    const text2 = body2.trim();
-    if (text2 === "") throw new Error("Comment body is empty");
+    const text = body2.trim();
+    if (text === "") throw new Error("Comment body is empty");
     const who3 = actor(by, agent);
     const current = await this.writableThread(threadId, by);
     assertOwnComment(current, commentId, by);
     const comment = current.comments.find((c) => c.id === commentId);
-    if (comment.body === text2) return current;
+    if (comment.body === text) return current;
     const at = (/* @__PURE__ */ new Date()).toISOString();
-    const events = [{ v: FIRST_VERSION, type: "comment.edited", at, ...who3, commentId, body: text2 }];
+    const events = [{ v: FIRST_VERSION, type: "comment.edited", at, ...who3, commentId, body: text }];
     const handled = current.status === "addressed" || current.status === "needs-info";
     if (by === "user" && !comment.isDraft && handled)
       events.push({ v: FIRST_VERSION, type: "status.changed", at, ...who3, status: "open" });
@@ -777,8 +777,8 @@ var Store = class {
     if (review.state !== "active") throw new Error(`Review ${reviewId} is already ${review.state}`);
   }
   async readJournal(file, label2, reviews) {
-    const text2 = await (0, import_promises.readFile)(file, "utf8");
-    const parsed = parseJournal(text2, label2);
+    const text = await (0, import_promises.readFile)(file, "utf8");
+    const parsed = parseJournal(text, label2);
     const state = foldThread(parsed.events, { futureVersion: parsed.futureVersion, reviews });
     const warnings = [...parsed.warnings];
     if (!state) warnings.push(`${label2}: no thread.created event, file skipped`);
@@ -835,8 +835,8 @@ var Store = class {
   }
   /** The format version recorded by the store; `null` when there is none (or it is unreadable). */
   async schemaVersion() {
-    const text2 = await (0, import_promises.readFile)((0, import_node_path.join)(this.dir, "schema-version"), "utf8").catch(() => "");
-    const n = Number.parseInt(text2.trim(), 10);
+    const text = await (0, import_promises.readFile)((0, import_node_path.join)(this.dir, "schema-version"), "utf8").catch(() => "");
+    const n = Number.parseInt(text.trim(), 10);
     return Number.isInteger(n) && n > 0 ? n : null;
   }
 };
@@ -1131,14 +1131,14 @@ var SessionRegistry = class {
   }
   /** What a session is subscribed to, oldest first. */
   async subscriptions(id) {
-    let text2;
+    let text;
     try {
-      text2 = await (0, import_promises3.readFile)(this.file(id, "subscriptions"), "utf8");
+      text = await (0, import_promises3.readFile)(this.file(id, "subscriptions"), "utf8");
     } catch {
       return [];
     }
     const current = /* @__PURE__ */ new Map();
-    for (const line of text2.split("\n")) {
+    for (const line of text.split("\n")) {
       try {
         const e = JSON.parse(line);
         if (!e.topic || e.topic.kind !== "branch" && e.topic.kind !== "path") continue;
@@ -1449,12 +1449,14 @@ var import_node_path12 = require("node:path");
 // ../core/src/config.ts
 var import_promises4 = require("node:fs/promises");
 var import_node_path6 = require("node:path");
+var SESSIONS_MODES = ["reports", "insights"];
 var DEFAULT_CONFIG = {
   keepHistory: true,
   retroReminder: true,
   retroReminderDays: 7,
   retroReminderSizeKB: 1e3,
-  retroReminderMaxDays: 25
+  retroReminderMaxDays: 25,
+  retroSessions: "reports"
 };
 var CONFIG_KEYS = {
   "keep-history": {
@@ -1481,6 +1483,12 @@ var CONFIG_KEYS = {
     key: "retroReminderMaxDays",
     kind: "number",
     help: "days \u2014 and never later than this, to keep the agent conversations linked to replies (default: 25)"
+  },
+  "retro-sessions": {
+    key: "retroSessions",
+    kind: "choice",
+    choices: SESSIONS_MODES,
+    help: "reports|insights \u2014 how a retro reads the agent sessions: a report on each one by a model (finer, costs more), or the agent's own summaries (Claude Code's /insights, cheaper); never both (default: reports)"
   }
 };
 var configFile = (env = process.env) => (0, import_node_path6.join)(localReviewHome(env), "config.json");
@@ -1499,6 +1507,8 @@ async function readConfig(env = process.env) {
     const value = values[setting.key];
     if (setting.kind === "boolean" && typeof value === "boolean") config2[setting.key] = value;
     if (setting.kind === "number" && validSettingNumber(value)) config2[setting.key] = value;
+    if (setting.kind === "choice" && typeof value === "string" && setting.choices.includes(value))
+      Object.assign(config2, { [setting.key]: value });
   }
   return config2;
 }
@@ -1548,10 +1558,10 @@ async function savedStores(storeDir) {
   }
   return found;
 }
-function parseOrigin(text2) {
+function parseOrigin(text) {
   let raw;
   try {
-    raw = JSON.parse(text2);
+    raw = JSON.parse(text);
   } catch {
     return null;
   }
@@ -1737,6 +1747,8 @@ var RETRO_EVENTS = /* @__PURE__ */ new Set([
   "retro.conversation",
   "retro.sessions",
   "retro.reports",
+  "retro.usage",
+  "retro.findings",
   "retro.finished"
 ]);
 var PREFERENCE_EVENTS = /* @__PURE__ */ new Set([
@@ -1745,12 +1757,12 @@ var PREFERENCE_EVENTS = /* @__PURE__ */ new Set([
 ]);
 var RETRO_ID = /^rt_[0-9A-HJKMNP-TV-Z]{26}$/;
 var newRetroId = () => `rt_${ulid()}`;
-function parseLines(text2, source, types) {
+function parseLines(text, source, types) {
   const events = [];
   const warnings = [];
   let future = false;
-  const end = text2.lastIndexOf("\n");
-  const lines = end === -1 ? [] : text2.slice(0, end).split("\n");
+  const end = text.lastIndexOf("\n");
+  const lines = end === -1 ? [] : text.slice(0, end).split("\n");
   lines.forEach((line, i) => {
     if (line.trim() === "") return;
     let raw;
@@ -1790,6 +1802,7 @@ function foldRetro(events, warnings = [], future = false) {
     threads: first.threads,
     bytes: first.bytes,
     preferences: first.preferences ?? [],
+    sessionsMode: first.sessionsMode ?? null,
     feedback: [],
     classification: null,
     proposals: [],
@@ -1802,6 +1815,8 @@ function foldRetro(events, warnings = [], future = false) {
     sessions: null,
     reports: null,
     overview: null,
+    usage: null,
+    findings: {},
     finishedAt: null,
     readOnly: future,
     warnings
@@ -1864,6 +1879,21 @@ function foldRetro(events, warnings = [], future = false) {
         };
         break;
       }
+      case "retro.usage":
+        r.usage = {
+          source: e.source,
+          tools: Array.isArray(e.tools) ? e.tools : [],
+          windows: Array.isArray(e.windows) ? e.windows : []
+        };
+        break;
+      case "retro.findings":
+        r.findings[e.source] = {
+          source: e.source,
+          findings: Array.isArray(e.findings) ? e.findings : [],
+          ...e.verifications ? { verifications: e.verifications } : {},
+          ...e.overview ? { overview: e.overview } : {}
+        };
+        break;
       case "retro.finished":
         r.finishedAt ??= e.at;
         break;
@@ -1900,14 +1930,14 @@ async function readRetros(dir) {
 }
 async function readRetro(dir, id) {
   if (!RETRO_ID.test(id)) throw new Error(`Invalid retro id: ${id}`);
-  let text2;
+  let text;
   try {
-    text2 = await (0, import_promises7.readFile)((0, import_node_path9.join)(dir, `${id}.jsonl`), "utf8");
+    text = await (0, import_promises7.readFile)((0, import_node_path9.join)(dir, `${id}.jsonl`), "utf8");
   } catch (err) {
     if (err.code === "ENOENT") return null;
     throw err;
   }
-  const parsed = parseLines(text2, `retros/${id}.jsonl`, RETRO_EVENTS);
+  const parsed = parseLines(text, `retros/${id}.jsonl`, RETRO_EVENTS);
   return foldRetro(parsed.events, parsed.warnings, parsed.future);
 }
 var RetroBook = class {
@@ -1950,25 +1980,25 @@ var RetroBook = class {
     return done.at(-1) ?? null;
   }
   async preferences() {
-    let text2;
+    let text;
     try {
-      text2 = await (0, import_promises7.readFile)(this.preferencesFile, "utf8");
+      text = await (0, import_promises7.readFile)(this.preferencesFile, "utf8");
     } catch (err) {
       if (err.code === "ENOENT") return [];
       throw err;
     }
-    return foldPreferences(parseLines(text2, "retros/preferences.jsonl", PREFERENCE_EVENTS).events);
+    return foldPreferences(parseLines(text, "retros/preferences.jsonl", PREFERENCE_EVENTS).events);
   }
   async addPreference(body2) {
-    const text2 = body2.trim();
-    if (text2 === "") throw new Error("A preference cannot be empty");
-    const ids2 = (await this.allPreferenceIds()).map((id2) => Number(id2.slice(1)));
-    const id = `P${Math.max(0, ...ids2) + 1}`;
+    const text = body2.trim();
+    if (text === "") throw new Error("A preference cannot be empty");
+    const ids = (await this.allPreferenceIds()).map((id2) => Number(id2.slice(1)));
+    const id = `P${Math.max(0, ...ids) + 1}`;
     const at = (/* @__PURE__ */ new Date()).toISOString();
     await this.append(this.preferencesFile, [
-      { v: RETRO_SCHEMA_VERSION, type: "preference.added", at, id, body: text2 }
+      { v: RETRO_SCHEMA_VERSION, type: "preference.added", at, id, body: text }
     ]);
-    return { id, body: text2, at };
+    return { id, body: text, at };
   }
   async removePreference(id) {
     if (!(await this.preferences()).some((p) => p.id === id)) throw new Error(`Preference not found: ${id}`);
@@ -1979,8 +2009,8 @@ var RetroBook = class {
   /** Every preference id ever given, removed ones included: an id is never reused. */
   async allPreferenceIds() {
     try {
-      const text2 = await (0, import_promises7.readFile)(this.preferencesFile, "utf8");
-      return parseLines(text2, "preferences", PREFERENCE_EVENTS).events.map((e) => e.id);
+      const text = await (0, import_promises7.readFile)(this.preferencesFile, "utf8");
+      return parseLines(text, "preferences", PREFERENCE_EVENTS).events.map((e) => e.id);
     } catch {
       return [];
     }
@@ -2411,9 +2441,9 @@ function summaryText(summary) {
   return out2.join("\n");
 }
 var flat = (s) => s.replace(/\s+/g, " ").trim();
-function excerptOf(excerpt, text2) {
+function excerptOf(excerpt, text) {
   const e = flat(excerpt.replace(/^[\s"'“«…]+|[\s"'”»…]+$/g, "").replace(/\.{3}$/, ""));
-  return e.length > 0 && flat(text2).includes(e);
+  return e.length > 0 && flat(text).includes(e);
 }
 function defaultExcerpt(summary) {
   for (const key2 of ["friction_detail", "brief_summary", "underlying_goal"]) {
@@ -2441,6 +2471,25 @@ function renderSessions(sessions2) {
     })
   ];
 }
+
+// ../core/src/retroUsage.ts
+var import_node_os2 = require("node:os");
+var import_node_path14 = require("node:path");
+var usesOf = (t) => t.byUser + t.byAgent;
+function resolvePath(path, root, home) {
+  const p = path.trim().replace(/:\d+(-\d+)?$/, "");
+  if (p === "~" || p.startsWith("~/")) return (0, import_node_path14.resolve)(home, p.slice(2));
+  return (0, import_node_path14.isAbsolute)(p) ? (0, import_node_path14.resolve)(p) : (0, import_node_path14.resolve)(root, p);
+}
+var within = (path, dir) => {
+  const rel = (0, import_node_path14.relative)(dir, path);
+  return rel === "" || !rel.startsWith("..") && !(0, import_node_path14.isAbsolute)(rel);
+};
+function toolOfFile(file, tools, root, home = (0, import_node_os2.homedir)()) {
+  const path = resolvePath(file, root, home);
+  return tools.find((t) => within(path, t.path)) ?? null;
+}
+var TOOL_TITLE = { skill: "skill", command: "command", agent: "sub-agent" };
 
 // ../core/src/retroGuards.ts
 function threadSignals(t) {
@@ -2553,9 +2602,9 @@ var changeRef = (c) => `${c.retro}/${c.proposal}`;
 var STOPWORDS = new Set(
   "the and for with that this from into when then than are was were has have not use uses using les des une pour avec dans sur par pas que qui est sont aux ses son leur".split(" ")
 );
-function words(text2) {
+function words(text) {
   return new Set(
-    (text2.toLowerCase().normalize("NFD").replace(new RegExp("\\p{M}", "gu"), "").match(/[\p{L}\p{N}]+/gu) ?? []).filter((w) => w.length >= 3 && !STOPWORDS.has(w))
+    (text.toLowerCase().normalize("NFD").replace(new RegExp("\\p{M}", "gu"), "").match(/[\p{L}\p{N}]+/gu) ?? []).filter((w) => w.length >= 3 && !STOPWORDS.has(w))
   );
 }
 function similarity(a, b) {
@@ -2567,21 +2616,21 @@ function similarity(a, b) {
   return common / (x.size + y.size - common);
 }
 var SAME_SUBJECT = 0.5;
-var isRecord2 = (x) => typeof x === "object" && x !== null && !Array.isArray(x);
-var text = (x) => typeof x === "string" ? x.trim() : "";
+var isRawRecord = (x) => typeof x === "object" && x !== null && !Array.isArray(x);
+var textOf = (x) => typeof x === "string" ? x.trim() : "";
 function evidenceOf(x) {
   if (!Array.isArray(x)) return [];
   const out2 = [];
   for (const e of x) {
     if (typeof e === "string") out2.push({ thread: e.trim(), excerpt: "" });
-    else if (isRecord2(e) && text(e.thread)) out2.push({ thread: text(e.thread), excerpt: text(e.excerpt) });
+    else if (isRawRecord(e) && textOf(e.thread)) out2.push({ thread: textOf(e.thread), excerpt: textOf(e.excerpt) });
   }
   return out2;
 }
 function auditOf(x) {
-  if (!isRecord2(x)) return null;
-  const location = text(x.location);
-  const finding = text(x.finding);
+  if (!isRawRecord(x)) return null;
+  const location = textOf(x.location);
+  const finding = textOf(x.finding);
   return location && finding ? { location, finding } : null;
 }
 function sessionsOf(x) {
@@ -2589,12 +2638,12 @@ function sessionsOf(x) {
   const out2 = [];
   for (const e of x) {
     if (typeof e === "string" && e.trim()) out2.push({ session: e.trim(), excerpt: "", moments: [] });
-    else if (isRecord2(e) && text(e.session))
-      out2.push({ session: text(e.session), excerpt: text(e.excerpt), moments: [...new Set(ids(e.moments))] });
+    else if (isRawRecord(e) && textOf(e.session))
+      out2.push({ session: textOf(e.session), excerpt: textOf(e.excerpt), moments: [...new Set(idsOf(e.moments))] });
   }
   return out2;
 }
-var ids = (x) => Array.isArray(x) ? x.map(text).filter((s) => s !== "") : [];
+var idsOf = (x) => Array.isArray(x) ? x.map(textOf).filter((s) => s !== "") : [];
 function checkSession(c, known, reasons) {
   const sources = [known.summary ? summaryText(known.summary) : "", known.report?.text ?? ""].filter(Boolean);
   let excerpt = "";
@@ -2612,12 +2661,12 @@ function checkSession(c, known, reasons) {
   return { session: c.session, start: known.start, excerpt, ...c.moments.length ? { moments: c.moments } : {} };
 }
 function overviewOf(x, ctx, result) {
-  if (!isRecord2(x)) return null;
+  if (!isRawRecord(x)) return null;
   const items = [];
-  for (const raw of Array.isArray(x.items) ? x.items.filter(isRecord2) : []) {
-    const title = text(raw.title);
-    const kind = text(raw.kind).toLowerCase();
-    const all = [...new Set(ids(raw.sessions))];
+  for (const raw of Array.isArray(x.items) ? x.items.filter(isRawRecord) : []) {
+    const title = textOf(raw.title);
+    const kind = textOf(raw.kind).toLowerCase();
+    const all = [...new Set(idsOf(raw.sessions))];
     const sessions2 = all.filter((id) => ctx.sessions?.has(id));
     for (const id of all.filter((id2) => !ctx.sessions?.has(id2)))
       result.notes.push(`overview "${title}": session ${id} is not one the retro reads, left out`);
@@ -2625,12 +2674,12 @@ function overviewOf(x, ctx, result) {
     items.push({
       kind: OVERVIEW_KINDS.includes(kind) ? kind : "pattern",
       title,
-      description: text(raw.description),
+      description: textOf(raw.description),
       sessions: sessions2,
-      ...text(raw.idea) ? { idea: text(raw.idea) } : {}
+      ...textOf(raw.idea) ? { idea: textOf(raw.idea) } : {}
     });
   }
-  const summary = text(x.summary);
+  const summary = textOf(x.summary);
   return summary || items.length ? { summary, items } : null;
 }
 function checkProposals(input2, ctx) {
@@ -2643,12 +2692,12 @@ function checkProposals(input2, ctx) {
     notes: [],
     overview: null
   };
-  if (!isRecord2(input2) || !Array.isArray(input2.proposals)) {
+  if (!isRawRecord(input2) || !Array.isArray(input2.proposals)) {
     result.rejected.push({ index: 0, subject: "", reasons: ['expected a JSON object with a "proposals" array'] });
     return result;
   }
   const inPeriod = (id) => ctx.threads.has(id);
-  const watchInput = Array.isArray(input2.watch) ? input2.watch.filter(isRecord2) : [];
+  const watchInput = Array.isArray(input2.watch) ? input2.watch.filter(isRawRecord) : [];
   const excludedBy = (subject, evidence, reopenRef) => {
     const cites = new Set(evidence.map((e) => e.thread));
     const shared = (x) => x.threads.filter((id) => cites.has(id)).length;
@@ -2665,28 +2714,28 @@ function checkProposals(input2, ctx) {
     subject,
     reason: `you excluded "${x.subject}" on ${x.at.slice(0, 10)}, and fewer than 2 new threads raise it again`
   });
-  const verifications = verify(input2.verify, ctx, result);
+  const verifications = verifyChanges(input2.verify, ctx, result);
   const revisable = new Map(verifications.map((v) => [changeRef(v), v]));
   const revisionsRejected = /* @__PURE__ */ new Set();
   input2.proposals.forEach((raw, i) => {
     const index = i + 1;
-    if (!isRecord2(raw)) {
+    if (!isRawRecord(raw)) {
       result.rejected.push({ index, subject: "", reasons: ["not an object"] });
       return;
     }
-    const subject = text(raw.subject) || text(raw.title);
+    const subject = textOf(raw.subject) || textOf(raw.title);
     const reasons = [];
-    const column = text(raw.column).toLowerCase().replace(/^to\s+/, "");
+    const column = textOf(raw.column).toLowerCase().replace(/^to\s+/, "");
     if (!COLUMNS.includes(column)) reasons.push(`"column" must be one of ${COLUMNS.join(", ")}`);
-    const revisitRef = text(raw.revisits);
+    const revisitRef = textOf(raw.revisits);
     const revisited = revisitRef ? revisable.get(revisitRef) : void 0;
-    const target = text(raw.target) || revisited?.target || "";
+    const target = textOf(raw.target) || revisited?.target || "";
     if (!TARGETS.includes(target)) reasons.push(`"target" must be one of ${TARGETS.join(", ")}`);
-    const kind = text(raw.kind) || "rule";
+    const kind = textOf(raw.kind) || "rule";
     if (!PROPOSAL_KINDS.includes(kind)) reasons.push(`"kind" must be one of ${PROPOSAL_KINDS.join(", ")}`);
     if (!subject) reasons.push('"subject" is missing');
-    if (!text(raw.why)) reasons.push('"why" is missing: the common cause, and what the change must avoid');
-    if (!text(raw.file)) reasons.push('"file" is missing: the file of the rule, or where the change goes');
+    if (!textOf(raw.why)) reasons.push('"why" is missing: the common cause, and what the change must avoid');
+    if (!textOf(raw.file)) reasons.push('"file" is missing: the file of the rule, or where the change goes');
     const audit = auditOf(raw.audit);
     if (raw.audit != null && !audit) reasons.push('"audit" needs a "location" and a "finding"');
     if (audit && column === "keep") reasons.push('an audit finding removes or rewrites a rule: "remove" or "improve"');
@@ -2704,15 +2753,15 @@ function checkProposals(input2, ctx) {
       }
       sessions2.push(checkSession(c, known, reasons));
     }
-    if (column !== "keep" && !text(raw.change)) reasons.push('"change" is missing: the exact change');
-    if (column === "keep" && !text(raw.rule)) reasons.push('a "keep" names the existing rule it keeps ("rule")');
-    const causes = ids(raw.causes);
+    if (column !== "keep" && !textOf(raw.change)) reasons.push('"change" is missing: the exact change');
+    if (column === "keep" && !textOf(raw.rule)) reasons.push('a "keep" names the existing rule it keeps ("rule")');
+    const causes = idsOf(raw.causes);
     if (causes.length === 0) reasons.push('"causes" is missing: the one cause this proposal addresses');
     if (causes.length > 1)
       reasons.push(`one subject per proposal: it mixes ${causes.length} causes, split it into one proposal per cause`);
     const confidence = typeof raw.confidence === "number" ? raw.confidence : NaN;
     if (!(confidence >= 0 && confidence <= 1)) reasons.push('"confidence" must be a number from 0 to 1');
-    const recommendation = text(raw.recommendation) || "accepted";
+    const recommendation = textOf(raw.recommendation) || "accepted";
     if (!DECISIONS.includes(recommendation)) reasons.push(`"recommendation" must be one of ${DECISIONS.join(", ")}`);
     if (revisitRef && !revisited)
       reasons.push(
@@ -2739,7 +2788,7 @@ function checkProposals(input2, ctx) {
       });
       return;
     }
-    const exclusion = excludedBy(subject, evidence, text(raw.reopens));
+    const exclusion = excludedBy(subject, evidence, textOf(raw.reopens));
     if (exclusion && exclusion.newThreads.length < 2) {
       result.dropped.push(droppedFor(subject, exclusion.excluded));
       return;
@@ -2756,11 +2805,11 @@ function checkProposals(input2, ctx) {
       newThreads: exclusion.newThreads
     } : void 0;
     let finalColumn = column;
-    let change = text(raw.change);
+    let change = textOf(raw.change);
     let finalKind = kind;
     let convertedFromKeep;
     if (column === "keep") {
-      const enforced = new Set(ids(raw.enforcedIn).filter(inPeriod));
+      const enforced = new Set(idsOf(raw.enforcedIn).filter(inPeriod));
       for (const e of evidence) {
         const l = ctx.labels[e.thread];
         if (l && (l.category === RULE_NOT_FOLLOWED || (l.ignoredRule ?? 0) >= 0.5)) enforced.add(e.thread);
@@ -2775,32 +2824,53 @@ function checkProposals(input2, ctx) {
         );
       }
     }
-    const targetEvidence = ids(raw.targetEvidence).filter(inPeriod);
-    const askTarget = finalColumn === "improve" && !text(raw.rule) && targetEvidence.length === 0 && !revisited;
+    const targetEvidence = idsOf(raw.targetEvidence).filter(inPeriod);
+    const askTarget = finalColumn === "improve" && !textOf(raw.rule) && targetEvidence.length === 0 && !revisited;
+    const unusedTool = audit ? unusedOf([textOf(raw.file), audit.location], ctx) : null;
+    let unused;
+    if (unusedTool) {
+      const w = ctx.usage.windows.find((x) => x.scope === unusedTool.scope);
+      unused = {
+        kind: unusedTool.kind,
+        name: unusedTool.name,
+        scope: unusedTool.scope,
+        path: unusedTool.path,
+        fix: finalColumn === "improve" ? change : "",
+        sessions: w?.sessions ?? 0,
+        since: w?.since ?? null,
+        keptDays: w?.keptDays ?? 0
+      };
+      finalColumn = "remove";
+      change = `Remove the ${TOOL_TITLE[unusedTool.kind]} ${unusedTool.name}: ${unusedTool.path}`;
+      result.notes.push(
+        `${subject}: the ${TOOL_TITLE[unusedTool.kind]} ${unusedTool.name} was never used, asked whether to keep it or remove it`
+      );
+    }
     result.proposals.push({
       id: `p${result.proposals.length + 1}`,
       column: finalColumn,
       subject,
-      title: text(raw.title) || subject,
+      title: textOf(raw.title) || subject,
       kind: finalKind,
-      file: text(raw.file),
-      rule: text(raw.rule) || null,
+      file: textOf(raw.file),
+      rule: textOf(raw.rule) || null,
       change,
-      why: text(raw.why),
+      why: textOf(raw.why),
       cause: causes[0],
       evidence,
       ...sessions2.length ? { sessions: sessions2 } : {},
       ...evidence.length === 0 && sessions2.length > 0 && !audit ? { sessionsOnly: true } : {},
       figures: figuresOf(evidence.map((e) => ctx.threads.get(e.thread))),
       target,
-      targetWhy: text(raw.targetWhy),
+      targetWhy: textOf(raw.targetWhy),
       askTarget,
       confidence,
       recommendation,
       ...convertedFromKeep ? { convertedFromKeep } : {},
       ...reopens ? { reopens } : {},
       ...audit ? { audit } : {},
-      ...revisited ? { revisits: { retro: revisited.retro, proposal: revisited.proposal, verdict: revisited.verdict } } : {}
+      ...revisited ? { revisits: { retro: revisited.retro, proposal: revisited.proposal, verdict: revisited.verdict } } : {},
+      ...unused ? { unused } : {}
     });
   });
   for (const v of verifications) {
@@ -2818,11 +2888,11 @@ function checkProposals(input2, ctx) {
   result.verifications = verifications;
   result.overview = overviewOf(input2.overview, ctx, result);
   for (const w of watchInput) {
-    const subject = text(w.subject);
+    const subject = textOf(w.subject);
     const evidence = evidenceOf(w.evidence).filter((e) => inPeriod(e.thread));
     const sessions2 = Array.isArray(w.sessions) ? w.sessions : [];
     if (!subject || evidence.length + sessions2.length === 0) continue;
-    const exclusion = excludedBy(subject, evidence, text(w.reopens));
+    const exclusion = excludedBy(subject, evidence, textOf(w.reopens));
     if (exclusion && exclusion.newThreads.length < 2) {
       result.dropped.push(droppedFor(subject, exclusion.excluded));
       continue;
@@ -2830,17 +2900,27 @@ function checkProposals(input2, ctx) {
     result.watch.push({
       id: `w${result.watch.length + 1}`,
       subject,
-      why: text(w.why),
+      why: textOf(w.why),
       evidence,
       ...sessions2.length ? { sessions: sessions2 } : {}
     });
   }
   return result;
 }
-function verify(input2, ctx, result) {
+function unusedOf(files, ctx) {
+  const u = ctx.usage;
+  if (!u) return null;
+  for (const f of files.filter(Boolean)) {
+    const tool = toolOfFile(f, u.tools, u.root, u.home);
+    const counted = u.windows.find((w) => w.scope === tool?.scope)?.sessions ?? 0;
+    if (tool) return usesOf(tool) === 0 && counted > 0 ? tool : null;
+  }
+  return null;
+}
+function verifyChanges(input2, ctx, result) {
   const adopted = ctx.adopted ?? [];
   const given = /* @__PURE__ */ new Map();
-  for (const x of Array.isArray(input2) ? input2.filter(isRecord2) : []) given.set(text(x.change), x);
+  for (const x of Array.isArray(input2) ? input2.filter(isRawRecord) : []) given.set(textOf(x.change), x);
   const total = ctx.threads.size;
   const out2 = [];
   for (const c of adopted) {
@@ -2857,7 +2937,7 @@ function verify(input2, ctx, result) {
       });
       continue;
     }
-    const all = [...new Set(ids(x.threads))];
+    const all = [...new Set(idsOf(x.threads))];
     const kept = all.filter((id) => ctx.threads.has(id));
     for (const id of all.filter((id2) => !ctx.threads.has(id2)))
       result.notes.push(`check of ${ref}: thread ${id} is not in the period, left out`);
@@ -2866,7 +2946,7 @@ function verify(input2, ctx, result) {
       ...c,
       after,
       verdict: verdictOf(c.before, after),
-      ...text(x.note) ? { note: text(x.note) } : {}
+      ...textOf(x.note) ? { note: textOf(x.note) } : {}
     });
   }
   for (const ref of given.keys())
@@ -2876,10 +2956,10 @@ function verify(input2, ctx, result) {
 
 // ../core/src/retroKey.ts
 var import_promises13 = require("node:fs/promises");
-var import_node_os2 = require("node:os");
-var import_node_path14 = require("node:path");
+var import_node_os3 = require("node:os");
+var import_node_path15 = require("node:path");
 function jevKeyFile(env = process.env) {
-  return (0, import_node_path14.join)(env.HOME?.trim() || (0, import_node_os2.homedir)(), ".config", "local-review", "jev-key");
+  return (0, import_node_path15.join)(env.HOME?.trim() || (0, import_node_os3.homedir)(), ".config", "local-review", "jev-key");
 }
 async function jevKeyStatus(env = process.env) {
   const path = jevKeyFile(env);
@@ -2900,7 +2980,7 @@ async function jevKeyStatus(env = process.env) {
   status2.mode = (st.mode & 511).toString(8);
   const mine = typeof process.getuid !== "function" || st.uid === process.getuid();
   status2.private = (st.mode & 63) === 0 && mine;
-  status2.inRepo = await worktreeTopOf((0, import_node_path14.dirname)(path));
+  status2.inRepo = await worktreeTopOf((0, import_node_path15.dirname)(path));
   if (!status2.private) status2.fixes.push(`chmod 600 "${path}"`);
   if (status2.inRepo)
     status2.fixes.push(`move it out of the repository ${status2.inRepo} (e.g. to the default place, ${jevKeyFile(env)})`);
@@ -2914,19 +2994,145 @@ function jevKeySetupCommand(path = "$HOME/.config/local-review/jev-key") {
 
 // ../core/src/retroScope.ts
 var import_promises15 = require("node:fs/promises");
-var import_node_path16 = require("node:path");
+var import_node_path17 = require("node:path");
+
+// ../core/src/retroFindings.ts
+var AUDIT_FILE = "audit.md";
+var FINDING_SOURCES = ["threads", "sessions", "audit"];
+var PREFIX = { threads: "T", sessions: "S", audit: "A" };
+function checkFindings(input2, source, ctx) {
+  const result = { source, findings: [], rejected: [], notes: [] };
+  if (!isRawRecord(input2) || !Array.isArray(input2.findings)) {
+    result.rejected.push({ index: 0, subject: "", reasons: ['expected a JSON object with a "findings" array'] });
+    return result;
+  }
+  input2.findings.forEach((raw, i) => {
+    const index = i + 1;
+    if (!isRawRecord(raw)) {
+      result.rejected.push({ index, subject: "", reasons: ["not an object"] });
+      return;
+    }
+    const subject = textOf(raw.subject);
+    const reasons = [];
+    if (!subject) reasons.push('"subject" is missing');
+    const cause = textOf(raw.cause) || (idsOf(raw.causes).length === 1 ? idsOf(raw.causes)[0] : "");
+    if (!cause)
+      reasons.push(
+        idsOf(raw.causes).length > 1 ? "one cause per finding: split it into one finding per cause" : '"cause" is missing: the one cause in the setup it points at'
+      );
+    const confidence = typeof raw.confidence === "number" ? raw.confidence : NaN;
+    if (!(confidence >= 0 && confidence <= 1)) reasons.push('"confidence" must be a number from 0 to 1');
+    const column = textOf(raw.column).toLowerCase().replace(/^to\s+/, "") || null;
+    if (column !== null && !COLUMNS.includes(column)) reasons.push(`"column" must be one of ${COLUMNS.join(", ")}`);
+    const kind = textOf(raw.kind) || null;
+    if (kind !== null && !PROPOSAL_KINDS.includes(kind))
+      reasons.push(`"kind" must be one of ${PROPOSAL_KINDS.join(", ")}`);
+    const target = textOf(raw.target) || null;
+    if (target !== null && !TARGETS.includes(target)) reasons.push(`"target" must be one of ${TARGETS.join(", ")}`);
+    const evidence = [];
+    const sessions2 = [];
+    let audit = null;
+    if (source === "threads") {
+      for (const e of evidenceOf(raw.evidence ?? raw.threads)) {
+        if (evidence.some((x) => x.thread === e.thread)) continue;
+        if (ctx.threads.has(e.thread)) evidence.push(e);
+        else result.notes.push(`${subject}: thread ${e.thread} is not in the period, left out`);
+      }
+      if (evidence.length === 0)
+        reasons.push('"evidence" needs at least one thread of the period, with an excerpt: copy its id exactly');
+    } else if (source === "sessions") {
+      for (const c of sessionsOf(raw.sessions)) {
+        if (sessions2.some((x) => x.session === c.session)) continue;
+        const known = ctx.sessions?.get(c.session);
+        if (known) sessions2.push(checkSession(c, known, reasons));
+        else result.notes.push(`${subject}: session ${c.session} is not one the retro reads, left out`);
+      }
+      if (sessions2.length === 0)
+        reasons.push('"sessions" needs at least one session the retro reads, with words copied from it');
+    } else {
+      audit = auditOf(raw.audit);
+      if (!audit) reasons.push('"audit" needs a "location" and a "finding": where the audit saw it, and what');
+    }
+    if (reasons.length > 0) {
+      result.rejected.push({ index, subject, reasons });
+      return;
+    }
+    result.findings.push({
+      id: `${PREFIX[source]}${result.findings.length + 1}`,
+      source,
+      subject,
+      cause,
+      column,
+      kind,
+      file: textOf(raw.file),
+      rule: textOf(raw.rule),
+      change: textOf(raw.change),
+      target,
+      targetEvidence: idsOf(raw.targetEvidence).filter((id) => ctx.threads.has(id)),
+      evidence,
+      sessions: sessions2,
+      audit,
+      confidence,
+      note: textOf(raw.note)
+    });
+  });
+  if (source === "threads") {
+    const verifications = verifyChanges(input2.verify, ctx, result);
+    if (verifications.length) result.verifications = verifications;
+  }
+  if (source === "sessions") {
+    const overview = overviewOf(input2.overview, ctx, result);
+    if (overview) result.overview = overview;
+  }
+  return result;
+}
+function findingsFormat(source) {
+  const evidence = source === "threads" ? '"evidence": [{ "thread": "t_\u2026", "excerpt": "a short quote of the thread" }]' : source === "sessions" ? '"sessions": [{ "session": "<id>", "excerpt": "words copied exactly from its report or summary", "moments": ["<uuid its report cites>"] }]' : '"audit": { "location": "CLAUDE.md:2-3", "finding": "what the audit says is wrong there" }';
+  return [
+    "## Your answer: findings, in the common format",
+    "",
+    'Write a JSON file (the path is given below) with what this source shows, then record it with the command given below. A finding is not a proposal: the analysis weighs the findings of every source against each other, then decides what becomes a proposal. Give each finding even when it rests on a single thread or session: say how strong it is in "confidence" and "note".',
+    "",
+    "```json",
+    "{",
+    '  "findings": [',
+    "    {",
+    '      "subject": "a few words",',
+    '      "cause": "the ONE cause in the setup it points at (a rule missing, a rule ignored, a skill that misleads\u2026)",',
+    `      ${evidence},`,
+    '      "column": "keep | remove | improve (what you would suggest)",',
+    '      "kind": "rule | hook | skill | command | agent | doc | setting | other",',
+    '      "file": "the file of the existing rule, or where a change would go",',
+    '      "rule": "the existing text concerned, word for word, if any",',
+    '      "change": "the change you would suggest, if any",',
+    '      "target": "project-shared | project-personal | user (only when the source tells it)",',
+    ...source === "threads" ? ['      "targetEvidence": ["the threads that tell where it belongs"],'] : [],
+    '      "confidence": 0.8,',
+    '      "note": "how strong it is, how often it came back, what it is not"',
+    "    }",
+    "  ]" + (source === "threads" ? ',\n  "verify": [{ "change": "<ref>", "threads": ["t_\u2026"], "note": "what you saw" }]' : source === "sessions" ? ',\n  "overview": { "summary": "2 or 3 sentences", "items": [{ "kind": "pattern | friction | ritual", "title": "\u2026", "description": "\u2026", "sessions": ["<id>"], "idea": "optional lead" }] }' : ""),
+    "}",
+    "```",
+    "",
+    "- One cause per finding: two causes are two findings.",
+    "- Copy ids, excerpts and moments exactly: they are checked by program.",
+    ...source === "threads" ? ['- "verify": one item per change adopted at the last retro, when the input lists some (else leave it out).'] : [],
+    ...source === "sessions" ? ['- "overview": what recurs across the sessions (8 items at most), for the user to find leads of their own.'] : [],
+    "- Write in the language of the user (the threads and their prompts), with its accents."
+  ];
+}
 
 // ../core/src/sessionReports.ts
 var import_promises14 = require("node:fs/promises");
-var import_node_path15 = require("node:path");
+var import_node_path16 = require("node:path");
 var SESSION_REPORTS_DIR = "sessions";
-var reportsDir = (book2) => (0, import_node_path15.join)(book2.dir, SESSION_REPORTS_DIR);
+var reportsDir = (book2) => (0, import_node_path16.join)(book2.dir, SESSION_REPORTS_DIR);
 var SESSION_ID2 = /^[A-Za-z0-9._-]{1,128}$/;
 var reportFile = (book2, id) => {
   if (!SESSION_ID2.test(id) || id.startsWith(".")) throw new Error(`Invalid session id: ${id}`);
-  return (0, import_node_path15.join)(reportsDir(book2), `${id}.json`);
+  return (0, import_node_path16.join)(reportsDir(book2), `${id}.json`);
 };
-var isRecord3 = (x) => typeof x === "object" && x !== null && !Array.isArray(x);
+var isRecord2 = (x) => typeof x === "object" && x !== null && !Array.isArray(x);
 async function readSessionReport(book2, id) {
   let raw;
   try {
@@ -2934,20 +3140,20 @@ async function readSessionReport(book2, id) {
   } catch {
     return null;
   }
-  if (!isRecord3(raw) || typeof raw.v !== "number" || raw.session !== id) return null;
-  if (!isRecord3(raw.analysis) || !isRecord3(raw.analytics)) return null;
+  if (!isRecord2(raw) || typeof raw.v !== "number" || raw.session !== id) return null;
+  if (!isRecord2(raw.analysis) || !isRecord2(raw.analytics)) return null;
   return raw;
 }
 function strings(x, out2 = []) {
   if (typeof x === "string") out2.push(x);
   else if (Array.isArray(x)) for (const y of x) strings(y, out2);
-  else if (isRecord3(x)) for (const y of Object.values(x)) strings(y, out2);
+  else if (isRecord2(x)) for (const y of Object.values(x)) strings(y, out2);
   return out2;
 }
 var reportText = (r) => strings(r.analysis).join("\n");
 function citedMoments(node, out2 = /* @__PURE__ */ new Set()) {
   if (Array.isArray(node)) for (const x of node) citedMoments(x, out2);
-  else if (isRecord3(node))
+  else if (isRecord2(node))
     for (const [k, v] of Object.entries(node)) {
       if (k === "uuid" && typeof v === "string") out2.add(v);
       else if (k === "evidence" && Array.isArray(v)) {
@@ -2958,12 +3164,12 @@ function citedMoments(node, out2 = /* @__PURE__ */ new Set()) {
 }
 var reportMoments = (r) => citedMoments(r.analytics.signals, citedMoments(r.analysis));
 function analysisForRetro(a) {
-  const signals = isRecord3(a.signals) ? a.signals : {};
+  const signals = isRecord2(a.signals) ? a.signals : {};
   const relevant = {};
   for (const [family, names] of Object.entries(signals)) {
-    if (!isRecord3(names)) continue;
+    if (!isRecord2(names)) continue;
     for (const [name, s] of Object.entries(names)) {
-      if (!isRecord3(s) || !Array.isArray(s.relevant) || s.relevant.length === 0) continue;
+      if (!isRecord2(s) || !Array.isArray(s.relevant) || s.relevant.length === 0) continue;
       relevant[`${family}.${name}`] = { occurrences: s.occurrences, relevant: s.relevant, note: s.note };
     }
   }
@@ -2989,7 +3195,7 @@ function renderSessionReports(reports, dir) {
 }
 var typedPrompts = (r) => {
   const counts = r.analytics.counts;
-  return isRecord3(counts) && typeof counts.typed_prompts === "number" ? counts.typed_prompts : 0;
+  return isRecord2(counts) && typeof counts.typed_prompts === "number" ? counts.typed_prompts : 0;
 };
 
 // ../core/src/retroScope.ts
@@ -2997,7 +3203,7 @@ var DAY2 = 864e5;
 async function retroScope(root, opts = {}) {
   const env = opts.env ?? process.env;
   const now = opts.now ?? Date.now();
-  const dir = (0, import_node_path16.resolve)(root);
+  const dir = (0, import_node_path17.resolve)(root);
   const home = await retroHome(dir, env);
   const book2 = new RetroBook(home);
   const retros = (await book2.list()).filter((r) => r.root === dir);
@@ -3165,12 +3371,11 @@ function renderPrevious(previous, exclusions) {
   }
   return out2;
 }
-function analysisInput(ctx) {
+function inputHead(title, ctx) {
   const { retro: retro2, threads } = ctx;
-  const labels = retro2.classification?.labels ?? {};
   const prefs2 = ctx.preferences.length ? ctx.preferences.map((p) => `- ${p.id}: ${p.body}`) : ["None yet."];
   return [
-    `# Retro input \u2014 ${retro2.root}`,
+    `# ${title} \u2014 ${retro2.root}`,
     `Retro ${retro2.id}. Period: ${retro2.since ?? "the whole history"} to ${retro2.until}. ${threads.size} threads, from ${retro2.stores.length} comment store(s): ${retro2.stores.map((s) => s.root).join(", ")}.`,
     "",
     "## The user's retro preferences (apply them)",
@@ -3178,14 +3383,15 @@ function analysisInput(ctx) {
     "",
     "## Previous retros",
     ...renderPrevious(ctx.previous, exclusionsOf(ctx.previous)),
+    ""
+  ];
+}
+function renderThreads(ctx) {
+  const labels = ctx.retro.classification?.labels ?? {};
+  return [
+    `## Threads (all ${ctx.threads.size} of them, oldest first)`,
     "",
-    ...renderToVerify(changesToVerify(retro2, ctx.previous)),
-    "## Statistics (computed without a model)",
-    ...renderStats(statsOf(ctx)),
-    "",
-    `## Threads (all ${threads.size} of them, oldest first)`,
-    "",
-    ...[...threads.values()].map(({ thread, store }) => {
+    ...[...ctx.threads.values()].map(({ thread, store }) => {
       const sig = threadSignals(thread);
       const extra = [
         label(labels[thread.id]),
@@ -3196,11 +3402,143 @@ function analysisInput(ctx) {
       ].filter(Boolean);
       return threadText(thread, store) + (extra.length ? `
 (${extra.join(" \xB7 ")})` : "") + "\n";
-    }),
+    })
+  ];
+}
+function renderRetroSessions(ctx) {
+  return [
     ...renderSessions(ctx.sessions ?? []),
     ...ctx.reports ? renderSessionReports(ctx.reports.list, ctx.reports.dir) : []
+  ];
+}
+function analysisInput(ctx) {
+  return [
+    ...inputHead("Retro input", ctx),
+    ...renderToVerify(changesToVerify(ctx.retro, ctx.previous)),
+    "## Statistics (computed without a model)",
+    ...renderStats(statsOf(ctx)),
+    "",
+    ...renderThreads(ctx),
+    ...renderRetroSessions(ctx)
   ].join("\n");
 }
+function sourceInput(ctx, source, extras = {}) {
+  const body2 = [];
+  if (source === "threads")
+    body2.push(
+      ...renderToVerify(changesToVerify(ctx.retro, ctx.previous)),
+      "## Statistics (computed without a model)",
+      ...renderStats(statsOf(ctx)),
+      "",
+      ...renderThreads(ctx)
+    );
+  else if (source === "sessions") {
+    const sessions2 = renderRetroSessions(ctx);
+    body2.push(
+      ...sessions2.length ? sessions2 : ["## The agent's sessions", "", "None: the retro reads no session.", ""]
+    );
+  } else
+    body2.push(
+      "## The audit of the setup",
+      "",
+      extras.audit?.trim() || "None: the audit did not run.",
+      "",
+      ...renderUsage(extras.usage ?? null)
+    );
+  return [...inputHead(`Retro input: ${SOURCE_TITLE[source]}`, ctx), ...body2, "", ...findingsFormat(source)].join("\n");
+}
+var SOURCE_TITLE = {
+  threads: "the review threads",
+  sessions: "the agent's sessions",
+  audit: "the audit of the setup"
+};
+function renderUsage(usage) {
+  if (!usage) return ["## Usage of the setup's tools", "", "Not counted.", ""];
+  const lines = [
+    "## Usage of the setup's tools (counted without a model)",
+    "",
+    `From ${usage.source}'s own records, on this machine only: ` + usage.windows.map(
+      (w) => `${w.scope === "project" ? "the project's tools on its" : "the user's tools on every project's"} ${w.sessions} session(s)` + (w.since ? ` since ${w.since.slice(0, 10)}` : "")
+    ).join("; ") + `. Sessions inactive for more than ${usage.windows[0]?.keptDays ?? 30} days are deleted by the agent: older uses are not seen. A tool shared in a repository may serve the rest of the team.`,
+    ""
+  ];
+  const sorted = [...usage.tools].sort((a, b) => usesOf(a) - usesOf(b) || a.name.localeCompare(b.name));
+  for (const t of sorted)
+    lines.push(
+      `- ${TOOL_TITLE[t.kind]} ${t.name} (${t.scope}, ${t.file}): ` + (usesOf(t) === 0 ? "NEVER USED" : `used ${usesOf(t)} time(s) (${t.byUser} typed by the user, ${t.byAgent} by the agent) in ${t.sessions} session(s), last ${t.lastUsed?.slice(0, 10) ?? "?"}`)
+    );
+  if (sorted.length === 0) lines.push("No skill, command or sub-agent in the setup.");
+  return [...lines, ""];
+}
+function renderFinding(f, usage, root) {
+  const tool = usage && f.source === "audit" ? toolOfFile(f.file || f.audit?.location || "", usage.tools, root) : null;
+  return [
+    `### ${f.id} \xB7 ${f.subject}` + (f.column ? ` (suggests: ${f.column}${f.kind ? `, ${f.kind}` : ""})` : ""),
+    `- cause: ${f.cause}`,
+    ...f.evidence.map((e) => `- thread ${e.thread}${e.excerpt ? `: "${e.excerpt}"` : ""}`),
+    ...f.sessions.map(
+      (e) => `- session ${e.session}${e.excerpt ? `: "${e.excerpt}"` : ""}` + (e.moments?.length ? ` (moments ${e.moments.join(", ")})` : "")
+    ),
+    ...f.audit ? [`- audit, ${f.audit.location}: ${f.audit.finding}`] : [],
+    ...tool ? [
+      `- usage: ${TOOL_TITLE[tool.kind]} ${tool.name} ` + (usesOf(tool) === 0 ? "NEVER USED (the user will be asked whether to keep it or remove it)" : `used ${usesOf(tool)} time(s)`)
+    ] : [],
+    ...f.file ? [`- file: ${f.file}`] : [],
+    ...f.rule ? [`- existing: ${f.rule.replace(/\s+/g, " ").slice(0, 400)}`] : [],
+    ...f.change ? [`- suggested change: ${f.change.replace(/\s+/g, " ").slice(0, 600)}`] : [],
+    ...f.target ? [`- target: ${f.target}${f.targetEvidence.length ? ` (${f.targetEvidence.join(", ")})` : ""}`] : [],
+    `- confidence: ${f.confidence}` + (f.note ? ` \xB7 ${f.note}` : ""),
+    ""
+  ];
+}
+function arbiterInput(ctx, findings2, files, usage) {
+  const lines = [...inputHead("Retro input: the findings of every source", ctx)];
+  const verifications = findings2.threads?.verifications ?? [];
+  if (verifications.length > 0) {
+    lines.push(
+      "## Changes adopted at the last retro: checked by the reading of the threads",
+      "",
+      'Already in "verify" (copied into your proposals when you leave "verify" out). A change that did not reduce the feedback, with 2 threads or more, needs a proposal to revise it ("revisits": "<ref>").',
+      "",
+      ...verifications.map(
+        (v) => `- ${changeRef(v)} ${v.title}: ${v.before.threads} of ${v.before.total} threads before, ${v.after.threads} of ${v.after.total} since \u2192 ${v.verdict}` + (v.after.ids.length ? ` (${v.after.ids.join(", ")})` : "") + (v.note ? `; ${v.note}` : "")
+      ),
+      ""
+    );
+  }
+  lines.push("## Statistics (computed without a model)", ...renderStats(statsOf(ctx)), "");
+  for (const source of FINDING_ORDER) {
+    const f = findings2[source];
+    lines.push(`## Findings: ${SOURCE_TITLE[source]}`, "");
+    if (!f) {
+      lines.push("Not read (no such source in this retro).", "");
+      continue;
+    }
+    if (f.findings.length === 0) lines.push("No finding.", "");
+    for (const x of f.findings) lines.push(...renderFinding(x, usage, ctx.retro.root));
+    if (f.overview)
+      lines.push(
+        "### What recurs across the sessions (prepared by the reading of the sessions)",
+        "",
+        'Copied into your proposals as "overview" when you leave it out.',
+        "",
+        "```json",
+        JSON.stringify(f.overview, null, 1),
+        "```",
+        ""
+      );
+  }
+  lines.push(
+    "## The sources, to go back to",
+    "",
+    ...files.threads ? [`- The threads, every one of them: ${files.threads}`] : [],
+    ...files.sessions ? [`- The agent's sessions: ${files.sessions}`] : [],
+    ...files.audit ? [`- The audit of the setup and the usage of its tools: ${files.audit}`] : [],
+    ""
+  );
+  return lines.join("\n");
+}
+var FINDING_ORDER = ["threads", "sessions", "audit"];
 function renderToVerify(changes) {
   if (changes.length === 0) return [];
   const out2 = [
@@ -3220,17 +3558,17 @@ function renderToVerify(changes) {
   return out2;
 }
 function linkedSessions(t) {
-  const ids2 = t.conversation.flatMap((e) => e.kind === "comment" && e.session ? [e.session.id] : []);
-  return [...new Set(ids2)];
+  const ids = t.conversation.flatMap((e) => e.kind === "comment" && e.session ? [e.session.id] : []);
+  return [...new Set(ids)];
 }
 async function writeRetroFile(book2, id, name, content) {
-  const file = (0, import_node_path16.join)(await book2.workDir(id), name);
+  const file = (0, import_node_path17.join)(await book2.workDir(id), name);
   await (0, import_promises15.writeFile)(file, content);
   return file;
 }
 
 // src/digest.ts
-var import_node_path17 = require("node:path");
+var import_node_path18 = require("node:path");
 function locate(view, fileText) {
   const a = view.thread.anchor;
   if (!a.range) return { view, range: null, code: "", outdated: false };
@@ -3272,7 +3610,7 @@ function fence(code, path, startLine) {
   const numbered = startLine === null ? code : code.split("\n").map((l, i) => `${startLine + i} | ${l}`).join("\n");
   const longest = Math.max(0, ...(numbered.match(/`+/g) ?? []).map((r) => r.length));
   const ticks = "`".repeat(Math.max(3, longest + 1));
-  return `${ticks}${LANGUAGES[(0, import_node_path17.extname)(path)] ?? ""}
+  return `${ticks}${LANGUAGES[(0, import_node_path18.extname)(path)] ?? ""}
 ${numbered}
 ${ticks}`;
 }
@@ -3302,8 +3640,8 @@ function renderThread(l) {
   return lines.join("\n").trimEnd();
 }
 function renderReviews(located, reviews) {
-  const ids2 = new Set(located.flatMap((l) => l.view.comments.map((c) => c.reviewId).filter((id) => id !== null)));
-  const withSummary = reviews.filter((r) => ids2.has(r.id) && r.state === "submitted" && r.summary);
+  const ids = new Set(located.flatMap((l) => l.view.comments.map((c) => c.reviewId).filter((id) => id !== null)));
+  const withSummary = reviews.filter((r) => ids.has(r.id) && r.state === "submitted" && r.summary);
   return withSummary.map((r) => `> **Review summary** (${r.submittedAt}): ${r.summary}`).join("\n");
 }
 
@@ -3416,7 +3754,7 @@ function renderThreadHistory(t, store) {
 }
 
 // src/archive.ts
-var import_node_path18 = require("node:path");
+var import_node_path19 = require("node:path");
 var OK = 0;
 var ERROR = 1;
 var ARCHIVE_USAGE = `Archive and clean up (on the project, as lr history: the folder, its subfolders, its worktrees).
@@ -3447,7 +3785,7 @@ async function archive(rest, io, dateOption) {
     format: { type: "string" }
   });
   const format = formatOf(str(values.format));
-  const root = (0, import_node_path18.resolve)(io.cwd, str(values.root) ?? ".");
+  const root = (0, import_node_path19.resolve)(io.cwd, str(values.root) ?? ".");
   const resolvedOption = str(values["resolved-before"]);
   const modes = [positionals.length > 0, resolvedOption !== void 0, values.list === true].filter(Boolean).length;
   if (modes !== 1)
@@ -3485,7 +3823,7 @@ async function unarchive(rest, io) {
   const { values, positionals } = parse(rest, { format: { type: "string" } });
   const format = formatOf(str(values.format));
   if (positionals.length === 0) throw new UsageError("missing <thread-id>");
-  const root = (0, import_node_path18.resolve)(io.cwd, str(values.root) ?? ".");
+  const root = (0, import_node_path19.resolve)(io.cwd, str(values.root) ?? ".");
   const selected = byIds(await projectThreads([root], io.env), positionals, root);
   const result = await unarchiveThreads(selected);
   return report(io, format, result, selected, root, {
@@ -3504,7 +3842,7 @@ async function purge(rest, io, dateOption) {
   });
   if (positionals.length > 0) throw new UsageError(`lr purge takes no argument: "${positionals[0]}"`);
   const format = formatOf(str(values.format));
-  const root = (0, import_node_path18.resolve)(io.cwd, str(values.root) ?? ".");
+  const root = (0, import_node_path19.resolve)(io.cwd, str(values.root) ?? ".");
   const beforeOption = str(values.before);
   if (values.history === true) {
     if (beforeOption !== void 0 || values.count !== void 0)
@@ -3591,19 +3929,19 @@ async function purgeHistory(root, yes, format, io) {
     );
   return OK;
 }
-function byIds(threads, ids2, root) {
-  return ids2.map((id) => {
+function byIds(threads, ids, root) {
+  return ids.map((id) => {
     const found = threads.find((t) => t.thread.id === id);
     if (!found) throw new Error(`Thread not found: ${id} (in ${root}, its subfolders and its worktrees)`);
     return found;
   });
 }
-function report(io, format, result, selected, root, text2) {
+function report(io, format, result, selected, root, text) {
   if (format === "json") io.out(JSON.stringify(result, null, 2));
   else {
     const lines = [
-      selected.length === 0 ? text2.none : result.done.length > 0 ? text2.done(result.done.length) : "",
-      text2.unchanged && result.unchanged.length > 0 ? text2.unchanged(result.unchanged.length) : ""
+      selected.length === 0 ? text.none : result.done.length > 0 ? text.done(result.done.length) : "",
+      text.unchanged && result.unchanged.length > 0 ? text.unchanged(result.unchanged.length) : ""
     ];
     for (const f of result.failed) {
       const t = selected.find((x) => x.thread.id === f.id);
@@ -3651,15 +3989,21 @@ function threadJson2({ thread: t, store }) {
 
 // src/retro.ts
 var import_promises16 = require("node:fs/promises");
-var import_node_path19 = require("node:path");
+var import_node_path20 = require("node:path");
 var RETRO_USAGE = `Retros (look back at the feedback of a period with your agent, and improve its setup):
   lr retro scope [--since <date> | --all]  What a retro would cover: period (since the last retro),
                                           stores, threads, size, time; the last retro, preferences
   lr retro start [--since <date> | --all]  Start a retro on that period: prints its id
   lr retro feedback <retro> --body -       What the user said about the previous retro
-  lr retro input <retro> --for classify|analysis
-                                          Write what the classification or analysis step reads, in
-                                          a file of the retro: prints its path
+  lr retro input <retro> --for classify|threads|sessions|audit|analysis
+                                          Write what a step of the retro reads, in a file of the
+                                          retro: prints its path. threads, sessions, audit: one
+                                          source, for its own agent; analysis: the findings of every
+                                          source (or every source, when none was read on its own)
+  lr retro findings <retro> --source threads|sessions|audit --body -
+                                          Record what one source shows: {"findings":[{"subject",
+                                          "cause","evidence"|"sessions"|"audit","confidence",\u2026}]}
+                                          (refused while some are rejected)
   lr retro classification <retro> --by <name> --body -
                                           Record labels: {"labels":[{"thread","category",
                                           "confidence","missingRule","ignoredRule"}]}
@@ -3692,12 +4036,13 @@ var RETRO_OPTIONS = {
   target: { type: "string" },
   note: { type: "string" },
   file: { type: "string", multiple: true },
-  next: { type: "boolean" }
+  next: { type: "boolean" },
+  source: { type: "string" }
 };
 async function retro(rest, io, parseSince2) {
   const [action, ...args] = rest;
   const { values, positionals } = parse(args, RETRO_OPTIONS);
-  const root = (0, import_node_path19.resolve)(io.cwd, str(values.root) ?? ".");
+  const root = (0, import_node_path20.resolve)(io.cwd, str(values.root) ?? ".");
   const json = str(values.format) === "json";
   const ctx = { io, values, positionals, root, json, parseSince: parseSince2 };
   switch (action) {
@@ -3711,6 +4056,8 @@ async function retro(rest, io, parseSince2) {
       return input(ctx);
     case "classification":
       return classification(ctx);
+    case "findings":
+      return findings(ctx);
     case "check":
       return check(ctx, false);
     case "propose":
@@ -3745,16 +4092,16 @@ async function retroOf(c) {
   return { book: b, retro: await b.get(id) };
 }
 async function body(c) {
-  let text2 = str(c.values.body);
-  if (text2 === "-") text2 = await c.io.readStdin();
+  let text = str(c.values.body);
+  if (text === "-") text = await c.io.readStdin();
   const file = str(c.values["body-file"]);
-  if (file) text2 = await (0, import_promises16.readFile)((0, import_node_path19.resolve)(c.io.cwd, file), "utf8");
-  if (text2 === void 0 || text2.trim() === "") throw new UsageError("needs --body <text>, --body - or --body-file");
-  return text2;
+  if (file) text = await (0, import_promises16.readFile)((0, import_node_path20.resolve)(c.io.cwd, file), "utf8");
+  if (text === void 0 || text.trim() === "") throw new UsageError("needs --body <text>, --body - or --body-file");
+  return text;
 }
-function parseJson(text2) {
+function parseJson(text) {
   try {
-    return JSON.parse(text2);
+    return JSON.parse(text);
   } catch (err) {
     throw new Error(`invalid JSON: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -3777,7 +4124,11 @@ function day(iso) {
   const p = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
-function renderScope(s, keepHistory) {
+var SESSIONS_MODE_LINE = {
+  reports: "through a report on each session, written by a model (finer, costs more; or the agent's own summaries, cheaper: lr config set retro-sessions insights)",
+  insights: "through the agent's own summaries of them (Claude Code's /insights: cheaper; or a report on each session, finer: lr config set retro-sessions reports)"
+};
+function renderScope(s, keepHistory, sessionsMode) {
   const h = s.history;
   const period = s.source === "last-retro" ? `since the last retro (${day(s.since)})` : s.source === "all" ? "the whole history" : s.source === "given" ? `since ${day(s.since)}` : s.since ? `proposed for a first retro: since ${day(s.since)}` : "proposed for a first retro: the whole history";
   const lines = [
@@ -3788,9 +4139,10 @@ function renderScope(s, keepHistory) {
     ...keepHistory ? [] : [
       "- **History**: not kept on this machine (keep-history is off): deleted threads are erased, so this retro does not see them."
     ],
+    `- **The agent's sessions**: read ${SESSIONS_MODE_LINE[sessionsMode]}.`,
     `- **Size**: ${formatBytes(h.bytes)} of journals, about ${Math.round(s.estimate.tokens / 1e3)}k tokens to read.`,
     `- **Time** (estimate): classification ${minutes(s.estimate.classifyJev)} with Jev or ${minutes(s.estimate.classifyModel)} with a small model, then analysis ${minutes(s.estimate.analysis)}.`,
-    `- **Retro journal**: ${(0, import_node_path19.resolve)(s.home, ".local-review", "retros")}`,
+    `- **Retro journal**: ${(0, import_node_path20.resolve)(s.home, ".local-review", "retros")}`,
     "",
     "## Comment stores",
     "",
@@ -3838,12 +4190,13 @@ function renderOutcome(r) {
 }
 async function scope(c) {
   const s = await scopeOf(c);
-  const { keepHistory } = await readConfig(c.io.env);
+  const { keepHistory, retroSessions: sessionsMode } = await readConfig(c.io.env);
   return out(
     c,
     {
       ...s,
       keepHistory,
+      sessionsMode,
       history: void 0,
       threads: s.history.threads,
       bytes: s.history.bytes,
@@ -3855,7 +4208,7 @@ async function scope(c) {
         bytes: st.bytes
       }))
     },
-    () => renderScope(s, keepHistory)
+    () => renderScope(s, keepHistory, sessionsMode)
   );
 }
 async function start(c) {
@@ -3868,7 +4221,8 @@ async function start(c) {
     until: s.until,
     stores: s.history.stores.filter((st) => st.threads.length > 0).map((st) => ({ root: st.root, origin: st.origin, threads: st.threads.length, bytes: st.bytes })),
     threads: s.history.stores.flatMap((st) => st.threads.map((t) => t.id)),
-    bytes: s.history.bytes
+    bytes: s.history.bytes,
+    sessionsMode: (await readConfig(c.io.env)).retroSessions
   });
   return out(
     c,
@@ -3882,34 +4236,74 @@ async function feedback(c) {
   c.io.out(`Feedback recorded in ${r.id}.`);
   return 0;
 }
+var INPUT_KINDS = ["classify", "analysis", ...FINDING_SOURCES];
+async function analysisContext(c, b, r) {
+  const { threads } = await retroThreads(r, c.io.env);
+  const previous = (await b.list()).filter((x) => x.id !== r.id && x.startedAt < r.startedAt);
+  const sessions2 = await retroSessions(b, r);
+  const reports = await retroReports(b, r);
+  return {
+    retro: r,
+    threads,
+    previous,
+    preferences: await b.preferences(),
+    sessions: sessions2,
+    ...reports.length ? { reports: { list: reports, dir: reportsDir(b) } } : {}
+  };
+}
+async function auditReport(b, r) {
+  const file = (0, import_node_path20.join)(await b.workDir(r.id), AUDIT_FILE);
+  try {
+    return { file, text: await (0, import_promises16.readFile)(file, "utf8") };
+  } catch {
+    return null;
+  }
+}
+async function sourceInputOf(b, r, ctx, source) {
+  const audit = source === "audit" ? await auditReport(b, r) : null;
+  return sourceInput(ctx, source, { audit: audit?.text ?? null, usage: r.usage });
+}
 async function input(c) {
   const { book: b, retro: r } = await retroOf(c);
   const kind = str(c.values.for);
-  if (kind !== "classify" && kind !== "analysis") throw new UsageError('--for must be "classify" or "analysis"');
+  if (!INPUT_KINDS.includes(kind)) throw new UsageError(`--for must be one of ${INPUT_KINDS.join(", ")}`);
   const { threads } = await retroThreads(r, c.io.env);
   const missing = r.threads.filter((id) => !threads.has(id));
   let content;
   let sessions2 = [];
   let reports = [];
+  const bySource = Object.keys(r.findings).length > 0;
   if (kind === "classify") content = classifyInput(r, threads);
   else {
-    const previous = (await b.list()).filter((x) => x.id !== r.id && x.startedAt < r.startedAt);
-    sessions2 = await retroSessions(b, r);
-    reports = await retroReports(b, r);
-    content = analysisInput({
-      retro: r,
-      threads,
-      previous,
-      preferences: await b.preferences(),
-      sessions: sessions2,
-      ...reports.length ? { reports: { list: reports, dir: reportsDir(b) } } : {}
-    });
+    const ctx = await analysisContext(c, b, r);
+    sessions2 = ctx.sessions;
+    reports = ctx.reports?.list ?? [];
+    if (kind !== "analysis") content = await sourceInputOf(b, r, ctx, kind);
+    else if (!bySource) content = analysisInput(ctx);
+    else {
+      const files = {};
+      for (const source of FINDING_SOURCES)
+        if (r.findings[source])
+          files[source] = await writeRetroFile(b, r.id, `${source}-input.md`, await sourceInputOf(b, r, ctx, source));
+      content = arbiterInput(ctx, r.findings, files, r.usage);
+    }
   }
   const file = await writeRetroFile(b, r.id, `${kind}-input.md`, content);
   const lines = content.split("\n").length;
-  const answer = (0, import_node_path19.join)((0, import_node_path19.dirname)(file), kind === "classify" ? "labels.json" : "proposals.json");
+  const answer = (0, import_node_path20.join)(
+    (0, import_node_path20.dirname)(file),
+    kind === "classify" ? "labels.json" : kind === "analysis" ? "proposals.json" : `findings-${kind}.json`
+  );
   const root = `--root ${quote(c.root)}`;
-  const next = kind === "classify" ? `lr retro classification ${r.id} ${root} --by <your name> --body-file ${quote(answer)}` : `lr retro check ${r.id} ${root} --body-file ${quote(answer)}, then lr retro propose with the same arguments`;
+  const next = kind === "classify" ? `lr retro classification ${r.id} ${root} --by <your name> --body-file ${quote(answer)}` : kind === "analysis" ? `lr retro check ${r.id} ${root} --body-file ${quote(answer)}, then lr retro propose with the same arguments` : `lr retro findings ${r.id} ${root} --source ${kind} --body-file ${quote(answer)}`;
+  const shown = kind === "analysis" && bySource ? [`the findings of ${andList(FINDING_SOURCES.filter((x) => r.findings[x]).map((x) => SOURCE_TITLE[x]))}`] : [
+    ...kind === "classify" || kind === "analysis" || kind === "threads" ? [`${threads.size} threads`] : [],
+    ...kind === "analysis" || kind === "sessions" ? [
+      ...sessions2.length ? [`${sessions2.length} session${sessions2.length === 1 ? "" : "s"} of the agent`] : [],
+      ...reports.length ? [`${reports.length} report${reports.length === 1 ? "" : "s"} on its sessions`] : []
+    ] : [],
+    ...kind === "audit" ? ["the audit of the setup and the usage of its tools"] : []
+  ];
   return out(
     c,
     {
@@ -3925,25 +4319,51 @@ async function input(c) {
     },
     () => [
       `Written: ${file}`,
-      `${andList([
-        `${threads.size} threads`,
-        ...sessions2.length ? [`${sessions2.length} session${sessions2.length === 1 ? "" : "s"} of the agent`] : [],
-        ...reports.length ? [`${reports.length} report${reports.length === 1 ? "" : "s"} on its sessions`] : []
-      ])}, ${lines} lines, ${formatBytes(Buffer.byteLength(content))}. Read it all (in parts if needed).`,
+      `${andList(shown) || "nothing to read"}, ${lines} lines, ${formatBytes(Buffer.byteLength(content))}. Read it all (in parts if needed).`,
       ...missing.length ? [`${missing.length} thread(s) of the retro are no longer found: ${missing.join(", ")}`] : [],
       `Then write your JSON in ${answer} and run: ${next}`
     ].join("\n")
   );
 }
+async function findings(c) {
+  const { book: b, retro: r } = await retroOf(c);
+  const source = str(c.values.source);
+  if (!FINDING_SOURCES.includes(source)) throw new UsageError(`--source must be one of ${FINDING_SOURCES.join(", ")}`);
+  const result = checkFindings(parseJson(await body(c)), source, await guardContext(c, b, r));
+  const rejected = result.rejected.length > 0;
+  if (!rejected)
+    await b.record(r.id, [
+      {
+        type: "retro.findings",
+        source,
+        findings: result.findings,
+        ...result.verifications ? { verifications: result.verifications } : {},
+        ...result.overview ? { overview: result.overview } : {}
+      }
+    ]);
+  if (c.json) {
+    c.io.out(JSON.stringify({ recorded: !rejected, ...result }, null, 2));
+    return rejected ? 1 : 0;
+  }
+  const lines = [
+    rejected ? `${result.rejected.length} finding(s) rejected: fix them, nothing was recorded.` : `Recorded: ${result.findings.length} finding(s) from ${SOURCE_TITLE[source]}` + (result.verifications ? `, ${result.verifications.length} change(s) of the last retro checked` : "") + (result.overview ? `, an overview of ${result.overview.items.length} item(s)` : "") + ".",
+    ...result.rejected.map((x) => `- REJECTED ${x.index ? `#${x.index} ` : ""}${x.subject}: ${x.reasons.join("; ")}`),
+    ...(result.verifications ?? []).map((v) => `- ${verificationLine(v)}`),
+    ...result.notes.map((n) => `  note: ${n}`)
+  ];
+  c.io.out(lines.join("\n"));
+  return rejected ? 1 : 0;
+}
 async function retroSessions(b, r) {
-  if (!r.sessions) return [];
+  if (!r.sessions || r.sessionsMode === "reports") return [];
   const listed = new Set(r.sessions.list.map((x) => x.id));
   return (await readRetroSessions(b, r.id)).filter((x) => listed.has(x.id));
 }
 var andList = (xs) => xs.length <= 1 ? xs[0] ?? "" : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}`;
 async function retroReports(b, r) {
-  const ids2 = (r.reports?.list ?? []).filter((x) => x.status !== "failed").map((x) => x.id);
-  const found = await Promise.all(ids2.map((id) => readSessionReport(b, id)));
+  if (r.sessionsMode === "insights") return [];
+  const ids = (r.reports?.list ?? []).filter((x) => x.status !== "failed").map((x) => x.id);
+  const found = await Promise.all(ids.map((id) => readSessionReport(b, id)));
   return found.filter((x) => x !== null);
 }
 async function guardSessions(b, r) {
@@ -3959,7 +4379,7 @@ async function guardSessions(b, r) {
   }
   return out2;
 }
-var firstSentence = (text2) => (/^.*?[.!?](?=\s|$)/s.exec(text2.trim())?.[0] ?? text2.trim()).slice(0, 300);
+var firstSentence = (text) => (/^.*?[.!?](?=\s|$)/s.exec(text.trim())?.[0] ?? text.trim()).slice(0, 300);
 var sessionLine = (e) => `session ${e.session.slice(0, 8)} (${day(e.start)})${e.excerpt ? `: "${e.excerpt}"` : ", facts only"}` + (e.moments?.length ? ` (moment${e.moments.length === 1 ? "" : "s"} ${e.moments.map((m) => m.slice(0, 8)).join(", ")})` : "");
 function sourceOf(p, audit) {
   const f = p.figures;
@@ -4016,17 +4436,34 @@ async function classification(c) {
   );
   return 0;
 }
-async function check(c, record) {
-  const { book: b, retro: r } = await retroOf(c);
+async function guardContext(c, b, r) {
   const { threads } = await retroThreads(r, c.io.env);
   const previous = (await b.list()).filter((x) => x.id !== r.id && x.startedAt < r.startedAt);
-  const result = checkProposals(parseJson(await body(c)), {
+  return {
     threads: new Map([...threads].map(([id, x]) => [id, x.thread])),
     labels: r.classification?.labels ?? {},
     exclusions: exclusionsOf(previous),
     adopted: changesToVerify(r, previous),
-    sessions: await guardSessions(b, r)
-  });
+    sessions: await guardSessions(b, r),
+    ...r.usage ? { usage: { ...r.usage, root: r.root, ...c.io.env.HOME ? { home: c.io.env.HOME } : {} } } : {}
+  };
+}
+function withFindings(input2, r) {
+  if (typeof input2 !== "object" || input2 === null || Array.isArray(input2)) return input2;
+  const x = { ...input2 };
+  const checked = r.findings.threads?.verifications;
+  if (x.verify === void 0 && checked)
+    x.verify = checked.map((v) => ({
+      change: changeRef(v),
+      threads: v.after.ids,
+      ...v.note ? { note: v.note } : {}
+    }));
+  if (x.overview === void 0 && r.findings.sessions?.overview) x.overview = r.findings.sessions.overview;
+  return x;
+}
+async function check(c, record) {
+  const { book: b, retro: r } = await retroOf(c);
+  const result = checkProposals(withFindings(parseJson(await body(c)), r), await guardContext(c, b, r));
   const rejected = result.rejected.length > 0;
   if (record && !rejected)
     await b.record(r.id, [
@@ -4052,7 +4489,7 @@ function renderGuards(g, recorded, record) {
   for (const v of g.verifications) lines.push(`- ${verificationLine(v)}`);
   for (const p of g.proposals)
     lines.push(
-      `- ${p.id} [${p.column}] ${p.subject}: ${p.figures.threads} threads` + (p.sessions?.length ? ` and ${p.sessions.length} session${p.sessions.length === 1 ? "" : "s"}${p.sessionsOnly ? " (sessions only)" : ""}` : "") + (p.askTarget ? ", target to ask" : "") + (p.convertedFromKeep ? ", turned from keep into improve" : "") + (p.reopens ? `, reopens ${p.reopens.retro}/${p.reopens.proposal}` : "") + (p.revisits ? `, revises ${changeRef(p.revisits)}` : "")
+      `- ${p.id} [${p.column}] ${p.subject}: ${p.figures.threads} threads` + (p.sessions?.length ? ` and ${p.sessions.length} session${p.sessions.length === 1 ? "" : "s"}${p.sessionsOnly ? " (sessions only)" : ""}` : "") + (p.askTarget ? ", target to ask" : "") + (p.convertedFromKeep ? ", turned from keep into improve" : "") + (p.reopens ? `, reopens ${p.reopens.retro}/${p.reopens.proposal}` : "") + (p.revisits ? `, revises ${changeRef(p.revisits)}` : "") + (p.unused ? `, ${TOOL_TITLE[p.unused.kind]} never used: keep it or remove it?` : "")
     );
   for (const w of g.watch) lines.push(`- ${w.id} [watch] ${w.subject}`);
   if (g.overview) lines.push(`- overview of the sessions: ${g.overview.items.length} item(s)`);
@@ -4114,14 +4551,20 @@ function renderProposal(p, r, threads) {
     lines.push(
       `- **Revises** ${changeRef(p.revisits)}, adopted at the last retro: the feedback on its subject did not decrease`
     );
+  if (p.unused) lines.push(`- **Never used**: ${unusedText(p.unused)}`);
+  if (p.unused?.fix) lines.push(`- **Fix, if kept**: ${p.unused.fix}`);
   if (d) lines.push(`- **Decision**: ${d.decision}${d.target ? ` (${d.target})` : ""}${d.note ? `: ${d.note}` : ""}`);
   const files = r.applied[p.id];
   if (files?.length) lines.push(`- **Changed**: ${files.join(", ")}`);
   return lines.join("\n");
 }
+function unusedText(u) {
+  const where4 = u.scope === "project" ? `in the ${u.sessions} session${u.sessions === 1 ? "" : "s"} of this project` : `in the ${u.sessions} session${u.sessions === 1 ? "" : "s"} of every project (it is in your own setup)`;
+  return `the audit flagged the ${TOOL_TITLE[u.kind]} ${u.name}, but nobody used it ${where4} that the agent still keeps on this machine` + (u.since ? ` (since ${day(u.since).slice(0, 10)})` : "") + `. Limits: only this machine (a ${TOOL_TITLE[u.kind]} shared in the repository may serve your team), and the agent deletes the sessions inactive for more than ${u.keptDays} days.`;
+}
 var AUDIT_NAME = "/doctor prompt-audit";
 var DISCUSSION = ["improve", "remove", "keep"];
-var blockquote = (text2) => text2.split("\n").map((l) => l.trim() ? `> ${l}` : ">").join("\n");
+var blockquote = (text) => text.split("\n").map((l) => l.trim() ? `> ${l}` : ">").join("\n");
 function presentProposal(p, position, total, r, threads) {
   const f = p.figures;
   const d = r.decisions[p.id];
@@ -4167,6 +4610,14 @@ function presentProposal(p, position, total, r, threads) {
     lines.push(
       "",
       `**Revises** ${changeRef(p.revisits)}, adopted at the last retro: the feedback on its subject did not decrease.`
+    );
+  if (p.unused)
+    lines.push(
+      "",
+      `**Never used**: ${unusedText(p.unused)}`,
+      "",
+      `**The question**: keep this ${TOOL_TITLE[p.unused.kind]}${p.unused.fix ? " (and fix it)" : ""}, or remove it?`,
+      ...p.unused.fix ? ["", "**The fix, if you keep it**:", blockquote(p.unused.fix)] : []
     );
   if (d) lines.push("", `**Decision**: ${d.decision}${d.target ? ` (${d.target})` : ""}${d.note ? `: ${d.note}` : ""}`);
   return lines.join("\n");
@@ -4332,7 +4783,7 @@ async function applied(c) {
   if (!p) throw new Error(`Proposal not found: ${proposal ?? "(none)"}`);
   const d = r.decisions[p.id];
   if (!d || d.decision === "excluded") throw new Error(`${p.id} was not accepted: decide it first (lr retro decide)`);
-  const files = (Array.isArray(c.values.file) ? c.values.file : []).map((f) => (0, import_node_path19.resolve)(c.io.cwd, f));
+  const files = (Array.isArray(c.values.file) ? c.values.file : []).map((f) => (0, import_node_path20.resolve)(c.io.cwd, f));
   if (files.length === 0) throw new UsageError("say which files changed with --file <path>");
   await b.record(r.id, [{ type: "retro.applied", proposal: p.id, files }]);
   c.io.out(`${p.id}: ${files.length} file(s) recorded.`);
@@ -4581,7 +5032,7 @@ ${USAGE}`);
   }
 }
 function openStore(root, io) {
-  const dir = root ? (0, import_node_path20.resolve)(io.cwd, root) : findStoreRoot(io.cwd, io.env);
+  const dir = root ? (0, import_node_path21.resolve)(io.cwd, root) : findStoreRoot(io.cwd, io.env);
   if (dir) return storeAt(dir, io.env);
   const below = findStoresBelow(io.cwd, 3, io.env);
   const hint = below.length > 0 ? `Stores below this folder:
@@ -4599,7 +5050,7 @@ async function visibleThreads(store) {
 async function readWorkingFile(store, view) {
   if (view.thread.anchor.source !== "worktree") return null;
   try {
-    return await (0, import_promises17.readFile)((0, import_node_path20.join)(store.root, ...view.thread.anchor.path.split("/")), "utf8");
+    return await (0, import_promises17.readFile)((0, import_node_path21.join)(store.root, ...view.thread.anchor.path.split("/")), "utf8");
   } catch {
     return null;
   }
@@ -4612,7 +5063,7 @@ async function forThisSession(located, store, values, io) {
   if (!session2) return { located };
   const subs = session2.subscriptions;
   const covered = async (l) => {
-    const file = (0, import_node_path20.join)(store.root, ...l.view.thread.anchor.path.split("/"));
+    const file = (0, import_node_path21.join)(store.root, ...l.view.thread.anchor.path.split("/"));
     const branch = l.view.thread.branch ?? branchOfTopic(await topicOf(file));
     return subs.some(
       (sub) => sub.topic.kind === "path" ? isWithin(file, sub.topic.path) : branch !== null && branchKey(branchOfTopic(sub.topic)) === branchKey(branch)
@@ -4694,7 +5145,7 @@ async function reply(rest, io) {
   let body2 = str(values.body);
   if (body2 === "-") body2 = await io.readStdin();
   const bodyFile = str(values["body-file"]);
-  if (bodyFile) body2 = await (0, import_promises17.readFile)((0, import_node_path20.resolve)(io.cwd, bodyFile), "utf8");
+  if (bodyFile) body2 = await (0, import_promises17.readFile)((0, import_node_path21.resolve)(io.cwd, bodyFile), "utf8");
   if (body2 === void 0 || body2.trim() === "") throw new UsageError("reply needs --body, --body-file or --body -");
   const store = openStore(str(values.root), io);
   await assertCurrent(store, id, str(values.rev), io.env);
@@ -4739,13 +5190,13 @@ async function history(rest, io) {
   const format = str(values.format) ?? "md";
   if (format !== "md" && format !== "json") throw new UsageError(`--format must be "md" or "json", not "${format}"`);
   const since = parseSince(str(values.since));
-  const h = await projectHistory((0, import_node_path20.resolve)(io.cwd, str(values.root) ?? "."), { since, env: io.env });
-  const text2 = format === "json" ? JSON.stringify(historyJson(h), null, 2) : renderHistory(h);
+  const h = await projectHistory((0, import_node_path21.resolve)(io.cwd, str(values.root) ?? "."), { since, env: io.env });
+  const text = format === "json" ? JSON.stringify(historyJson(h), null, 2) : renderHistory(h);
   const out2 = str(values.out);
-  if (out2 === void 0) io.out(text2);
+  if (out2 === void 0) io.out(text);
   else {
-    const file = (0, import_node_path20.resolve)(io.cwd, out2);
-    await (0, import_promises17.writeFile)(file, text2 + "\n");
+    const file = (0, import_node_path21.resolve)(io.cwd, out2);
+    await (0, import_promises17.writeFile)(file, text + "\n");
     io.out(`Wrote the history of ${h.threads} thread${h.threads === 1 ? "" : "s"} (${format}) to ${file}.`);
   }
   return EXIT.OK;
@@ -4755,7 +5206,7 @@ async function worktree(rest, io) {
   const [action, dir, extra] = positionals;
   if (action !== "save") throw new UsageError(`lr worktree takes "save", not "${action ?? ""}"`);
   if (extra !== void 0) throw new UsageError(`lr worktree save takes one folder at most: "${extra}"`);
-  const result = await saveWorktreeThreads((0, import_node_path20.resolve)(io.cwd, dir ?? str(values.root) ?? "."), io.env);
+  const result = await saveWorktreeThreads((0, import_node_path21.resolve)(io.cwd, dir ?? str(values.root) ?? "."), io.env);
   if (str(values.format) === "json") {
     io.out(JSON.stringify(result, null, 2));
     return EXIT.OK;
@@ -4787,6 +5238,10 @@ async function config(rest, io) {
     if (setting.kind === "boolean") {
       if (value !== "on" && value !== "off") throw new UsageError(`${name} takes "on" or "off", not "${value ?? ""}"`);
       await writeConfig({ [setting.key]: value === "on" }, io.env);
+    } else if (setting.kind === "choice") {
+      if (!setting.choices.includes(value ?? ""))
+        throw new UsageError(`${name} takes ${setting.choices.join(" or ")}, not "${value ?? ""}"`);
+      await writeConfig({ [setting.key]: value }, io.env);
     } else {
       const n = /^\d+$/.test(value ?? "") ? Number(value) : NaN;
       if (!validSettingNumber(n)) throw new UsageError(`${name} takes a whole number, 1 or more, not "${value ?? ""}"`);
@@ -4862,7 +5317,7 @@ async function session(rest, io) {
       await registry.register({
         id,
         agent: requireAgent(str(values.agent), io),
-        cwd: (0, import_node_path20.resolve)(io.cwd, str(values.cwd) ?? "."),
+        cwd: (0, import_node_path21.resolve)(io.cwd, str(values.cwd) ?? "."),
         branch: str(values.branch) ?? null,
         pid,
         startedAt: (/* @__PURE__ */ new Date()).toISOString(),
@@ -4900,7 +5355,7 @@ async function currentSession(values, io) {
 async function subscribe(rest, io) {
   const { values, positionals } = parse(rest, subscriptionOptions);
   const { registry, id } = await currentSession(values, io);
-  const topic = await topicOf((0, import_node_path20.resolve)(io.cwd, positionals[0] ?? "."), { asPath: values.path === true });
+  const topic = await topicOf((0, import_node_path21.resolve)(io.cwd, positionals[0] ?? "."), { asPath: values.path === true });
   const added = await registry.subscribe(id, topic, "user");
   io.out(`${added ? "Subscribed to" : "Already subscribed to"} ${topicLabel(topic)}.`);
   return EXIT.OK;
@@ -4910,7 +5365,7 @@ async function unsubscribe(rest, io) {
   const { registry, id } = await currentSession(values, io);
   const gone = await registry.unsubscribe(
     id,
-    values.all === true ? "all" : await topicOf((0, import_node_path20.resolve)(io.cwd, positionals[0] ?? "."), { asPath: values.path === true })
+    values.all === true ? "all" : await topicOf((0, import_node_path21.resolve)(io.cwd, positionals[0] ?? "."), { asPath: values.path === true })
   );
   io.out(
     gone.length === 0 ? "Not subscribed to that." : `Unsubscribed from ${gone.map((g) => topicLabel(g.topic)).join(", ")}.`
@@ -5001,8 +5456,8 @@ async function readStdin() {
 runCli(process.argv.slice(2), {
   cwd: process.cwd(),
   env: process.env,
-  out: (text2) => process.stdout.write(text2 + "\n"),
-  err: (text2) => process.stderr.write(text2 + "\n"),
+  out: (text) => process.stdout.write(text + "\n"),
+  err: (text) => process.stderr.write(text + "\n"),
   readStdin
 }).then(
   (code) => {

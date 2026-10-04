@@ -126,11 +126,17 @@ describe('lr config', () => {
     expect(await readConfig(env())).toMatchObject({ keepHistory: false });
     expect(JSON.parse((await lr(['config', '--format', 'json'])).out)).toMatchObject({ keepHistory: false });
     expect((await lr(['config'])).out).toContain('keep-history: off');
+    expect((await lr(['config'])).out).toContain('retro-sessions: reports');
+    expect((await lr(['config', 'set', 'retro-sessions', 'insights'])).out).toBe('retro-sessions is now insights.\n');
+    expect(await readConfig(env())).toMatchObject({ retroSessions: 'insights' });
   });
 
   it('refuses unknown settings and values', async () => {
     expect((await lr(['config', 'set', 'nope', 'on'])).err).toContain('unknown setting "nope"');
     expect((await lr(['config', 'set', 'keep-history', 'yes'])).err).toContain('takes "on" or "off"');
+    expect((await lr(['config', 'set', 'retro-sessions', 'both'])).err).toContain(
+      'retro-sessions takes reports or insights, not "both"',
+    );
     expect((await lr(['config', 'get'])).err).toContain('lr config takes "set" or nothing');
   });
 });

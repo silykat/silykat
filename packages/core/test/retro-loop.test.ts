@@ -396,6 +396,7 @@ describe('the reminder settings of the machine', () => {
       retroReminderDays: 7,
       retroReminderSizeKB: 1000,
       retroReminderMaxDays: 25,
+      retroSessions: 'reports',
     });
     await mkdir(join(base, 'machine'), { recursive: true });
     await writeFile(
@@ -405,6 +406,7 @@ describe('the reminder settings of the machine', () => {
         retroReminderDays: 0,
         retroReminderSizeKB: 2.5,
         retroReminderMaxDays: 30,
+        retroSessions: 'both',
       }),
     );
     expect(await readConfig(env())).toMatchObject({
@@ -412,7 +414,10 @@ describe('the reminder settings of the machine', () => {
       retroReminderDays: 7,
       retroReminderSizeKB: 1000,
       retroReminderMaxDays: 30,
+      retroSessions: 'reports',
     });
+    await writeConfig({ retroSessions: 'insights' }, env());
+    expect((await readConfig(env())).retroSessions).toBe('insights');
     expect(thresholdsOf(await readConfig(env()))).toEqual({ days: 7, bytes: 1_000_000, maxDays: 30 });
     await writeFile(configFile(env()), '[1]');
     expect((await readConfig(env())).retroReminderDays).toBe(7);

@@ -22,7 +22,17 @@ export interface MachineConfig {
   retroReminderSizeKB: number;
   /** …and never later than this many days, whatever the other settings: agents delete their conversations after a while. */
   retroReminderMaxDays: number;
+  /**
+   * How a retro reads the agent's sessions: a report on each one, written by a model (`reports`:
+   * finer, costs more), or the agent's own summaries of them (`insights`: Claude Code's `/insights`,
+   * cheaper). Never both: they tell the same sessions twice.
+   */
+  retroSessions: SessionsMode;
 }
+
+/** How a retro reads the agent's sessions (see `MachineConfig.retroSessions`). */
+export type SessionsMode = 'reports' | 'insights';
+export const SESSIONS_MODES: readonly SessionsMode[] = ['reports', 'insights'];
 
 export const DEFAULT_CONFIG: MachineConfig = {
   keepHistory: true,
@@ -30,13 +40,17 @@ export const DEFAULT_CONFIG: MachineConfig = {
   retroReminderDays: 7,
   retroReminderSizeKB: 1000,
   retroReminderMaxDays: 25,
+  retroSessions: 'reports',
 };
 
 type BooleanKey = { [K in keyof MachineConfig]: MachineConfig[K] extends boolean ? K : never }[keyof MachineConfig];
 type NumberKey = { [K in keyof MachineConfig]: MachineConfig[K] extends number ? K : never }[keyof MachineConfig];
+type ChoiceKey = { [K in keyof MachineConfig]: MachineConfig[K] extends string ? K : never }[keyof MachineConfig];
 
 export type ConfigSetting =
-  { key: BooleanKey; kind: 'boolean'; help: string } | { key: NumberKey; kind: 'number'; help: string };
+  | { key: BooleanKey; kind: 'boolean'; help: string }
+  | { key: NumberKey; kind: 'number'; help: string }
+  | { key: ChoiceKey; kind: 'choice'; choices: readonly string[]; help: string };
 
 /** The settings as `lr config` names them, with how to read a value given on the command line. */
 export const CONFIG_KEYS: Record<string, ConfigSetting> = {
@@ -67,6 +81,14 @@ export const CONFIG_KEYS: Record<string, ConfigSetting> = {
     kind: 'number',
     help: 'days — and never later than this, to keep the agent conversations linked to replies (default: 25)',
   },
+  'retro-sessions': {
+    key: 'retroSessions',
+    kind: 'choice',
+    choices: SESSIONS_MODES,
+    help:
+      'reports|insights — how a retro reads the agent sessions: a report on each one by a model (finer, ' +
+      "costs more), or the agent's own summaries (Claude Code's /insights, cheaper); never both (default: reports)",
+  },
 };
 
 export const configFile = (env: Record<string, string | undefined> = process.env): string =>
@@ -91,6 +113,8 @@ export async function readConfig(env: Record<string, string | undefined> = proce
     // A value of the wrong type (edited by hand) is ignored: the default stays.
     if (setting.kind === 'boolean' && typeof value === 'boolean') config[setting.key] = value;
     if (setting.kind === 'number' && validSettingNumber(value)) config[setting.key] = value;
+    if (setting.kind === 'choice' && typeof value === 'string' && setting.choices.includes(value))
+      Object.assign(config, { [setting.key]: value });
   }
   return config;
 }

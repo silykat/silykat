@@ -264,7 +264,8 @@ var DEFAULT_CONFIG = {
   retroReminder: true,
   retroReminderDays: 7,
   retroReminderSizeKB: 1e3,
-  retroReminderMaxDays: 25
+  retroReminderMaxDays: 25,
+  retroSessions: "reports"
 };
 var writing = Promise.resolve();
 

@@ -2,7 +2,7 @@ import { access, mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } fr
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { readSessionReport, RetroBook, writeSessionReport, type SessionReport } from '@local-review/core';
+import { readSessionReport, RetroBook, writeConfig, writeSessionReport, type SessionReport } from '@local-review/core';
 import type { Runner } from '../src/retroAudit';
 import { runRetroCli } from '../src/retroCli';
 import { analyseSession, mask, normCommand } from '../src/sessionAnalytics';
@@ -583,7 +583,7 @@ describe('lr-retro sessions and lr-retro reports', () => {
     const scope = await run(['sessions', '--root', root, '--since', '2026-09-10'], undefined, 's-own');
     expect(scope.err).toBe('');
     expect(scope.out).toMatch(
-      /^3 Claude Code sessions in this project since 2026-09-10\.\nReports on them: 1 to write \(about 1 min with 4 at once, and about \$0\.13 at the API list price: on a subscription, tokens counted against the usage limits, not a bill\), 0 already written, 1 without any prompt typed by the user \(not analysed\), and this session \(not analysed\)\.\n$/,
+      /^3 Claude Code sessions in this project since 2026-09-10\.\nReports on them: 1 to write \(about 1 min with 4 at once, and about \$0\.13 at the API list price: on a subscription, tokens counted against the usage limits, not a bill\), 0 already written, 1 without any prompt typed by the user \(not analysed\), and this session \(not analysed\)\.\nThe retro reads them through these reports \(setting retro-sessions: reports; Claude Code's \/insights is cheaper: lr config set retro-sessions insights\)\.\n$/,
     );
 
     const book = new RetroBook(root);
@@ -606,6 +606,42 @@ describe('lr-retro sessions and lr-retro reports', () => {
     expect(periods.out).toContain('Periods to choose from (as lr retro scope lists them):');
     expect(periods.out).toMatch(/- last 7 days \(--since 7d, proposed\): \d+ sessions?, \d+ reports? to write/);
     expect(periods.out).toContain('- whole history (--all): 3 sessions, 0 reports to write, 1 already written');
+
+    // Read through /insights instead: no report to write, and the retro's own session left out.
+    await writeConfig({ retroSessions: 'insights' }, env());
+    const insights = await run(['sessions', '--root', root, '--since', '2026-09-10'], undefined, 's-own');
+    expect(insights.out).toBe(
+      '2 Claude Code sessions in this project since 2026-09-10 (this session left out).\n' +
+        "The retro reads them through Claude Code's /insights (setting retro-sessions: insights; a report on each session is finer: lr config set retro-sessions reports). No report is written.\n",
+    );
+    const insightsPeriods = await run(['sessions', '--root', root], undefined, 's-own');
+    expect(insightsPeriods.out).toContain('- whole history (--all): 2 sessions, read by /insights (about a minute)');
+    await writeConfig({ retroSessions: 'reports' }, env());
+    // A retro started in one mode never reads the sessions the other way.
+    const other = await book.start({
+      root,
+      since: at(10),
+      until: at(30),
+      stores: [],
+      threads: [],
+      bytes: 0,
+      sessionsMode: 'insights',
+    });
+    expect((await run(['reports', other.id, '--root', root], runner, 's-own')).out).toBe(
+      "Skipped: this retro reads the sessions through Claude Code's /insights (setting retro-sessions when it started), never both.\n",
+    );
+    const byReports = await book.start({
+      root,
+      since: at(10),
+      until: at(30),
+      stores: [],
+      threads: [],
+      bytes: 0,
+      sessionsMode: 'reports',
+    });
+    expect((await run(['insights', byReports.id, '--root', root], runner, 's-own')).out).toBe(
+      'Skipped: this retro reads the sessions through a report on each one (setting retro-sessions when it started), never both.\n',
+    );
 
     // Run again in the same retro: written for it all the same, and what it took is kept.
     const again = await run(['reports', r.id, '--root', root], runner, 's-own');

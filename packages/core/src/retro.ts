@@ -1,8 +1,11 @@
 import { appendFile, mkdir, readdir, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { isStoreRoot } from './agentView';
+import type { SessionsMode } from './config';
 import { ulid } from './ids';
 import type { RetroSessionRef, SessionEvidence } from './retroSessions';
+import type { SetupUsage, ToolKind } from './retroUsage';
+import type { FindingSource, SourceFindings } from './retroFindings';
 import type { SessionReportRef } from './sessionReports';
 import { LOOSE_ROOT } from './sessions';
 import { worktreeTopOf } from './topics';
@@ -110,6 +113,26 @@ export interface Proposal {
   audit?: AuditFinding;
   /** A change adopted at the last retro that did not reduce the feedback on its subject: revised here. */
   revisits?: { retro: string; proposal: string; verdict: Verdict };
+  /**
+   * The audit flagged a tool of the setup that was never used: the user is asked whether to remove it
+   * (the change) or to keep it, and then fix it (`fix`: what the audit would change).
+   */
+  unused?: UnusedTool;
+}
+
+/** A tool of the setup flagged by the audit and never used, with what that rests on. */
+export interface UnusedTool {
+  kind: ToolKind;
+  name: string;
+  scope: 'project' | 'user';
+  /** What to remove: the tool's file, or its folder. */
+  path: string;
+  /** The fix the audit proposes, should the user keep it; empty when there is none. */
+  fix: string;
+  /** The sessions counted: how many, since when, and how long the agent keeps them. */
+  sessions: number;
+  since: string | null;
+  keptDays: number;
 }
 
 /** A finding of an audit of the agent's setup: where, and what is wrong there. */
@@ -258,6 +281,8 @@ export type RetroEvent = BaseRetroEvent &
         bytes: number;
         /** The retro preferences in force. */
         preferences: Preference[];
+        /** How it reads the agent's sessions (the `retro-sessions` setting when it started); missing in older retros. */
+        sessionsMode?: SessionsMode;
       }
     /** What the user said about the previous retro. */
     | { type: 'retro.feedback'; body: string }
@@ -299,6 +324,10 @@ export type RetroEvent = BaseRetroEvent &
         durationMs?: number;
         tokens?: number;
       }
+    /** What one source showed (threads, sessions or audit), read by its own agent. The last one per source counts. */
+    | ({ type: 'retro.findings' } & SourceFindings)
+    /** How much the tools of the agent's setup were used, counted from the agent's records. The last one counts. */
+    | ({ type: 'retro.usage' } & SetupUsage)
     | { type: 'retro.finished' }
   );
 
@@ -316,6 +345,8 @@ const RETRO_EVENTS: ReadonlySet<string> = new Set<RetroEvent['type']>([
   'retro.conversation',
   'retro.sessions',
   'retro.reports',
+  'retro.usage',
+  'retro.findings',
   'retro.finished',
 ]);
 const PREFERENCE_EVENTS: ReadonlySet<string> = new Set<PreferenceEvent['type']>([
@@ -347,6 +378,11 @@ export interface RetroState {
   threads: string[];
   bytes: number;
   preferences: Preference[];
+  /**
+   * How it reads the agent's sessions: their reports, or the agent's own summaries; `null` for a
+   * retro started before the setting (it read whatever was recorded).
+   */
+  sessionsMode: SessionsMode | null;
   feedback: string[];
   classification: { by: string[]; labels: Record<string, ThreadLabel> } | null;
   proposals: Proposal[];
@@ -372,6 +408,10 @@ export interface RetroState {
   } | null;
   /** What recurs across the agent's sessions, seen by the analysis. */
   overview: SessionsOverview | null;
+  /** How much the tools of the setup were used, when its adapter counted it. */
+  usage: SetupUsage | null;
+  /** What each source showed, when it was read by its own agent. */
+  findings: Partial<Record<FindingSource, SourceFindings>>;
   finishedAt: string | null;
   /** Written by a newer version of Local Review: never write to it. */
   readOnly: boolean;
@@ -433,6 +473,7 @@ export function foldRetro(events: readonly RetroEvent[], warnings: string[] = []
     threads: first.threads,
     bytes: first.bytes,
     preferences: first.preferences ?? [],
+    sessionsMode: first.sessionsMode ?? null,
     feedback: [],
     classification: null,
     proposals: [],
@@ -445,6 +486,8 @@ export function foldRetro(events: readonly RetroEvent[], warnings: string[] = []
     sessions: null,
     reports: null,
     overview: null,
+    usage: null,
+    findings: {},
     finishedAt: null,
     readOnly: future,
     warnings,
@@ -511,6 +554,21 @@ export function foldRetro(events: readonly RetroEvent[], warnings: string[] = []
         };
         break;
       }
+      case 'retro.usage':
+        r.usage = {
+          source: e.source,
+          tools: Array.isArray(e.tools) ? e.tools : [],
+          windows: Array.isArray(e.windows) ? e.windows : [],
+        };
+        break;
+      case 'retro.findings':
+        r.findings[e.source] = {
+          source: e.source,
+          findings: Array.isArray(e.findings) ? e.findings : [],
+          ...(e.verifications ? { verifications: e.verifications } : {}),
+          ...(e.overview ? { overview: e.overview } : {}),
+        };
+        break;
       case 'retro.finished':
         r.finishedAt ??= e.at;
         break;
@@ -666,6 +724,7 @@ export class RetroBook {
     stores: RetroStore[];
     threads: string[];
     bytes: number;
+    sessionsMode?: SessionsMode;
   }): Promise<RetroState> {
     const retroId = newRetroId();
     const preferences = await this.preferences();

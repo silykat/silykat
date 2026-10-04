@@ -108,6 +108,7 @@ describe("lr retro with the agent's sessions", () => {
 
   it('gives them to the analysis, checks their citations, shows them and what reading them cost', async () => {
     const t = await project();
+    await lr(['config', 'set', 'retro-sessions', 'insights']);
     const id = (await lr(['retro', 'start', '--all'])).out.match(/rt_\w+/)![0];
     const book = new RetroBook(work);
     await recordRetroSessions(
@@ -330,6 +331,254 @@ describe("lr retro with reports on the agent's sessions", () => {
     );
     expect(recorded.code).toBe(0);
     expect((await book.get(id)).proposals[0]!.sessions![0]!.excerpt).toBe('The user asked for UTC dates twice.');
+  });
+});
+
+describe('lr retro, one source at a time', () => {
+  it('reads the sessions one way only, as set when the retro starts', async () => {
+    await project();
+    expect((await lr(['retro', 'scope'])).out).toContain(
+      "- **The agent's sessions**: read through a report on each session, written by a model",
+    );
+    const id = (await lr(['retro', 'start', '--all'])).out.match(/rt_\w+/)![0];
+    expect((await new RetroBook(work).get(id)).sessionsMode).toBe('reports');
+    // Sessions found by /insights are not read by a retro that reads the reports.
+    await recordRetroSessions(new RetroBook(work), id, 'Claude Code /insights', [
+      { id: 'sess-i', start: '2026-09-20T10:00:00.000Z', folder: work, facts: {}, summary: { brief_summary: 'x' } },
+    ]);
+    const input = await lr(['retro', 'input', id, '--for', 'analysis']);
+    expect(input.out).toContain('Written: ');
+    expect(await readFile(input.out.match(/Written: (.+)/)![1]!, 'utf8')).not.toContain('sess-i');
+    await lr(['config', 'set', 'retro-sessions', 'insights']);
+    expect((await lr(['retro', 'scope'])).out).toContain("read through the agent's own summaries of them");
+  });
+
+  it('gives each source to its own agent, records their findings, then gives them all to the analysis', async () => {
+    const t = await project();
+    const id = (await lr(['retro', 'start', '--all'])).out.match(/rt_\w+/)![0];
+    const book = new RetroBook(work);
+    await book.record(id, [
+      {
+        type: 'retro.usage',
+        source: 'Claude Code',
+        tools: [
+          {
+            kind: 'skill',
+            name: 'dates',
+            scope: 'project',
+            file: join(work, '.claude', 'skills', 'dates', 'SKILL.md'),
+            path: join(work, '.claude', 'skills', 'dates'),
+            byUser: 0,
+            byAgent: 0,
+            sessions: 0,
+            lastUsed: null,
+          },
+        ],
+        windows: [{ scope: 'project', sessions: 5, since: '2026-09-01T10:00:00.000Z', keptDays: 30 }],
+      },
+    ]);
+    const noAudit = await lr(['retro', 'input', id, '--for', 'audit']);
+    expect(await readFile(noAudit.out.match(/Written: (.+)/)![1]!, 'utf8')).toContain('None: the audit did not run.');
+    expect((await lr(['retro', 'input', id, '--for', 'sessions'])).out).toContain('nothing to read');
+    await writeFile(join(await book.workDir(id), 'audit.md'), '# Audit\nThe dates skill is stale.\n');
+
+    const threads = await lr(['retro', 'input', id, '--for', 'threads']);
+    expect(threads.out).toContain('3 threads');
+    expect(threads.out).toContain(`lr retro findings ${id} --root ${work} --source threads --body-file `);
+    expect(threads.out).toContain('findings-threads.json');
+    const audit = await lr(['retro', 'input', id, '--for', 'audit']);
+    expect(audit.out).toContain('the audit of the setup and the usage of its tools');
+    const auditText = await readFile(audit.out.match(/Written: (.+)/)![1]!, 'utf8');
+    expect(auditText).toContain('The dates skill is stale.');
+    expect(auditText).toContain('NEVER USED');
+    expect((await lr(['retro', 'input', id, '--for', 'nope'])).err).toContain(
+      '--for must be one of classify, analysis, threads, sessions, audit',
+    );
+
+    const rejected = await lr(
+      ['retro', 'findings', id, '--source', 'threads', '--body', '-'],
+      JSON.stringify({ findings: [{ subject: 'Dates', evidence: [t.utc1], confidence: 0.9 }] }),
+    );
+    expect(rejected.code).toBe(1);
+    expect(rejected.out).toContain('1 finding(s) rejected: fix them, nothing was recorded.');
+    expect(rejected.out).toContain('"cause" is missing');
+    expect((await lr(['retro', 'findings', id, '--source', 'code', '--body', '{}'])).err).toContain(
+      '--source must be one of threads, sessions, audit',
+    );
+    const recorded = await lr(
+      ['retro', 'findings', id, '--source', 'threads', '--body', '-'],
+      JSON.stringify({
+        findings: [
+          {
+            subject: 'Dates',
+            cause: 'UTC not written',
+            evidence: [{ thread: t.utc1, excerpt: 'Dates are UTC here' }, t.utc2, 't_gone'],
+            confidence: 0.9,
+          },
+        ],
+      }),
+    );
+    expect(recorded.code).toBe(0);
+    expect(recorded.out).toContain('Recorded: 1 finding(s) from the review threads.');
+    expect(recorded.out).toContain('note: Dates: thread t_gone is not in the period, left out');
+    const auditFindings = await lr(
+      ['retro', 'findings', id, '--source', 'audit', '--body', '-', '--format', 'json'],
+      JSON.stringify({
+        findings: [
+          {
+            subject: 'Stale skill',
+            cause: 'stale',
+            audit: { location: '.claude/skills/dates/SKILL.md:2', finding: 'stale' },
+            file: '.claude/skills/dates/SKILL.md',
+            change: 'New text',
+            confidence: 0.8,
+          },
+        ],
+      }),
+    );
+    expect(JSON.parse(auditFindings.out)).toMatchObject({ recorded: true, findings: [{ id: 'A1' }] });
+
+    const analysis = await lr(['retro', 'input', id, '--for', 'analysis']);
+    expect(analysis.out).toContain('the findings of the review threads and the audit of the setup');
+    const text = await readFile(analysis.out.match(/Written: (.+)/)![1]!, 'utf8');
+    expect(text).toContain('### T1 · Dates');
+    expect(text).toContain('- usage: skill dates NEVER USED');
+    expect(text).toContain(join(work, '.local-review', 'retros', id, 'threads-input.md'));
+    expect(text).not.toContain('THREAD '); // the threads stay in their file
+
+    // An audit finding on a tool nobody used: whether to keep it is the question.
+    const proposed = await lr(
+      ['retro', 'propose', id, '--body', '-'],
+      JSON.stringify({
+        proposals: [
+          utcProposal(t),
+          {
+            column: 'improve',
+            subject: 'Stale skill',
+            title: 'Fix the dates skill',
+            kind: 'skill',
+            file: '.claude/skills/dates/SKILL.md',
+            rule: 'Old text',
+            change: 'New text',
+            why: 'It is stale',
+            causes: ['stale'],
+            evidence: [],
+            target: 'project-shared',
+            confidence: 0.8,
+            audit: { location: '.claude/skills/dates/SKILL.md:2', finding: 'stale' },
+          },
+        ],
+      }),
+    );
+    expect(proposed.code).toBe(0);
+    expect(proposed.out).toContain('p2 [remove] Stale skill: 0 threads, skill never used: keep it or remove it?');
+    const shown = (await lr(['retro', 'show', id, 'p2'])).out;
+    expect(shown).toContain(
+      '**Never used**: the audit flagged the skill dates, but nobody used it in the 5 sessions of this project that the agent still keeps on this machine (since 2026-09-01).',
+    );
+    expect(shown).toContain('the agent deletes the sessions inactive for more than 30 days');
+    expect(shown).toContain('**The question**: keep this skill (and fix it), or remove it?');
+    expect(shown).toContain('**The fix, if you keep it**:\n> New text');
+    expect(shown).toContain(`> Remove the skill dates: ${join(work, '.claude', 'skills', 'dates')}`);
+    const all = (await lr(['retro', 'show', id])).out;
+    expect(all).toContain('- **Never used**: the audit flagged the skill dates');
+    expect(all).toContain('- **Fix, if kept**: New text');
+  });
+
+  it("gives the agent's sessions to their own reading, in the mode of the retro", async () => {
+    await project();
+    await lr(['config', 'set', 'retro-sessions', 'insights']);
+    const id = (await lr(['retro', 'start', '--all'])).out.match(/rt_\w+/)![0];
+    await recordRetroSessions(new RetroBook(work), id, 'Claude Code /insights', [
+      {
+        id: 'sess-i',
+        start: '2026-09-20T10:00:00.000Z',
+        folder: work,
+        facts: {},
+        summary: { brief_summary: 'Claude fixed the dates in UTC.' },
+      },
+    ]);
+    const input = await lr(['retro', 'input', id, '--for', 'sessions']);
+    expect(input.out).toContain('1 session of the agent, ');
+    expect(input.out).not.toContain('threads');
+    const rejected = await lr(
+      ['retro', 'findings', id, '--source', 'sessions', '--format', 'json', '--body', '-'],
+      JSON.stringify({ findings: [{ subject: 'UTC', cause: 'no rule', confidence: 0.5 }] }),
+    );
+    expect(rejected.code).toBe(1);
+    expect(JSON.parse(rejected.out)).toMatchObject({ recorded: false, findings: [] });
+    const recorded = await lr(
+      ['retro', 'findings', id, '--source', 'sessions', '--body', '-'],
+      JSON.stringify({
+        findings: [
+          {
+            subject: 'UTC',
+            cause: 'no rule',
+            sessions: [{ session: 'sess-i', excerpt: 'fixed the dates' }],
+            confidence: 0.5,
+          },
+        ],
+        overview: { summary: 'Dates.', items: [{ kind: 'ritual', title: 'UTC check', sessions: ['sess-i'] }] },
+      }),
+    );
+    expect(recorded.out).toBe("Recorded: 1 finding(s) from the agent's sessions, an overview of 1 item(s).\n");
+  });
+
+  it('takes the check of the last changes from the reading of the threads', async () => {
+    const t = await project();
+    const first = (await lr(['retro', 'start', '--all'])).out.match(/rt_\w+/)![0];
+    await lr(['retro', 'propose', first, '--body', '-'], JSON.stringify({ proposals: [utcProposal(t)] }));
+    await lr(['retro', 'decide', first, 'p1', 'accepted', '--target', 'project-shared']);
+    await lr(['retro', 'finish', first]);
+    const id = (await lr(['retro', 'start', '--all'])).out.match(/rt_\w+/)![0];
+    const findings = await lr(
+      ['retro', 'findings', id, '--source', 'threads', '--body', '-'],
+      JSON.stringify({ findings: [], verify: [{ change: `${first}/p1`, threads: [t.utc1, t.utc2], note: 'again' }] }),
+    );
+    expect(findings.out).toContain(
+      'Recorded: 0 finding(s) from the review threads, 1 change(s) of the last retro checked.',
+    );
+    expect(findings.out).toContain(
+      `- ${first}/p1 Say that dates are UTC: 2 of 3 threads (67%) before, 2 of 3 threads (67%) since`,
+    );
+    // Left out by the analysis: the check of the threads' reading counts, and asks for a revision.
+    const missing = await lr(['retro', 'check', id, '--body', '-'], JSON.stringify({ proposals: [] }));
+    expect(missing.out).toContain(`add a proposal to revise it, with "revisits": "${first}/p1"`);
+    const revised = await lr(
+      ['retro', 'propose', id, '--body', '-'],
+      JSON.stringify({
+        proposals: [utcProposal(t, { title: 'Make UTC a hook', kind: 'hook', revisits: `${first}/p1` })],
+      }),
+    );
+    expect(revised.code).toBe(0);
+    expect((await new RetroBook(work).get(id)).verifications[0]).toMatchObject({
+      verdict: 'not-decreased',
+      note: 'again',
+    });
+  });
+
+  it('keeps the check of the last changes and the overview of the sessions when the analysis leaves them out', async () => {
+    const t = await project();
+    const id = (await lr(['retro', 'start', '--all'])).out.match(/rt_\w+/)![0];
+    const book = new RetroBook(work);
+    await book.record(id, [
+      {
+        type: 'retro.findings',
+        source: 'sessions',
+        findings: [],
+        overview: { summary: 'Dates come back.', items: [] },
+      },
+      {
+        type: 'retro.findings',
+        source: 'threads',
+        findings: [],
+        verifications: [],
+      },
+    ]);
+    const r = await lr(['retro', 'propose', id, '--body', '-'], JSON.stringify({ proposals: [utcProposal(t)] }));
+    expect(r.code).toBe(0);
+    expect(r.out).toContain('overview of the sessions: 0 item(s)');
+    expect((await book.get(id)).overview).toEqual({ summary: 'Dates come back.', items: [] });
   });
 });
 
