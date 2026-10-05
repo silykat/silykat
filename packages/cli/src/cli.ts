@@ -6,6 +6,7 @@ import {
   CONFIG_KEYS,
   validSettingNumber,
   type ConfigSetting,
+  type MachineConfig,
   configFile,
   findStoreRoot,
   findStoresBelow,
@@ -446,6 +447,10 @@ async function config(rest: string[], io: Io): Promise<number> {
     if (setting.kind === 'boolean') {
       if (value !== 'on' && value !== 'off') throw new UsageError(`${name} takes "on" or "off", not "${value ?? ''}"`);
       await writeConfig({ [setting.key]: value === 'on' }, io.env);
+    } else if (setting.kind === 'choice') {
+      if (!setting.choices.includes(value ?? ''))
+        throw new UsageError(`${name} takes ${setting.choices.join(' or ')}, not "${value ?? ''}"`);
+      await writeConfig({ [setting.key]: value as MachineConfig[typeof setting.key] }, io.env);
     } else {
       const n = /^\d+$/.test(value ?? '') ? Number(value) : NaN;
       if (!validSettingNumber(n)) throw new UsageError(`${name} takes a whole number, 1 or more, not "${value ?? ''}"`);

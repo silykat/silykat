@@ -1213,12 +1213,14 @@ var import_node_path11 = require("node:path");
 // ../../packages/core/src/config.ts
 var import_promises4 = require("node:fs/promises");
 var import_node_path5 = require("node:path");
+var SESSIONS_MODES = ["reports", "insights"];
 var DEFAULT_CONFIG = {
   keepHistory: true,
   retroReminder: true,
   retroReminderDays: 7,
   retroReminderSizeKB: 1e3,
-  retroReminderMaxDays: 25
+  retroReminderMaxDays: 25,
+  retroSessions: "reports"
 };
 var CONFIG_KEYS = {
   "keep-history": {
@@ -1245,6 +1247,12 @@ var CONFIG_KEYS = {
     key: "retroReminderMaxDays",
     kind: "number",
     help: "days \u2014 and never later than this, to keep the agent conversations linked to replies (default: 25)"
+  },
+  "retro-sessions": {
+    key: "retroSessions",
+    kind: "choice",
+    choices: SESSIONS_MODES,
+    help: "reports|insights \u2014 how a retro reads the agent sessions: a report on each one by a model (finer, costs more), or the agent's own summaries (Claude Code's /insights, cheaper); never both (default: reports)"
   }
 };
 var configFile = (env = process.env) => (0, import_node_path5.join)(localReviewHome(env), "config.json");
@@ -1263,6 +1271,8 @@ async function readConfig(env = process.env) {
     const value = values[setting.key];
     if (setting.kind === "boolean" && typeof value === "boolean") config[setting.key] = value;
     if (setting.kind === "number" && validSettingNumber(value)) config[setting.key] = value;
+    if (setting.kind === "choice" && typeof value === "string" && setting.choices.includes(value))
+      Object.assign(config, { [setting.key]: value });
   }
   return config;
 }
@@ -1449,6 +1459,9 @@ var RETRO_EVENTS = /* @__PURE__ */ new Set([
   "retro.undone",
   "retro.conversation",
   "retro.sessions",
+  "retro.reports",
+  "retro.usage",
+  "retro.findings",
   "retro.finished"
 ]);
 var RETRO_ID = /^rt_[0-9A-HJKMNP-TV-Z]{26}$/;
@@ -1497,6 +1510,7 @@ function foldRetro(events, warnings = [], future = false) {
     threads: first.threads,
     bytes: first.bytes,
     preferences: first.preferences ?? [],
+    sessionsMode: first.sessionsMode ?? null,
     feedback: [],
     classification: null,
     proposals: [],
@@ -1507,6 +1521,10 @@ function foldRetro(events, warnings = [], future = false) {
     applied: {},
     conversations: {},
     sessions: null,
+    reports: null,
+    overview: null,
+    usage: null,
+    findings: {},
     finishedAt: null,
     readOnly: future,
     warnings
@@ -1527,6 +1545,7 @@ function foldRetro(events, warnings = [], future = false) {
         r.watch = e.watch;
         r.dropped = e.dropped;
         r.verifications = e.verifications ?? [];
+        r.overview = e.overview ?? null;
         r.decisions = {};
         r.applied = {};
         break;
@@ -1555,6 +1574,32 @@ function foldRetro(events, warnings = [], future = false) {
           list: Array.isArray(e.sessions) ? e.sessions : [],
           costUsd: e.costUsd ?? null,
           durationMs: e.durationMs ?? null
+        };
+        break;
+      case "retro.reports": {
+        const sum = (a, b) => b === void 0 ? a ?? null : (a ?? 0) + b;
+        r.reports = {
+          source: e.source,
+          list: Array.isArray(e.sessions) ? e.sessions : [],
+          costUsd: sum(r.reports?.costUsd, e.costUsd),
+          durationMs: sum(r.reports?.durationMs, e.durationMs),
+          tokens: sum(r.reports?.tokens, e.tokens)
+        };
+        break;
+      }
+      case "retro.usage":
+        r.usage = {
+          source: e.source,
+          tools: Array.isArray(e.tools) ? e.tools : [],
+          windows: Array.isArray(e.windows) ? e.windows : []
+        };
+        break;
+      case "retro.findings":
+        r.findings[e.source] = {
+          source: e.source,
+          findings: Array.isArray(e.findings) ? e.findings : [],
+          ...e.verifications ? { verifications: e.verifications } : {},
+          ...e.overview ? { overview: e.overview } : {}
         };
         break;
       case "retro.finished":

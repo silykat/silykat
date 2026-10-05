@@ -8,17 +8,17 @@ allowed-tools: Bash(lr:*), Bash(lr-retro:*)
 
 Like a sprint retro, but between the user and you: look back at the review threads of a period, find what in your setup caused the feedback, and decide **together** what to keep, remove or improve. It is a discussion, not a report: nothing changes without the user's say-so, and what they validate, **you** apply.
 
-The heavy work is done by sub-agents with a fresh context (classification, analysis, then applying each validated change in the background); you only see their proposals, so that your context stays free for the discussion. `lr retro` (on your PATH) keeps the retro's journal and checks the proposals by program.
+The heavy work is done by sub-agents with a fresh context (classification, one reading per source, the analysis that weighs them, then applying each validated change in the background); you only see their proposals, so that your context stays free for the discussion. `lr retro` (on your PATH) keeps the retro's journal and checks the proposals by program.
 
 **The project** is the folder this session was started in (your primary working directory), even if you moved since. Pass it as `--root <dir>` to every `lr retro` and `lr-retro` command below. Ask the user questions with the AskUserQuestion tool, the recommended option first, labelled "(Recommended)". Talk in the user's language.
 
 ## 1. Where things stand
 
-Run `lr retro scope --root <dir>`. It prints the period (since the last retro), the comment stores found, the threads, the size, an estimate of the time, the last retro and the user's retro preferences.
+Run `lr retro scope --root <dir>`. It prints the proposed period (since the last retro), the comment stores found, the threads, the size, an estimate of the time, the periods to choose from, the last retro and the user's retro preferences.
 
 If it lists an **unfinished retro**, ask whether to continue it (run `lr retro show <id> --root <dir>` and resume at the step where it stopped) or to start a new one.
 
-If the period holds **no thread** (nothing was commented since the last retro), there is nothing to look back at: say so in one sentence. When there is a last retro, still offer the question of step 2 (changing the retro itself) and save the preferences. Then stop: no retro is started.
+Run `lr-retro sessions --root <dir>` too: it says, for the same periods, your Claude Code sessions and how the retro reads them (the setting `retro-sessions`): a **report** on each one, written at the start of the retro (it gives the reports to write), or what Claude Code's **`/insights`** knows of them (cheaper). Never both. If **no period** holds a thread or a session (nothing was commented and no session was run), there is nothing to look back at: say so in one sentence. When there is a last retro, still offer the question of step 2 (changing the retro itself) and save the preferences. Then stop: no retro is started. When only the proposed period is empty, go on: the user chooses another one at step 3.
 
 ## 2. Feedback on the last retro (only when there is one)
 
@@ -36,7 +36,11 @@ When `lr retro scope` says that this retro **will check the changes adopted** la
 
 ## 3. The scope: first validation
 
-Run `lr-retro sessions --root <dir>` (with the same `--since <date>` or `--all` as `lr retro scope`, if any): it counts your Claude Code sessions of the project in that period. Announce, in a few lines: the project, the comment stores found, the period, the number of threads, **the number of your sessions** (the retro reads what `/insights` knows of them), the size and the estimated time. When `lr retro scope` says the **history is not kept** on this machine, say so: the threads the user deleted are erased, so the retro does not see them. For a **first retro**, `lr retro scope` lists periods to choose from: ask which one (the proposed one recommended). Then ask to confirm: "Start the retro" / "Change the period" / "Cancel". For another period, run `lr retro scope --root <dir> --since <date>` (or `--all`) and `lr-retro sessions` with the same option, and announce it again.
+`lr retro scope` and `lr-retro sessions` (step 1) list the same **periods to choose from**, at every retro: since the last retro (or, for a first retro, the last 7 days), the last 30 days and the whole history, the proposed one first. For each, `lr retro scope` gives its threads and size (and says when it **reads again threads of the last retro**), and `lr-retro sessions` its Claude Code sessions and, when the retro reads them through reports, the **reports** to write (a separate Claude Code with Opus reads each session, at the start of the retro), those already written (kept from an earlier retro), and the estimated time and cost of the new ones.
+
+Announce, in a few lines: the project, the comment stores found, and that the retro reads the threads, your sessions (as `lr retro scope` says: a report on each one, or what `/insights` knows of them; the setting `retro-sessions` of `lr config`, or VS Code's "Retro Sessions", chooses) and your setup, each source read by its own sub-agent. When `lr retro scope` says the **history is not kept** on this machine, say so: the threads the user deleted are erased, so the retro does not see them.
+
+Then ask **one AskUserQuestion**: "Which period should the retro cover?", with **one option per period listed** (the proposed one first, "(Recommended)") and a last option "Cancel". Each option's description gives **its own numbers**, from both commands: threads, sessions, and, when the retro reads them through reports, the reports to write with their estimated time and cost (an equivalent at the API list price: on a subscription, tokens counted against the usage limits, not a bill), reports already written, and "reads again the threads of the last retro" when it does. Never write a vague number ("and more sessions"): every option has its figures. Choosing a period starts the retro on it (step 4). When the user types another date instead, run `lr retro scope --root <dir> --since <date>` and `lr-retro sessions --root <dir> --since <date>`, give its numbers the same way, and ask to confirm: "Start the retro" / "Cancel".
 
 ## 4. Start
 
@@ -44,13 +48,20 @@ Run `lr-retro sessions --root <dir>` (with the same `--since <date>` or `--all` 
 lr retro start --root <dir> [--since <date> | --all]
 ```
 
+with the option of the period chosen (as listed: none for "since the last retro", `--since 30d`, `--all`…).
+
 It prints the retro id (`rt_…`). If the user said something about the last retro's changes anyway, record it in a sentence: `lr retro feedback <id> --root <dir> --body "<their words>"`.
 
 ## 5. The audit and the classification
 
 First, start **the audit of your setup** in the background: run `lr-retro audit <id> --root <dir>` with the Bash tool's `run_in_background` option. It runs `/doctor prompt-audit` in a separate Claude Code, read-only, which looks for stale, contradictory or duplicated rules in the CLAUDE.md files, skills, agents and commands. It takes several minutes: it runs while the threads are classified. Say so in one sentence.
 
-Start **the reading of your sessions** in the background too: run `lr-retro insights <id> --root <dir>` with `run_in_background`. It runs Claude Code's `/insights` in a separate Claude Code (about a minute), then keeps what it knows of the sessions **of this project and of this period** only, for the analysis. Its report, which covers every project of the machine, is never read. Nothing to say about it to the user.
+Start **the reading of your sessions** in the background too, the way `lr retro scope` said (never both):
+
+- **reports**: run `lr-retro reports <id> --root <dir>` with `run_in_background`. It writes a report on each of your sessions of the project and of the period (a separate Claude Code with Opus each, several at once, read-only, on the session's records with secrets masked), and reuses those already written. Tell the user in one sentence that it runs, and how long it should take (the estimate of step 3);
+- **insights**: run `lr-retro insights <id> --root <dir>` with `run_in_background`. It runs Claude Code's `/insights` in a separate Claude Code (about a minute), then keeps what it knows of the sessions **of this project and of this period** only (this session left out). Its report, which covers every project of the machine, is never read. Nothing to say about it to the user.
+
+Then run `lr-retro usage <id> --root <dir>` (a few seconds): it counts how many times each skill, command and sub-agent of the setup was used in your sessions, without a model, for the reading of the audit.
 
 Then the classification (a sub-agent). Run `lr retro key`. It tells whether a key of **Jev** is set up (a classification service: faster and cheaper than a model of the user's subscription; without it, Haiku does the job).
 
@@ -63,13 +74,19 @@ Then the classification (a sub-agent). Run `lr retro key`. It tells whether a ke
 
 Then launch the sub-agent **`local-review:retro-classifier`** (Agent tool), with this prompt: `Retro <id>, project <dir>, classifier: jev` (or `haiku`). Wait for its one-line summary before going on. If Jev failed for every thread, launch it again with `classifier: haiku`.
 
-## 6. Analysis (another sub-agent, fresh context)
+## 6. Analysis: one sub-agent per source, then one that weighs them
 
-Wait for **the audit** and **the reading of the sessions** to end (you are told when each background command finishes). The audit prints the path of its report (`Written: …/audit.md`), or says it was skipped or failed: then go on without it, and tell the user why in one sentence. The reading of the sessions needs nothing more when it succeeds: the analysis input includes the sessions. If it failed, go on without them and say so in one sentence; if it says the format of `/insights` could not be read, ask the user to report it as a bug of Local Review.
+Wait for **the audit** and **the reading of the sessions** to end (you are told when each background command finishes). The audit prints the path of its report (`Written: …/audit.md`), or says it was skipped or failed: then go on without it, and tell the user why in one sentence. The reading of the sessions needs nothing more when it succeeds. If `/insights` failed, go on without the sessions and say so in one sentence; if it says the format of `/insights` could not be read, ask the user to report it as a bug of Local Review. When some reports could not be written, it lists them: say how many in one sentence, and go on with the others.
 
-Launch the sub-agent **`local-review:retro-analyst`** with this prompt: `Retro <id>, project <dir>, audit: <path of the report>` (without the audit: `Retro <id>, project <dir>.`). It reads every thread of the period together, your whole setup, the audit, the classification, the statistics, the previous retros and the preferences, and records its proposals with `lr retro propose`, which applies the guard rails by program.
+Then launch, **in one message, so that they run at the same time**, one sub-agent per source (Agent tool, prompt: `Retro <id>, project <dir>.`):
 
-**Never do the analysis yourself**, and never read the threads, the inputs or the audit: your context is for the discussion. If a sub-agent was blocked (a command refused), tell the user which command it needs (they can allow `lr` and `lr-retro` commands, and the writing of the retro's files in `.local-review/retros/`), then launch it again. If nothing could be recorded, tell the user and stop (`lr retro finish`).
+- **`local-review:retro-threads-analyst`**: the review threads, always;
+- **`local-review:retro-sessions-analyst`**: your sessions, when the retro reads some (reports written or kept, or sessions found by `/insights`);
+- **`local-review:retro-audit-analyst`**: the audit, when it wrote its report.
+
+Each reads its source whole and alone, and records its findings in a common format with `lr retro findings` (checked by program). Wait for all of them; each answers in one line. Then launch **`local-review:retro-analyst`** with the prompt `Retro <id>, project <dir>.`: it weighs the findings of every source against each other, goes back to a source to settle a doubt, and records the proposals with `lr retro propose`, which applies the guard rails by program.
+
+**Never do the analysis yourself**, and never read the threads, the inputs, the findings or the audit: your context is for the discussion. If a sub-agent was blocked (a command refused), tell the user which command it needs (they can allow `lr` and `lr-retro` commands, and the writing of the retro's files in `.local-review/retros/`), then launch it again. If the reading of the sessions or of the audit failed, go on without it and say so in one sentence; if the reading of the threads failed, launch it again. If nothing could be recorded, tell the user and stop (`lr retro finish`).
 
 ## 7. The proposals
 
@@ -77,7 +94,9 @@ Run `lr retro show <id> --root <dir>`.
 
 **First, the check of the last retro's changes** (section "The last retro's changes: did they help?", when there is one): for each change adopted last time, give its numbers (the threads on its subject, out of all the threads, before and since) and the verdict: the feedback **stopped** or **decreased** (the change is kept), or **did not decrease** (the retro proposes to revise it: the proposal marked "Revises").
 
-Then give an overview of the proposals: how many proposals in **To keep**, **To remove** and **To improve** (and how many come from the audit of the setup, and how many rest on your sessions: the line "The agent's sessions" of `lr retro show`), and the subjects **to watch** (preferences seen in a single thread: not proposed, kept for the next retros). When it lists **the agent's conversations read back**, say in one sentence which ambiguous threads the analysis explained from your conversation where you replied, and which conversations were no longer available (it did without them).
+Then give an overview of the proposals: how many proposals in **To keep**, **To remove** and **To improve** (and how many come from the audit of the setup, how many ask whether to keep a tool you never used, and how many rest on your sessions: the line "The agent's sessions" of `lr retro show`), and the subjects **to watch** (leads seen in a single thread or session: not proposed, kept for the next retros).
+
+When `lr retro show` has the section **"Your sessions with the agent: what recurs"** (patterns, frictions and rituals seen across your sessions, for the user to find leads of their own, such as tasks to automate), write it **word for word** in your message, before the proposals: it is not a proposal, nothing is decided on it. When it lists **the agent's conversations read back**, say in one sentence which ambiguous threads the analysis explained from your conversation where you replied, and which conversations were no longer available (it did without them).
 
 ## 8. The discussion: second validation, one proposal at a time
 
@@ -95,6 +114,8 @@ The user sees **neither the output of your commands nor your thinking**: only th
    "Change the target" asks a second question: "Project, shared (committed, for the team)" / "Project, personal (yours, not committed)" / "You, in every project", each with the `diff` in **that** target's file in its `preview`.
 
    At the first proposal, say in one sentence that "Discuss or modify" (or typing their answer in the question) is how to talk a proposal through: it decides nothing. "Discuss or modify", "Chat about this" or a question typed in: discuss with them, refine the change, then ask again.
+
+   **A tool never used** (the proposal has a "Never used" part: the audit flagged a skill, command or sub-agent nobody used): the question is whether to keep it, not how to fix it. Ask instead: "Remove it" (preview: the path removed) / "Keep it and fix it" (preview: the `diff` of the fix, "The fix, if you keep it"; leave this option out when there is no fix) / "Keep it as is" (preview: "No change.") / "Discuss". Its description repeats in a few words what the "Never used" part says the count rests on, and its limits (this machine only, sessions kept 30 days by default). Record "Remove it" as `accepted`, "Keep it and fix it" as `modified` with the note "kept and fixed", "Keep it as is" as `excluded` with the note "kept" and the user's reason.
 
 4. **A modified change, or another target, is shown again**: the whole new `diff` in the message and in the preview of "Apply this version", then ask again: "Apply this version" / "Change it again" / "Exclude". Never apply a version the user has not read.
 5. **Record the decision** at once (step 9), then **hand the change to a sub-agent in the background** (step 9) and go straight on with the next proposal, in a new message: the user never waits for a change to be written.
@@ -129,7 +150,7 @@ With:
 <its replacement, word for word>
 ```
 
-or, for a new file, `New file: <absolute path>` followed by its whole content. Several files: one block per file.
+or, for a new file, `New file: <absolute path>` followed by its whole content; for a tool the user chose to remove, `Remove: <absolute path>` (the path the proposal names: the file, or the skill's folder). Several files: one block per file.
 
 - **One file at a time**: before you show the diff of a proposal whose file a sub-agent is still changing, wait for that sub-agent to finish, so that the diff is computed on the file as it now is.
 - When a sub-agent finishes, tell the user in **one line**, between two proposals (e.g. "p3 applied to `src/CLAUDE.md`."). If it could not apply the change (the file changed meanwhile), tell the user, show the diff again on the file as it is, and ask again.
@@ -141,4 +162,4 @@ Never commit, and never change what the user did not validate.
 
 ## 10. Finish
 
-Wait for every `retro-applier` still running to finish. Then run `lr retro finish <id> --root <dir>` and show the user what it printed: **the list of files changed**, the subjects to watch, and what reading the sessions took (an equivalent at the API list price: on a subscription, tokens counted against the usage limits, not a bill). Tell them the next retro will start from this one, and will measure whether these changes helped from the feedback that follows. Local Review reminds them when it is due (VS Code's status bar, and you at the start of a session).
+Wait for every `retro-applier` still running to finish. Then run `lr retro finish <id> --root <dir>` and show the user what it printed: **the list of files changed**, the subjects to watch, and what reading the sessions and writing the reports on them took (an equivalent at the API list price: on a subscription, tokens counted against the usage limits, not a bill). Tell them the next retro will start from this one, and will measure whether these changes helped from the feedback that follows. Local Review reminds them when it is due (VS Code's status bar, and you at the start of a session).

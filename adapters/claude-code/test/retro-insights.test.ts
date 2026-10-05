@@ -251,7 +251,7 @@ describe('lr-retro sessions and lr-retro insights', () => {
     return { root, book, id: r.id };
   }
 
-  async function run(args: string[], runner?: Runner) {
+  async function run(args: string[], runner?: Runner, own?: string) {
     let out = '';
     let err = '';
     const code = await runRetroCli(args, {
@@ -260,9 +260,19 @@ describe('lr-retro sessions and lr-retro insights', () => {
       out: (t) => (out += t + '\n'),
       err: (t) => (err += t + '\n'),
       ...(runner ? { run: runner } : {}),
+      ...(own ? { session: async () => own } : {}),
     });
     return { code, out, err };
   }
+
+  it("leaves the retro's own session out of the sessions it reads", async () => {
+    const { root, book, id } = await retro();
+    await session('s-in', root, 20, FACET);
+    await session('s-retro', root, 21, FACET);
+    const r = await run(['insights', id, '--root', root], fakeClaude(done()).runner, 's-retro');
+    expect(r.out).toContain('1 Claude Code session of this project in the period');
+    expect((await book.get(id)).sessions?.list.map((s) => s.id)).toEqual(['s-in']);
+  });
 
   it('records the sessions of the retro in its journal, and writes them for its analysis', async () => {
     const { root, book, id } = await retro();
@@ -321,11 +331,11 @@ describe('lr-retro sessions and lr-retro insights', () => {
     const line = (ts: string) => JSON.stringify({ cwd: root, timestamp: ts });
     await writeFile(join(projects, 's1.jsonl'), `${line(at(20))}\n`);
     await writeFile(join(projects, 's2.jsonl'), `${line(at(2))}\n`);
-    expect((await run(['sessions', '--root', root, '--since', '2026-09-10'])).out).toBe(
-      '1 Claude Code session in this project since 2026-09-10.\n',
+    expect((await run(['sessions', '--root', root, '--since', '2026-09-10'])).out).toMatch(
+      /^1 Claude Code session in this project since 2026-09-10\.\n/,
     );
-    expect((await run(['sessions', '--root', root, '--all'])).out).toBe(
-      '2 Claude Code sessions in this project over the whole history.\n',
+    expect((await run(['sessions', '--root', root, '--all'])).out).toMatch(
+      /^2 Claude Code sessions in this project over the whole history\.\n/,
     );
     expect((await run(['sessions', '--root', root, '--since', 'soon'])).err).toContain('--since takes a date');
     expect((await run(['sessions', '--root', root, '--since', '7d', '--all'])).err).toContain('not both');

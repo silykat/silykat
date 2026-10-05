@@ -1,9 +1,31 @@
 #!/usr/bin/env node
 "use strict";
+var __create = Object.create;
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
 
 // src/retroCli.ts
-var import_node_os3 = require("node:os");
-var import_node_path15 = require("node:path");
+var import_node_os4 = require("node:os");
+var import_node_path21 = require("node:path");
 var import_node_util = require("node:util");
 
 // ../../packages/core/src/types.ts
@@ -856,6 +878,7 @@ var import_node_fs = require("node:fs");
 var import_node_path4 = require("node:path");
 
 // ../../packages/core/src/sessions.ts
+var import_promises3 = require("node:fs/promises");
 var import_node_os = require("node:os");
 var import_node_path3 = require("node:path");
 
@@ -863,6 +886,7 @@ var import_node_path3 = require("node:path");
 var import_node_child_process = require("node:child_process");
 var import_promises2 = require("node:fs/promises");
 var import_node_path2 = require("node:path");
+var topicKey = (t) => t.kind === "branch" ? `branch:${t.repo}#${t.branch}` : `path:${t.path}`;
 function git(args, cwd, raw = false) {
   return new Promise(
     (done) => (0, import_node_child_process.execFile)(
@@ -888,6 +912,8 @@ async function worktreeTopOf(dir) {
 }
 
 // ../../packages/core/src/sessions.ts
+var CURSOR_HEAD_BYTES = 256;
+var CALL_NOTE = "call-";
 var CALL_MAX_AGE_MS = 15 * 6e4;
 var LOOSE_ROOT = "/";
 function looseStore(env = process.env) {
@@ -898,6 +924,265 @@ function storeAt(root, env = process.env) {
 }
 function localReviewHome(env = process.env) {
   return env.LOCAL_REVIEW_HOME?.trim() || (0, import_node_path3.join)((0, import_node_os.homedir)(), ".local-review");
+}
+var SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/;
+function isProcessAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err.code === "EPERM";
+  }
+}
+var SessionRegistry = class {
+  constructor(home = localReviewHome(), isAlive = isProcessAlive) {
+    this.isAlive = isAlive;
+    this.dir = (0, import_node_path3.join)(home, "sessions");
+  }
+  isAlive;
+  dir;
+  file(id, kind) {
+    if (!SESSION_ID.test(id)) throw new Error(`Invalid session id: ${id}`);
+    return (0, import_node_path3.join)(this.dir, kind === "json" ? `${id}.json` : `${id}.${kind}.jsonl`);
+  }
+  /** Registers (or refreshes) a session. Written atomically: readers never see half a file. */
+  async register(record) {
+    await (0, import_promises3.mkdir)(this.dir, { recursive: true });
+    const target = this.file(record.id, "json");
+    const tmp = `${target}.${process.pid}.tmp`;
+    await (0, import_promises3.writeFile)(tmp, JSON.stringify(record, null, 2) + "\n");
+    await (0, import_promises3.rename)(tmp, target);
+  }
+  /** Everything the registry keeps about a session goes with it. */
+  async unregister(id) {
+    this.file(id, "json");
+    let names = [];
+    try {
+      names = await (0, import_promises3.readdir)(this.dir);
+    } catch {
+      return;
+    }
+    await Promise.all(names.filter((n) => n.startsWith(`${id}.`)).map((n) => (0, import_promises3.rm)((0, import_node_path3.join)(this.dir, n), { force: true })));
+  }
+  /** A small note an adapter keeps about a session between two hooks (removed with the session). */
+  async setNote(id, key, value) {
+    await (0, import_promises3.mkdir)(this.dir, { recursive: true });
+    await (0, import_promises3.writeFile)(this.note(id, key), value);
+  }
+  /** Reads and removes a note; `undefined` when there is none. */
+  async takeNote(id, key) {
+    const file = this.note(id, key);
+    try {
+      const value = await (0, import_promises3.readFile)(file, "utf8");
+      await (0, import_promises3.rm)(file, { force: true });
+      return value;
+    } catch {
+      return void 0;
+    }
+  }
+  /**
+   * Notes a command an agent starts (e.g. `lr reply …`), written by its adapter before it runs: `lr`
+   * then knows which message of the agent's conversation runs it. Removed by `endCall`, or with the
+   * session.
+   */
+  async startCall(id, call) {
+    await this.setNote(id, `${CALL_NOTE}${call.message}`, JSON.stringify(call));
+  }
+  async endCall(id, message) {
+    await this.takeNote(id, `${CALL_NOTE}${message}`);
+  }
+  /** The commands of a session that are running (as noted by its adapter). */
+  async calls(id) {
+    this.file(id, "json");
+    let names;
+    try {
+      names = await (0, import_promises3.readdir)(this.dir);
+    } catch {
+      return [];
+    }
+    const prefix = `${id}.note-${CALL_NOTE}`;
+    const calls = await Promise.all(
+      names.filter((n) => n.startsWith(prefix)).map(async (n) => {
+        try {
+          const raw = JSON.parse(await (0, import_promises3.readFile)((0, import_node_path3.join)(this.dir, n), "utf8"));
+          return typeof raw.message === "string" && typeof raw.command === "string" && typeof raw.at === "string" ? { message: raw.message, command: raw.command, at: raw.at } : null;
+        } catch {
+          return null;
+        }
+      })
+    );
+    return calls.filter((c) => c !== null);
+  }
+  note(id, key) {
+    if (!SESSION_ID.test(key)) throw new Error(`Invalid note key: ${key}`);
+    this.file(id, "json");
+    return (0, import_node_path3.join)(this.dir, `${id}.note-${key}`);
+  }
+  /**
+   * Subscribes a session to a topic. Resolves to `true` when it was not subscribed yet (e.g. to tell
+   * the agent). Appended, so concurrent hooks never lose an entry.
+   */
+  async subscribe(id, topic, reason) {
+    const already = (await this.subscriptions(id)).some((s) => topicKey(s.topic) === topicKey(topic));
+    if (already) return false;
+    await this.appendSubscription(id, { op: "add", topic, reason, at: (/* @__PURE__ */ new Date()).toISOString() });
+    return true;
+  }
+  /** Unsubscribes a session from a topic, or from everything. Resolves to what it was subscribed to. */
+  async unsubscribe(id, topic) {
+    const current = await this.subscriptions(id);
+    const gone = topic === "all" ? current : current.filter((s) => topicKey(s.topic) === topicKey(topic));
+    for (const s of gone)
+      await this.appendSubscription(id, { op: "remove", topic: s.topic, at: (/* @__PURE__ */ new Date()).toISOString() });
+    return gone;
+  }
+  /** What a session is subscribed to, oldest first. */
+  async subscriptions(id) {
+    let text;
+    try {
+      text = await (0, import_promises3.readFile)(this.file(id, "subscriptions"), "utf8");
+    } catch {
+      return [];
+    }
+    const current = /* @__PURE__ */ new Map();
+    for (const line of text.split("\n")) {
+      try {
+        const e = JSON.parse(line);
+        if (!e.topic || e.topic.kind !== "branch" && e.topic.kind !== "path") continue;
+        const key = topicKey(e.topic);
+        if (e.op === "remove") current.delete(key);
+        else if (e.op === "add" && !current.has(key))
+          current.set(key, { topic: e.topic, reason: e.reason ?? "user", at: e.at ?? "" });
+      } catch {
+      }
+    }
+    return [...current.values()];
+  }
+  async appendSubscription(id, event) {
+    await (0, import_promises3.mkdir)(this.dir, { recursive: true });
+    await (0, import_promises3.appendFile)(this.file(id, "subscriptions"), JSON.stringify(event) + "\n");
+  }
+  /** Hands threads to a session. Appended to its inbox, which its agent's adapter watches. */
+  async deliver(id, delivery) {
+    await (0, import_promises3.mkdir)(this.dir, { recursive: true });
+    await (0, import_promises3.appendFile)(this.file(id, "inbox"), JSON.stringify(delivery) + "\n");
+  }
+  /**
+   * Deliveries appended to a session's inbox since `cursor` (none: from the start), and the cursor
+   * to read from next time. A line still being written is left for next time.
+   */
+  async readInbox(id, cursor) {
+    let handle;
+    try {
+      handle = await (0, import_promises3.open)(this.file(id, "inbox"), "r");
+    } catch (err) {
+      if (err.code === "ENOENT")
+        return { deliveries: [], cursor: { file: 0, head: "", offset: 0 } };
+      throw err;
+    }
+    try {
+      const { ino, size } = await handle.stat();
+      const start = Buffer.alloc(Math.min(size, CURSOR_HEAD_BYTES));
+      await handle.read(start, 0, start.length, 0);
+      const newline = start.indexOf(10);
+      const head = start.subarray(0, newline < 0 ? start.length : newline).toString("utf8");
+      const same = cursor && cursor.file === ino && cursor.head === head && cursor.offset <= size;
+      const from = same ? cursor.offset : 0;
+      const buffer = Buffer.alloc(size - from);
+      await handle.read(buffer, 0, buffer.length, from);
+      const end = buffer.lastIndexOf(10) + 1;
+      const deliveries = [];
+      for (const line of buffer.subarray(0, end).toString("utf8").split("\n")) {
+        const delivery = parseDelivery(line);
+        if (delivery) deliveries.push(delivery);
+      }
+      return { deliveries, cursor: { file: ino, head, offset: from + end } };
+    } finally {
+      await handle.close();
+    }
+  }
+  /** Running sessions. Sessions whose process is gone (e.g. after a crash) are removed on the way. */
+  async list() {
+    let names;
+    try {
+      names = (await (0, import_promises3.readdir)(this.dir)).filter((n) => n.endsWith(".json"));
+    } catch (err) {
+      if (err.code === "ENOENT") return [];
+      throw err;
+    }
+    const sessions = [];
+    for (const name of names.sort()) {
+      const record = await readRecord((0, import_node_path3.join)(this.dir, name));
+      if (!record || !SESSION_ID.test(record.id)) continue;
+      if (record.pid !== null && !this.isAlive(record.pid)) {
+        await this.unregister(record.id).catch(() => void 0);
+        continue;
+      }
+      sessions.push({ ...record, subscriptions: await this.subscriptions(record.id) });
+    }
+    return sessions;
+  }
+};
+async function readRecord(file) {
+  try {
+    const raw = JSON.parse(await (0, import_promises3.readFile)(file, "utf8"));
+    if (typeof raw.id !== "string" || typeof raw.agent !== "string" || typeof raw.cwd !== "string") return null;
+    return {
+      id: raw.id,
+      agent: raw.agent,
+      cwd: raw.cwd,
+      branch: typeof raw.branch === "string" ? raw.branch : null,
+      pid: typeof raw.pid === "number" ? raw.pid : null,
+      startedAt: typeof raw.startedAt === "string" ? raw.startedAt : "",
+      push: typeof raw.push === "boolean" ? raw.push : null,
+      pushCommand: typeof raw.pushCommand === "string" ? raw.pushCommand : null
+    };
+  } catch {
+    return null;
+  }
+}
+function parseDelivery(line) {
+  if (line.trim() === "") return null;
+  try {
+    const raw = JSON.parse(line);
+    if (typeof raw.id !== "string" || typeof raw.root !== "string" || !Array.isArray(raw.threadIds)) return null;
+    const kinds = ["comment", "reply", "review", "edit", "delete"];
+    const kind = kinds.includes(raw.kind) ? raw.kind : "comment";
+    return {
+      id: raw.id,
+      at: typeof raw.at === "string" ? raw.at : "",
+      root: raw.root,
+      kind,
+      threadIds: raw.threadIds.filter((t) => typeof t === "string"),
+      ...typeof raw.reviewId === "string" ? { reviewId: raw.reviewId } : {},
+      ...Array.isArray(raw.recipients) ? { recipients: raw.recipients.filter((r) => typeof r === "string") } : {}
+    };
+  } catch {
+    return null;
+  }
+}
+async function processAncestors(pid = process.ppid, max = 12) {
+  const { execFile: execFile5 } = await import("node:child_process");
+  const parentOf = (p) => new Promise(
+    (done) => execFile5("ps", ["-o", "ppid=", "-p", String(p)], { timeout: 2e3 }, (err, out) => {
+      const n = Number(out.trim());
+      done(err || !Number.isInteger(n) ? null : n);
+    })
+  );
+  const chain = [pid];
+  for (let p = pid; chain.length < max; ) {
+    p = await parentOf(p);
+    if (p === null || p <= 1) break;
+    chain.push(p);
+  }
+  return chain;
+}
+function sessionOfProcess(sessions, ancestors) {
+  for (const pid of ancestors) {
+    const found2 = sessions.filter((s) => s.pid === pid);
+    if (found2.length > 0) return found2.reduce((a, s) => s.startedAt > a.startedAt ? s : a);
+  }
+  return void 0;
 }
 
 // ../../packages/core/src/agentView.ts
@@ -924,35 +1209,93 @@ function realpath2(path) {
 }
 
 // ../../packages/core/src/config.ts
+var import_promises4 = require("node:fs/promises");
+var import_node_path5 = require("node:path");
+var SESSIONS_MODES = ["reports", "insights"];
 var DEFAULT_CONFIG = {
   keepHistory: true,
   retroReminder: true,
   retroReminderDays: 7,
   retroReminderSizeKB: 1e3,
-  retroReminderMaxDays: 25
+  retroReminderMaxDays: 25,
+  retroSessions: "reports"
 };
+var CONFIG_KEYS = {
+  "keep-history": {
+    key: "keepHistory",
+    kind: "boolean",
+    help: "on|off \u2014 keep deleted threads (for lr history and retros) and save the threads of a worktree before an agent removes it; off, deleting a thread erases it (default: on)"
+  },
+  "retro-reminder": {
+    key: "retroReminder",
+    kind: "boolean",
+    help: "on|off \u2014 when a retro is due, the agent says so at the start of a session (default: on)"
+  },
+  "retro-reminder-days": {
+    key: "retroReminderDays",
+    kind: "number",
+    help: "days \u2014 a retro is due this many days after the last one (default: 7)"
+  },
+  "retro-reminder-size": {
+    key: "retroReminderSizeKB",
+    kind: "number",
+    help: "KB \u2014 or sooner, once the threads since the last one weigh this much (default: 1000, i.e. 1 MB)"
+  },
+  "retro-reminder-max-days": {
+    key: "retroReminderMaxDays",
+    kind: "number",
+    help: "days \u2014 and never later than this, to keep the agent conversations linked to replies (default: 25)"
+  },
+  "retro-sessions": {
+    key: "retroSessions",
+    kind: "choice",
+    choices: SESSIONS_MODES,
+    help: "reports|insights \u2014 how a retro reads the agent sessions: a report on each one by a model (finer, costs more), or the agent's own summaries (Claude Code's /insights, cheaper); never both (default: reports)"
+  }
+};
+var configFile = (env = process.env) => (0, import_node_path5.join)(localReviewHome(env), "config.json");
+var validSettingNumber = (x) => typeof x === "number" && Number.isInteger(x) && x >= 1;
+async function readConfig(env = process.env) {
+  const config = { ...DEFAULT_CONFIG };
+  let raw;
+  try {
+    raw = JSON.parse(await (0, import_promises4.readFile)(configFile(env), "utf8"));
+  } catch {
+    return config;
+  }
+  if (typeof raw !== "object" || raw === null) return config;
+  const values = raw;
+  for (const setting of Object.values(CONFIG_KEYS)) {
+    const value = values[setting.key];
+    if (setting.kind === "boolean" && typeof value === "boolean") config[setting.key] = value;
+    if (setting.kind === "number" && validSettingNumber(value)) config[setting.key] = value;
+    if (setting.kind === "choice" && typeof value === "string" && setting.choices.includes(value))
+      Object.assign(config, { [setting.key]: value });
+  }
+  return config;
+}
 var writing = Promise.resolve();
 
 // ../../packages/core/src/project.ts
 var import_node_child_process2 = require("node:child_process");
-var import_promises4 = require("node:fs/promises");
-var import_node_path6 = require("node:path");
+var import_promises6 = require("node:fs/promises");
+var import_node_path7 = require("node:path");
 
 // ../../packages/core/src/saved.ts
-var import_promises3 = require("node:fs/promises");
-var import_node_path5 = require("node:path");
+var import_promises5 = require("node:fs/promises");
+var import_node_path6 = require("node:path");
 var SAVED_DIR = "saved";
 async function savedStores(storeDir) {
   let slots;
   try {
-    slots = (await (0, import_promises3.readdir)((0, import_node_path5.join)(storeDir, SAVED_DIR), { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name).sort();
+    slots = (await (0, import_promises5.readdir)((0, import_node_path6.join)(storeDir, SAVED_DIR), { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name).sort();
   } catch {
     return [];
   }
   const found2 = [];
   for (const slot of slots) {
-    const dir = (0, import_node_path5.join)(storeDir, SAVED_DIR, slot);
-    const origin = parseOrigin(await (0, import_promises3.readFile)((0, import_node_path5.join)(dir, "origin.json"), "utf8").catch(() => ""));
+    const dir = (0, import_node_path6.join)(storeDir, SAVED_DIR, slot);
+    const origin = parseOrigin(await (0, import_promises5.readFile)((0, import_node_path6.join)(dir, "origin.json"), "utf8").catch(() => ""));
     if (origin) found2.push({ ...origin, dir });
   }
   return found2;
@@ -966,10 +1309,10 @@ function parseOrigin(text) {
   }
   if (typeof raw !== "object" || raw === null) return null;
   const o = raw;
-  const str = (k) => typeof o[k] === "string" ? o[k] : null;
-  const [worktree, root, repo, savedAt] = [str("worktree"), str("root"), str("repo"), str("savedAt")];
+  const str2 = (k) => typeof o[k] === "string" ? o[k] : null;
+  const [worktree, root, repo, savedAt] = [str2("worktree"), str2("root"), str2("repo"), str2("savedAt")];
   if (!worktree || !root || !repo || !savedAt) return null;
-  return { worktree, root, repo, branch: str("branch"), firstSavedAt: str("firstSavedAt") ?? savedAt, savedAt };
+  return { worktree, root, repo, branch: str2("branch"), firstSavedAt: str2("firstSavedAt") ?? savedAt, savedAt };
 }
 
 // ../../packages/core/src/project.ts
@@ -988,11 +1331,11 @@ var SKIPPED = /* @__PURE__ */ new Set([
 ]);
 async function projectStores(root, env = process.env) {
   if (root === LOOSE_ROOT) return [{ root, origin: "root" }];
-  const top = (0, import_node_path6.resolve)(root);
+  const top = (0, import_node_path7.resolve)(root);
   const found2 = [];
   const seen = /* @__PURE__ */ new Set();
   const add = async (dir, origin) => {
-    const key = await (0, import_promises4.realpath)((0, import_node_path6.join)(dir, STORE_DIR)).catch(() => (0, import_node_path6.join)(dir, STORE_DIR));
+    const key = await (0, import_promises6.realpath)((0, import_node_path7.join)(dir, STORE_DIR)).catch(() => (0, import_node_path7.join)(dir, STORE_DIR));
     if (seen.has(key)) return;
     seen.add(key);
     found2.push({ root: dir, origin });
@@ -1008,7 +1351,7 @@ async function projectStores(root, env = process.env) {
       repos.push(above);
     }
   }
-  const realTop = await (0, import_promises4.realpath)(top).catch(() => top);
+  const realTop = await (0, import_promises6.realpath)(top).catch(() => top);
   const worktrees = /* @__PURE__ */ new Set();
   for (const list of await Promise.all(repos.map(worktreesOf)))
     for (const wt of list) if (!walked(realTop, wt)) worktrees.add(wt);
@@ -1018,8 +1361,8 @@ async function projectStores(root, env = process.env) {
     for (const dir of stores) await add(dir, "worktree");
   }
   for (const s of [...found2]) {
-    for (const saved of await savedStores((0, import_node_path6.join)(s.root, STORE_DIR))) {
-      const key = await (0, import_promises4.realpath)(saved.dir).catch(() => saved.dir);
+    for (const saved of await savedStores((0, import_node_path7.join)(s.root, STORE_DIR))) {
+      const key = await (0, import_promises6.realpath)(saved.dir).catch(() => saved.dir);
       if (seen.has(key)) continue;
       seen.add(key);
       found2.push({ root: saved.root, origin: "saved", saved });
@@ -1029,29 +1372,29 @@ async function projectStores(root, env = process.env) {
   return found2.sort((a, b) => order[a.origin] - order[b.origin] || a.root.localeCompare(b.root));
 }
 function walked(top, dir) {
-  const rel = (0, import_node_path6.relative)(top, dir);
+  const rel = (0, import_node_path7.relative)(top, dir);
   if (rel === "") return true;
-  if (rel.startsWith("..") || (0, import_node_path6.isAbsolute)(rel)) return false;
-  return rel.split(import_node_path6.sep).every((part) => !part.startsWith(".") && !SKIPPED.has(part));
+  if (rel.startsWith("..") || (0, import_node_path7.isAbsolute)(rel)) return false;
+  return rel.split(import_node_path7.sep).every((part) => !part.startsWith(".") && !SKIPPED.has(part));
 }
 async function walk(dir, env, stores, repos) {
   let entries;
   try {
-    entries = await (0, import_promises4.readdir)(dir, { withFileTypes: true });
+    entries = await (0, import_promises6.readdir)(dir, { withFileTypes: true });
   } catch {
     return;
   }
   if (entries.some((e) => e.name === ".git")) repos.push(dir);
   if (entries.some((e) => e.name === STORE_DIR && e.isDirectory()) && isStoreRoot(dir, env)) stores.push(dir);
   const children = entries.filter((e) => e.isDirectory() && !e.name.startsWith(".") && !SKIPPED.has(e.name));
-  await Promise.all(children.map((e) => walk((0, import_node_path6.join)(dir, e.name), env, stores, repos)));
+  await Promise.all(children.map((e) => walk((0, import_node_path7.join)(dir, e.name), env, stores, repos)));
 }
 function worktreesOf(dir) {
   return new Promise(
     (done) => (0, import_node_child_process2.execFile)("git", ["worktree", "list", "--porcelain"], { cwd: dir, timeout: 3e3 }, (err, stdout) => {
       if (err) return done([]);
       const paths = stdout.split("\n").filter((l) => l.startsWith("worktree ")).map((l) => l.slice("worktree ".length));
-      void Promise.all(paths.map((p) => (0, import_promises4.realpath)(p).catch(() => null))).then(
+      void Promise.all(paths.map((p) => (0, import_promises6.realpath)(p).catch(() => null))).then(
         (real2) => done(real2.filter((p) => p !== null))
       );
     })
@@ -1083,7 +1426,7 @@ async function projectHistory(root, opts = {}) {
   });
   const all = stores.flatMap((s) => s.threads);
   return {
-    root: root === LOOSE_ROOT ? root : (0, import_node_path6.resolve)(root),
+    root: root === LOOSE_ROOT ? root : (0, import_node_path7.resolve)(root),
     since: opts.since ? opts.since.toISOString() : null,
     stores,
     threads: all.length,
@@ -1095,8 +1438,8 @@ async function projectHistory(root, opts = {}) {
 }
 
 // ../../packages/core/src/retro.ts
-var import_promises5 = require("node:fs/promises");
-var import_node_path7 = require("node:path");
+var import_promises7 = require("node:fs/promises");
+var import_node_path8 = require("node:path");
 var RETRO_SCHEMA_VERSION = 1;
 var RETROS_DIR = "retros";
 var FEEDBACK_CATEGORIES = {
@@ -1125,6 +1468,9 @@ var RETRO_EVENTS = /* @__PURE__ */ new Set([
   "retro.undone",
   "retro.conversation",
   "retro.sessions",
+  "retro.reports",
+  "retro.usage",
+  "retro.findings",
   "retro.finished"
 ]);
 var PREFERENCE_EVENTS = /* @__PURE__ */ new Set([
@@ -1178,6 +1524,7 @@ function foldRetro(events, warnings = [], future = false) {
     threads: first.threads,
     bytes: first.bytes,
     preferences: first.preferences ?? [],
+    sessionsMode: first.sessionsMode ?? null,
     feedback: [],
     classification: null,
     proposals: [],
@@ -1188,6 +1535,10 @@ function foldRetro(events, warnings = [], future = false) {
     applied: {},
     conversations: {},
     sessions: null,
+    reports: null,
+    overview: null,
+    usage: null,
+    findings: {},
     finishedAt: null,
     readOnly: future,
     warnings
@@ -1208,6 +1559,7 @@ function foldRetro(events, warnings = [], future = false) {
         r.watch = e.watch;
         r.dropped = e.dropped;
         r.verifications = e.verifications ?? [];
+        r.overview = e.overview ?? null;
         r.decisions = {};
         r.applied = {};
         break;
@@ -1238,6 +1590,32 @@ function foldRetro(events, warnings = [], future = false) {
           durationMs: e.durationMs ?? null
         };
         break;
+      case "retro.reports": {
+        const sum = (a, b) => b === void 0 ? a ?? null : (a ?? 0) + b;
+        r.reports = {
+          source: e.source,
+          list: Array.isArray(e.sessions) ? e.sessions : [],
+          costUsd: sum(r.reports?.costUsd, e.costUsd),
+          durationMs: sum(r.reports?.durationMs, e.durationMs),
+          tokens: sum(r.reports?.tokens, e.tokens)
+        };
+        break;
+      }
+      case "retro.usage":
+        r.usage = {
+          source: e.source,
+          tools: Array.isArray(e.tools) ? e.tools : [],
+          windows: Array.isArray(e.windows) ? e.windows : []
+        };
+        break;
+      case "retro.findings":
+        r.findings[e.source] = {
+          source: e.source,
+          findings: Array.isArray(e.findings) ? e.findings : [],
+          ...e.verifications ? { verifications: e.verifications } : {},
+          ...e.overview ? { overview: e.overview } : {}
+        };
+        break;
       case "retro.finished":
         r.finishedAt ??= e.at;
         break;
@@ -1257,14 +1635,14 @@ function foldPreferences(events) {
 }
 async function retroHome(root, env = process.env) {
   if (root === LOOSE_ROOT) throw new Error("a retro is about a project folder, not the files outside any folder");
-  const dir = (0, import_node_path7.resolve)(root);
+  const dir = (0, import_node_path8.resolve)(root);
   if (isStoreRoot(dir, env)) return dir;
   return await worktreeTopOf(dir) ?? dir;
 }
 async function readRetros(dir) {
   let files;
   try {
-    files = (await (0, import_promises5.readdir)(dir)).filter((f) => f.endsWith(".jsonl") && RETRO_ID.test(f.slice(0, -".jsonl".length)));
+    files = (await (0, import_promises7.readdir)(dir)).filter((f) => f.endsWith(".jsonl") && RETRO_ID.test(f.slice(0, -".jsonl".length)));
   } catch (err) {
     if (err.code === "ENOENT") return [];
     throw err;
@@ -1276,7 +1654,7 @@ async function readRetro(dir, id) {
   if (!RETRO_ID.test(id)) throw new Error(`Invalid retro id: ${id}`);
   let text;
   try {
-    text = await (0, import_promises5.readFile)((0, import_node_path7.join)(dir, `${id}.jsonl`), "utf8");
+    text = await (0, import_promises7.readFile)((0, import_node_path8.join)(dir, `${id}.jsonl`), "utf8");
   } catch (err) {
     if (err.code === "ENOENT") return null;
     throw err;
@@ -1287,23 +1665,23 @@ async function readRetro(dir, id) {
 var RetroBook = class {
   constructor(home) {
     this.home = home;
-    this.dir = (0, import_node_path7.join)(home, STORE_DIR, RETROS_DIR);
+    this.dir = (0, import_node_path8.join)(home, STORE_DIR, RETROS_DIR);
   }
   home;
   dir;
   retroFile(id) {
     if (!RETRO_ID.test(id)) throw new Error(`Invalid retro id: ${id}`);
-    return (0, import_node_path7.join)(this.dir, `${id}.jsonl`);
+    return (0, import_node_path8.join)(this.dir, `${id}.jsonl`);
   }
   /** A folder for the files a retro writes for its agents. */
   async workDir(id) {
     if (!RETRO_ID.test(id)) throw new Error(`Invalid retro id: ${id}`);
-    const dir = (0, import_node_path7.join)(this.dir, id);
-    await (0, import_promises5.mkdir)(dir, { recursive: true });
+    const dir = (0, import_node_path8.join)(this.dir, id);
+    await (0, import_promises7.mkdir)(dir, { recursive: true });
     return dir;
   }
   get preferencesFile() {
-    return (0, import_node_path7.join)(this.dir, "preferences.jsonl");
+    return (0, import_node_path8.join)(this.dir, "preferences.jsonl");
   }
   /** Every retro of this book, oldest first. */
   list() {
@@ -1320,13 +1698,13 @@ var RetroBook = class {
   }
   /** The last finished retro of the project folder `root`, if any. */
   async lastFinished(root) {
-    const done = (await this.list()).filter((r) => r.finishedAt !== null && r.root === (0, import_node_path7.resolve)(root));
+    const done = (await this.list()).filter((r) => r.finishedAt !== null && r.root === (0, import_node_path8.resolve)(root));
     return done.at(-1) ?? null;
   }
   async preferences() {
     let text;
     try {
-      text = await (0, import_promises5.readFile)(this.preferencesFile, "utf8");
+      text = await (0, import_promises7.readFile)(this.preferencesFile, "utf8");
     } catch (err) {
       if (err.code === "ENOENT") return [];
       throw err;
@@ -1353,7 +1731,7 @@ var RetroBook = class {
   /** Every preference id ever given, removed ones included: an id is never reused. */
   async allPreferenceIds() {
     try {
-      const text = await (0, import_promises5.readFile)(this.preferencesFile, "utf8");
+      const text = await (0, import_promises7.readFile)(this.preferencesFile, "utf8");
       return parseLines(text, "preferences", PREFERENCE_EVENTS).events.map((e) => e.id);
     } catch {
       return [];
@@ -1370,7 +1748,7 @@ var RetroBook = class {
         at: (/* @__PURE__ */ new Date()).toISOString(),
         retroId,
         ...scope,
-        root: (0, import_node_path7.resolve)(scope.root),
+        root: (0, import_node_path8.resolve)(scope.root),
         preferences
       }
     ]);
@@ -1389,21 +1767,21 @@ var RetroBook = class {
     return this.get(id);
   }
   async append(file, events) {
-    await (0, import_promises5.mkdir)(this.dir, { recursive: true });
-    await (0, import_promises5.appendFile)(file, events.map((e) => JSON.stringify(e) + "\n").join(""), { flag: "a" });
+    await (0, import_promises7.mkdir)(this.dir, { recursive: true });
+    await (0, import_promises7.appendFile)(file, events.map((e) => JSON.stringify(e) + "\n").join(""), { flag: "a" });
   }
 };
 
 // ../../packages/core/src/worktrees.ts
 var import_node_child_process3 = require("node:child_process");
-var import_promises6 = require("node:fs/promises");
-var import_node_path8 = require("node:path");
+var import_promises8 = require("node:fs/promises");
+var import_node_path9 = require("node:path");
 function git2(args, cwd) {
   return new Promise(
     (done) => (0, import_node_child_process3.execFile)("git", args, { cwd, timeout: 3e3 }, (err, stdout) => done(err ? null : stdout.trim()))
   );
 }
-var real = (p) => (0, import_promises6.realpath)(p).catch(() => (0, import_node_path8.resolve)(p));
+var real = (p) => (0, import_promises8.realpath)(p).catch(() => (0, import_node_path9.resolve)(p));
 async function worktreesOf2(dir) {
   const out = await git2(["worktree", "list", "--porcelain"], dir) ?? "";
   const paths = out.split("\n").filter((l) => l.startsWith("worktree ")).map((l) => l.slice("worktree ".length));
@@ -1428,12 +1806,12 @@ function parseDateArg(value, now = Date.now()) {
 }
 
 // ../../packages/core/src/retroSessions.ts
-var import_promises7 = require("node:fs/promises");
-var import_node_path9 = require("node:path");
+var import_promises9 = require("node:fs/promises");
+var import_node_path10 = require("node:path");
 var SESSIONS_FILE = "sessions.json";
 async function recordRetroSessions(book, retroId, source, sessions, run = { costUsd: null, durationMs: null }) {
-  const file = (0, import_node_path9.join)(await book.workDir(retroId), SESSIONS_FILE);
-  await (0, import_promises7.writeFile)(file, JSON.stringify({ source, sessions }, null, 2) + "\n");
+  const file = (0, import_node_path10.join)(await book.workDir(retroId), SESSIONS_FILE);
+  await (0, import_promises9.writeFile)(file, JSON.stringify({ source, sessions }, null, 2) + "\n");
   await book.record(retroId, [
     {
       type: "retro.sessions",
@@ -1476,16 +1854,16 @@ var STOPWORDS = new Set(
 );
 
 // ../../packages/core/src/retroKey.ts
-var import_promises8 = require("node:fs/promises");
+var import_promises10 = require("node:fs/promises");
 var import_node_os2 = require("node:os");
-var import_node_path10 = require("node:path");
+var import_node_path11 = require("node:path");
 function jevKeyFile(env = process.env) {
-  return (0, import_node_path10.join)(env.HOME?.trim() || (0, import_node_os2.homedir)(), ".config", "local-review", "jev-key");
+  return (0, import_node_path11.join)(env.HOME?.trim() || (0, import_node_os2.homedir)(), ".config", "local-review", "jev-key");
 }
 async function jevKeyStatus(env = process.env) {
   const path = jevKeyFile(env);
   const fromEnv = (env.JEV_API_KEY ?? "").trim() !== "";
-  const st = await (0, import_promises8.stat)(path).catch(() => null);
+  const st = await (0, import_promises10.stat)(path).catch(() => null);
   const exists2 = st?.isFile() === true;
   const status = {
     source: fromEnv ? "env" : exists2 ? "file" : "none",
@@ -1501,7 +1879,7 @@ async function jevKeyStatus(env = process.env) {
   status.mode = (st.mode & 511).toString(8);
   const mine = typeof process.getuid !== "function" || st.uid === process.getuid();
   status.private = (st.mode & 63) === 0 && mine;
-  status.inRepo = await worktreeTopOf((0, import_node_path10.dirname)(path));
+  status.inRepo = await worktreeTopOf((0, import_node_path11.dirname)(path));
   if (!status.private) status.fixes.push(`chmod 600 "${path}"`);
   if (status.inRepo)
     status.fixes.push(`move it out of the repository ${status.inRepo} (e.g. to the default place, ${jevKeyFile(env)})`);
@@ -1510,44 +1888,102 @@ async function jevKeyStatus(env = process.env) {
 }
 
 // ../../packages/core/src/retroScope.ts
-var import_promises9 = require("node:fs/promises");
-var import_node_path11 = require("node:path");
+var import_promises12 = require("node:fs/promises");
+var import_node_path13 = require("node:path");
+
+// ../../packages/core/src/retroFindings.ts
+var AUDIT_FILE = "audit.md";
+
+// ../../packages/core/src/sessionReports.ts
+var import_promises11 = require("node:fs/promises");
+var import_node_path12 = require("node:path");
+var SESSION_REPORT_VERSION = 1;
+var SESSION_REPORTS_DIR = "sessions";
+var reportsDir = (book) => (0, import_node_path12.join)(book.dir, SESSION_REPORTS_DIR);
+var SESSION_ID2 = /^[A-Za-z0-9._-]{1,128}$/;
+var reportFile = (book, id) => {
+  if (!SESSION_ID2.test(id) || id.startsWith(".")) throw new Error(`Invalid session id: ${id}`);
+  return (0, import_node_path12.join)(reportsDir(book), `${id}.json`);
+};
+async function writeSessionReport(book, report) {
+  const file = reportFile(book, report.session);
+  await (0, import_promises11.mkdir)(reportsDir(book), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  await (0, import_promises11.writeFile)(tmp, JSON.stringify(report, null, 1) + "\n");
+  await (0, import_promises11.rename)(tmp, file);
+  return file;
+}
+var isRecord2 = (x) => typeof x === "object" && x !== null && !Array.isArray(x);
+async function readSessionReport(book, id) {
+  let raw;
+  try {
+    raw = JSON.parse(await (0, import_promises11.readFile)(reportFile(book, id), "utf8"));
+  } catch {
+    return null;
+  }
+  if (!isRecord2(raw) || typeof raw.v !== "number" || raw.session !== id) return null;
+  if (!isRecord2(raw.analysis) || !isRecord2(raw.analytics)) return null;
+  return raw;
+}
+async function sessionReportIds(book) {
+  const names = await (0, import_promises11.readdir)(reportsDir(book)).catch(() => []);
+  return names.filter((n) => n.endsWith(".json")).map((n) => n.slice(0, -".json".length)).sort();
+}
+function citedMoments(node, out = /* @__PURE__ */ new Set()) {
+  if (Array.isArray(node)) for (const x of node) citedMoments(x, out);
+  else if (isRecord2(node))
+    for (const [k, v] of Object.entries(node)) {
+      if (k === "uuid" && typeof v === "string") out.add(v);
+      else if (k === "evidence" && Array.isArray(v)) {
+        for (const x of v) if (typeof x === "string") out.add(x);
+      } else citedMoments(v, out);
+    }
+  return out;
+}
+
+// ../../packages/core/src/retroScope.ts
 var DAY = 864e5;
 async function retroScope(root, opts = {}) {
   const env = opts.env ?? process.env;
   const now = opts.now ?? Date.now();
-  const dir = (0, import_node_path11.resolve)(root);
+  const dir = (0, import_node_path13.resolve)(root);
   const home = await retroHome(dir, env);
   const book = new RetroBook(home);
   const retros = (await book.list()).filter((r) => r.root === dir);
   const lastRetro = retros.filter((r) => r.finishedAt !== null).at(-1) ?? null;
   const unfinished = retros.filter((r) => r.finishedAt === null);
-  const options = [];
+  const afterLast = lastRetro ? Date.parse(lastRetro.until) + 1 : null;
+  let options = [];
   let since;
   let source;
   if (opts.all) [since, source] = [null, "all"];
   else if (opts.since) [since, source] = [opts.since, "given"];
-  else if (lastRetro) [since, source] = [new Date(Date.parse(lastRetro.until) + 1), "last-retro"];
   else {
     const whole = await projectHistory(dir, { env });
-    for (const [label, days] of [
-      ["last 7 days", 7],
-      ["last 30 days", 30]
-    ]) {
-      const from = now - days * DAY;
-      const ts = whole.stores.flatMap((s) => s.threads).filter((t) => Date.parse(t.lastActivityAt) >= from);
-      options.push({
+    const threads = whole.stores.flatMap((s) => s.threads);
+    const option = (label, from, flag) => {
+      const ts = from === null ? threads : threads.filter((t) => Date.parse(t.lastActivityAt) >= from);
+      return {
         label,
-        since: new Date(from).toISOString(),
-        flag: `--since ${days}d`,
+        since: from === null ? null : new Date(from).toISOString(),
+        flag,
         threads: ts.length,
-        bytes: ts.reduce((n, t) => n + t.bytes, 0)
-      });
-    }
-    options.push({ label: "whole history", since: null, flag: "--all", threads: whole.threads, bytes: whole.bytes });
-    const pick = options.find((o) => o.threads > 0) ?? options[0];
+        bytes: ts.reduce((n, t) => n + t.bytes, 0),
+        proposed: false,
+        overlapsLastRetro: afterLast !== null && (from === null || from < afterLast)
+      };
+    };
+    const days = (n) => option(`last ${n} days`, now - n * DAY, `--since ${n}d`);
+    options = [
+      ...afterLast !== null ? [option("since the last retro", afterLast, "")] : [days(7)],
+      days(30),
+      option("whole history", null, "--all")
+    ];
+    const pick = afterLast !== null ? options[0] : options.find((o) => o.threads > 0) ?? options[0];
+    pick.proposed = true;
+    options = [pick, ...options.filter((o) => o !== pick)];
     since = pick.since ? new Date(pick.since) : null;
-    source = "proposed";
+    source = afterLast !== null ? "last-retro" : "proposed";
   }
   const history = await projectHistory(dir, { since, env });
   return {
@@ -1615,8 +2051,8 @@ async function retroThreads(retro, env = process.env) {
   return { history, threads };
 }
 async function writeRetroFile(book, id, name, content) {
-  const file = (0, import_node_path11.join)(await book.workDir(id), name);
-  await (0, import_promises9.writeFile)(file, content);
+  const file = (0, import_node_path13.join)(await book.workDir(id), name);
+  await (0, import_promises12.writeFile)(file, content);
   return file;
 }
 
@@ -1696,8 +2132,8 @@ async function runAudit(root, claudeDir, env, run = runProcess, timeoutMs = AUDI
 
 // src/retroInsights.ts
 var import_node_fs2 = require("node:fs");
-var import_promises10 = require("node:fs/promises");
-var import_node_path12 = require("node:path");
+var import_promises13 = require("node:fs/promises");
+var import_node_path14 = require("node:path");
 var import_node_readline = require("node:readline");
 var INSIGHTS_COMMAND = "/insights";
 var INSIGHTS_SOURCE = "Claude Code /insights";
@@ -1729,11 +2165,11 @@ async function runInsights(root, env, run = runProcess, timeoutMs = INSIGHTS_TIM
     durationMs: typeof out.duration_ms === "number" ? out.duration_ms : null
   };
 }
-var fieldsFile = (env) => (0, import_node_path12.join)(localReviewHome(env), FIELDS_FILE);
+var fieldsFile = (env) => (0, import_node_path14.join)(localReviewHome(env), FIELDS_FILE);
 async function readFieldMaps(env) {
   const maps = [{ ...DEFAULT_FIELDS }];
   try {
-    const raw = JSON.parse(await (0, import_promises10.readFile)(fieldsFile(env), "utf8"));
+    const raw = JSON.parse(await (0, import_promises13.readFile)(fieldsFile(env), "utf8"));
     for (const f of Array.isArray(raw.formats) ? raw.formats : []) {
       const m = f;
       if (KEYS.every((k) => typeof m[k] === "string" && m[k])) maps.push(m);
@@ -1744,10 +2180,10 @@ async function readFieldMaps(env) {
 }
 async function writeFieldMaps(env, maps) {
   const file = fieldsFile(env);
-  await (0, import_promises10.mkdir)(localReviewHome(env), { recursive: true });
+  await (0, import_promises13.mkdir)(localReviewHome(env), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
-  await (0, import_promises10.writeFile)(tmp, JSON.stringify({ formats: maps.slice(1) }, null, 2) + "\n");
-  await (0, import_promises10.rename)(tmp, file);
+  await (0, import_promises13.writeFile)(tmp, JSON.stringify({ formats: maps.slice(1) }, null, 2) + "\n");
+  await (0, import_promises13.rename)(tmp, file);
 }
 function keysWith(f, maps) {
   for (const map of maps) {
@@ -1764,7 +2200,7 @@ function shapeOf(v) {
   if (typeof v !== "string") return typeof v;
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(v) && !Number.isNaN(Date.parse(v))) return "ISO date and time";
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)) return "UUID";
-  if ((0, import_node_path12.isAbsolute)(v) && !/\s{2}/.test(v) && !v.includes("\n")) return "absolute path";
+  if ((0, import_node_path14.isAbsolute)(v) && !/\s{2}/.test(v) && !v.includes("\n")) return "absolute path";
   return "text";
 }
 function describeFields(files) {
@@ -1777,7 +2213,7 @@ function keysOf(f, map) {
   const folder = f[map.project_path];
   const start = f[map.start_time];
   if (typeof id !== "string" || !id.trim()) return null;
-  if (typeof folder !== "string" || !(0, import_node_path12.isAbsolute)(folder)) return null;
+  if (typeof folder !== "string" || !(0, import_node_path14.isAbsolute)(folder)) return null;
   if (typeof start !== "string" || Number.isNaN(Date.parse(start))) return null;
   return { id, folder, start: new Date(start).toISOString() };
 }
@@ -1828,18 +2264,18 @@ async function askFieldMap(files, root, env, run = runProcess) {
 }
 var readJson = async (file) => {
   try {
-    const raw = JSON.parse(await (0, import_promises10.readFile)(file, "utf8"));
+    const raw = JSON.parse(await (0, import_promises13.readFile)(file, "utf8"));
     return typeof raw === "object" && raw !== null && !Array.isArray(raw) ? raw : null;
   } catch {
     return null;
   }
 };
 async function readInsights(usageDir, root, env, run) {
-  const metaDir = (0, import_node_path12.join)(usageDir, "session-meta");
-  const names = (await (0, import_promises10.readdir)(metaDir).catch(() => [])).filter((n) => n.endsWith(".json")).sort();
+  const metaDir = (0, import_node_path14.join)(usageDir, "session-meta");
+  const names = (await (0, import_promises13.readdir)(metaDir).catch(() => [])).filter((n) => n.endsWith(".json")).sort();
   const files = [];
   for (const n of names) {
-    const f = await readJson((0, import_node_path12.join)(metaDir, n));
+    const f = await readJson((0, import_node_path14.join)(metaDir, n));
     if (f) files.push(f);
   }
   const maps = await readFieldMaps(env);
@@ -1856,7 +2292,7 @@ async function readInsights(usageDir, root, env, run) {
   for (const f of files) {
     const k = keysWith(f, maps);
     if (!k) continue;
-    const summary = await readJson((0, import_node_path12.join)(usageDir, "facets", `${k.id}.json`));
+    const summary = await readJson((0, import_node_path14.join)(usageDir, "facets", `${k.id}.json`));
     sessions.push({ id: k.id, folder: k.folder, start: k.start, facts: factsOf(f, k.map), summary });
   }
   return { sessions, files: files.length };
@@ -1876,20 +2312,20 @@ function factsOf(f, map) {
   return out;
 }
 async function projectFolders(root, env) {
-  const top = (0, import_node_path12.resolve)(root);
+  const top = (0, import_node_path14.resolve)(root);
   const folders = /* @__PURE__ */ new Set([top]);
   for (const wt of await worktreesOf2(top)) folders.add(wt);
   for (const s of await projectStores(top, env))
     if (s.origin === "worktree" || s.origin === "below") folders.add(s.root);
-  for (const f of [...folders]) folders.add(await (0, import_promises10.realpath)(f).catch(() => f));
+  for (const f of [...folders]) folders.add(await (0, import_promises13.realpath)(f).catch(() => f));
   return [...folders];
 }
-var inFolders = (path, folders) => folders.some((f) => path === f || path.startsWith(f.endsWith(import_node_path12.sep) ? f : f + import_node_path12.sep));
+var inFolders = (path, folders) => folders.some((f) => path === f || path.startsWith(f.endsWith(import_node_path14.sep) ? f : f + import_node_path14.sep));
 var inPeriod = (start, since, until) => (since === null || start >= since) && start <= until;
-async function projectSessions(usageDir, root, period, env, run) {
+async function projectSessions(usageDir, root, period, env, run, exclude = /* @__PURE__ */ new Set()) {
   const { sessions, files } = await readInsights(usageDir, root, env, run);
   const folders = await projectFolders(root, env);
-  const kept = sessions.filter((s) => inFolders(s.folder, folders) && inPeriod(s.start, period.since, period.until)).sort((a, b) => a.start.localeCompare(b.start)).map((s) => ({ id: s.id, start: s.start, folder: s.folder, facts: s.facts, summary: s.summary }));
+  const kept = sessions.filter((s) => !exclude.has(s.id) && inFolders(s.folder, folders) && inPeriod(s.start, period.since, period.until)).sort((a, b) => a.start.localeCompare(b.start)).map((s) => ({ id: s.id, start: s.start, folder: s.folder, facts: s.facts, summary: s.summary }));
   return { sessions: kept, files, read: sessions.length };
 }
 async function transcriptStart(file) {
@@ -1913,22 +2349,909 @@ async function transcriptStart(file) {
   }
   return cwd !== null && start !== null && !Number.isNaN(Date.parse(start)) ? { cwd, start: new Date(start).toISOString() } : null;
 }
-async function countSessions(claudeDir, root, period, env) {
-  const projects = (0, import_node_path12.join)(claudeDir, "projects");
+async function projectTranscripts(claudeDir, root, period, env) {
+  const projects = (0, import_node_path14.join)(claudeDir, "projects");
   const folders = await projectFolders(root, env);
-  let n = 0;
-  for (const dir of await (0, import_promises10.readdir)(projects).catch(() => [])) {
-    const names = await (0, import_promises10.readdir)((0, import_node_path12.join)(projects, dir)).catch(() => []);
+  const out = [];
+  for (const dir of await (0, import_promises13.readdir)(projects).catch(() => [])) {
+    const names = await (0, import_promises13.readdir)((0, import_node_path14.join)(projects, dir)).catch(() => []);
     for (const name of names.filter((x) => x.endsWith(".jsonl"))) {
-      const s = await transcriptStart((0, import_node_path12.join)(projects, dir, name));
-      if (s && inFolders(s.cwd, folders) && inPeriod(s.start, period.since, period.until)) n++;
+      const file = (0, import_node_path14.join)(projects, dir, name);
+      const s = await transcriptStart(file);
+      if (s && inFolders(s.cwd, folders) && inPeriod(s.start, period.since, period.until))
+        out.push({ id: name.slice(0, -".jsonl".length), file, ...s });
     }
   }
-  return n;
+  return out.sort((a, b) => a.start.localeCompare(b.start));
+}
+
+// src/sessionReports.ts
+var import_promises15 = require("node:fs/promises");
+var import_node_os3 = require("node:os");
+var import_node_path17 = require("node:path");
+
+// src/sessionAnalytics.ts
+var import_node_crypto2 = require("node:crypto");
+var import_promises14 = require("node:fs/promises");
+var import_node_path15 = require("node:path");
+var ANALYTICS_SCHEMA = "session-analytics/1";
+var FAMILIES = {
+  collaboration: ["friction", "corrections", "user_edits", "agent_questions"],
+  tools: ["permission_blocks", "tool_errors", "repeated_failures", "hooks"],
+  setup: ["skills", "commands", "subagents"],
+  workflow: ["context_pressure", "handoff", "repeated_requests", "autonomy"],
+  cost: ["api_errors"],
+  delivery: ["pull_requests", "git", "local_review_messages"]
+};
+var INJECTED = new RegExp(
+  "^\\s*(<(channel|local-command-caveat|local-command-stdout|local-command-stderr|command-name|command-message|command-args|task-notification|system-reminder|ide_opened_file|ide_selection|bash-input|bash-stdout|bash-stderr|user-prompt-submit-hook|cross-session-message)\\b|\\[SYSTEM NOTIFICATION|\\[Workflow harness|\\[Request interrupted|\\[Your previous response)"
+);
+var COMMAND = /<command-name>\/?([^<]+)<\/command-name>/;
+var GIT = /\b(git\s+(commit|push|merge|rebase|revert|reset|cherry-pick)|gh\s+pr\s+(create|merge|edit))\b/;
+var SECRET = new RegExp(
+  "(sk-[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9]{20,}|gho_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[abp]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|eyJ[A-Za-z0-9_-]{20,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----[\\s\\S]*?-----END [A-Z ]*PRIVATE KEY-----|\\b(?:[Pp][Aa][Ss][Ss][Ww](?:[Oo][Rr])?[Dd]|[Ss][Ee][Cc][Rr][Ee][Tt]|[Tt][Oo][Kk][Ee][Nn]|[Aa][Pp][Ii][_-]?[Kk][Ee][Yy])\\s*[=:]\\s*\\S+)",
+  "g"
+);
+var BUILTIN = /* @__PURE__ */ new Set([
+  "clear",
+  "compact",
+  "model",
+  "login",
+  "logout",
+  "doctor",
+  "plugin",
+  "mcp",
+  "reload-plugins",
+  "privacy-settings",
+  "effort",
+  "feedback",
+  "context",
+  "remote-control",
+  "usage",
+  "config",
+  "help",
+  "resume",
+  "status",
+  "insights",
+  "init",
+  "review",
+  "memory",
+  "permissions",
+  "hooks",
+  "agents",
+  "add-dir",
+  "rewind",
+  "export",
+  "cost",
+  "exit",
+  "fast"
+]);
+var mask = (text) => text.replace(SECRET, "[secret]");
+function cut(text, n) {
+  const t = mask(typeof text === "string" ? text : "");
+  return t.length <= n ? t : t.slice(0, n - 1) + "\u2026";
+}
+var isRecord3 = (x) => typeof x === "object" && x !== null && !Array.isArray(x);
+var str = (x) => typeof x === "string" ? x : null;
+var strOf = (x) => typeof x === "string" ? x : "";
+var orNull = (x) => x ?? null;
+var asText = (x) => typeof x === "string" ? x : JSON.stringify(x ?? "");
+function textOf2(content) {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content))
+    return content.filter((b) => isRecord3(b) && b.type === "text").map((b) => strOf(b.text)).join("\n");
+  return "";
+}
+function toolSummary(name, input) {
+  const inp = isRecord3(input) ? input : {};
+  if (name === "Bash") return cut(inp.command, 300);
+  for (const key of ["file_path", "notebook_path", "path", "pattern", "url", "query", "skill", "subagent_type"])
+    if (key in inp) return cut(String(inp[key]), 200);
+  if (name === "Agent") return cut(inp.description, 200);
+  return "";
+}
+var SETUP_STEP = /^(cd\s+\S+|source\s+\S+(\s*[>&\d/a-z]*\/dev\/null)?|\.\s+\S+|export\s+\S+|nvm\s+use\b[^&;|]*|[A-Z_][A-Z0-9_]*=\S*)\s*(&&|;)\s*/;
+function normCommand(cmd) {
+  let c = (typeof cmd === "string" ? cmd : "").replace(/\s+/g, " ").trim();
+  for (let m = SETUP_STEP.exec(c); m; m = SETUP_STEP.exec(c)) c = c.slice(m[0].length);
+  return c.split(" ").slice(0, 3).join(" ");
+}
+async function readJsonl(file) {
+  const text = await (0, import_promises14.readFile)(file, "utf8");
+  const out = [];
+  text.split("\n").forEach((line, i) => {
+    if (!line.trim()) return;
+    try {
+      const e = JSON.parse(line);
+      if (isRecord3(e)) out.push({ n: i + 1, e });
+    } catch {
+    }
+  });
+  return out;
+}
+async function walk2(dir) {
+  const entries = await (0, import_promises14.readdir)(dir, { withFileTypes: true }).catch(() => []);
+  const out = [];
+  for (const d of entries) {
+    const p = (0, import_node_path15.join)(dir, d.name);
+    if (d.isDirectory()) out.push(...await walk2(p));
+    else out.push(p);
+  }
+  return out;
+}
+async function subagentFiles(sessionFile) {
+  const dir = (0, import_node_path15.join)((0, import_node_path15.dirname)(sessionFile), (0, import_node_path15.basename)(sessionFile, ".jsonl"), "subagents");
+  const files = (await walk2(dir)).filter((f) => /\/agent-[^/]+\.jsonl$/.test(f)).sort();
+  const out = [];
+  for (const file of files) {
+    let meta = {};
+    try {
+      const raw = JSON.parse(await (0, import_promises14.readFile)(file.replace(/\.jsonl$/, ".meta.json"), "utf8"));
+      if (isRecord3(raw)) meta = raw;
+    } catch {
+    }
+    if (file.includes("/workflows/")) meta = { ...meta, workflow: true };
+    out.push({ id: (0, import_node_path15.basename)(file, ".jsonl").slice("agent-".length), file, meta });
+  }
+  return out;
+}
+var bump = (m, k, by = 1) => m.set(k, (m.get(k) ?? 0) + by);
+var sorted = (m) => Object.fromEntries([...m].sort((a, b) => b[1] - a[1]));
+var sha1 = (s) => (0, import_node_crypto2.createHash)("sha1").update(s).digest("hex").slice(0, 12);
+async function analyseSession(sessionFile) {
+  const sid = (0, import_node_path15.basename)(sessionFile, ".jsonl");
+  const agents = [{ id: "main", file: sessionFile, meta: {}, lines: await readJsonl(sessionFile) }];
+  for (const s of await subagentFiles(sessionFile)) agents.push({ ...s, lines: await readJsonl(s.file) });
+  const sig = {};
+  const add = (family, name, occ) => ((sig[family] ??= {})[name] ??= []).push(occ);
+  const cwd = /* @__PURE__ */ new Map();
+  const branches = /* @__PURE__ */ new Map();
+  const versions = /* @__PURE__ */ new Set();
+  const entrypoints = /* @__PURE__ */ new Set();
+  const models = /* @__PURE__ */ new Map();
+  const titles = [];
+  const customTitles = [];
+  const times = [];
+  const permissionModes = /* @__PURE__ */ new Map();
+  const usage = /* @__PURE__ */ new Map();
+  const prompts = [];
+  const skillsAvailable = /* @__PURE__ */ new Set();
+  const skillsActive = /* @__PURE__ */ new Map();
+  const instructions = {};
+  const toolCalls = /* @__PURE__ */ new Map();
+  const commands = /* @__PURE__ */ new Map();
+  const errorsByCommand = /* @__PURE__ */ new Map();
+  let away = 0;
+  const turnMs = [];
+  let costState = null;
+  for (const agent of agents) {
+    const at = (n, e, extra = {}) => ({
+      agent: agent.id,
+      uuid: orNull(e.uuid),
+      time: orNull(e.timestamp),
+      line: n,
+      ...extra
+    });
+    const toolNames = /* @__PURE__ */ new Map();
+    const seenMessages = /* @__PURE__ */ new Set();
+    let actionsSincePrompt = [];
+    let bashSincePrompt = [];
+    let lastPrompt = null;
+    let firstUser = true;
+    for (const { n, e } of agent.lines) {
+      const t = e.type;
+      if (typeof e.timestamp === "string") times.push(e.timestamp);
+      if (agent.id === "main") {
+        if (typeof e.cwd === "string") bump(cwd, e.cwd);
+        if (typeof e.gitBranch === "string" && e.gitBranch) bump(branches, e.gitBranch);
+        if (typeof e.version === "string") versions.add(e.version);
+        if (typeof e.entrypoint === "string") entrypoints.add(e.entrypoint);
+      }
+      if (t === "ai-title" && typeof e.aiTitle === "string") titles.push(e.aiTitle);
+      else if (t === "custom-title" && typeof e.customTitle === "string") customTitles.push(e.customTitle);
+      else if (t === "permission-mode") bump(permissionModes, String(e.permissionMode));
+      else if (t === "cost-state" && agent.id === "main") {
+        costState = {};
+        for (const k of [
+          "totalCostUSD",
+          "totalAPIDuration",
+          "totalToolDuration",
+          "totalDuration",
+          "totalLinesAdded",
+          "totalLinesRemoved"
+        ])
+          costState[k] = orNull(e[k]);
+      } else if (t === "pr-link") {
+        const known = (sig.delivery?.pull_requests ?? []).find(
+          (o) => o.pr === orNull(e.prNumber) && o.repo === orNull(e.prRepository)
+        );
+        if (known) known.links = Number(known.links) + 1;
+        else
+          add("delivery", "pull_requests", {
+            agent: agent.id,
+            time: orNull(e.timestamp),
+            line: n,
+            pr: orNull(e.prNumber),
+            repo: orNull(e.prRepository),
+            links: 1
+          });
+      } else if (t === "system") {
+        const st = e.subtype;
+        if (st === "turn_duration" && typeof e.durationMs === "number") turnMs.push(e.durationMs);
+        else if (st === "compact_boundary") {
+          const cm = isRecord3(e.compactMetadata) ? e.compactMetadata : {};
+          add(
+            "workflow",
+            "context_pressure",
+            at(n, e, {
+              kind: "compaction",
+              trigger: orNull(cm.trigger),
+              pre_tokens: orNull(cm.preTokens),
+              post_tokens: orNull(cm.postTokens),
+              last_prompt_before: lastPrompt
+            })
+          );
+        } else if (st === "away_summary") away++;
+        else if (st === "stop_hook_summary")
+          add(
+            "tools",
+            "hooks",
+            at(n, e, {
+              kind: "stop",
+              hook_count: orNull(e.hookCount),
+              errors: Array.isArray(e.hookErrors) ? e.hookErrors.length : 0,
+              prevented_continuation: orNull(e.preventedContinuation)
+            })
+          );
+        else if (st === "local_command") {
+          const m = COMMAND.exec(strOf(e.content));
+          if (m) bump(commands, m[1].trim());
+        }
+      } else if (t === "attachment") {
+        const a = isRecord3(e.attachment) ? e.attachment : {};
+        const kind = a.type;
+        if (kind === "skill_listing" && Array.isArray(a.names)) {
+          for (const name of a.names) if (typeof name === "string") skillsAvailable.add(name);
+        } else if (kind === "instructions" && Array.isArray(a.files)) {
+          for (const fi of a.files.filter(isRecord3)) {
+            const content = asText(fi.content);
+            instructions[String(fi.path)] = {
+              type: orNull(fi.type),
+              bytes: Buffer.byteLength(content),
+              sha1: sha1(content)
+            };
+          }
+        } else if (kind === "nested_memory") {
+          const content = asText(a.content);
+          instructions[String(a.path)] = { type: "nested", bytes: Buffer.byteLength(content), sha1: sha1(content) };
+        } else if (kind === "hook_success" || kind === "hook_non_blocking_error")
+          add(
+            "tools",
+            "hooks",
+            at(n, e, {
+              kind: kind === "hook_non_blocking_error" ? "error" : "output",
+              hook: orNull(a.hookName),
+              event: orNull(a.hookEvent),
+              exit_code: orNull(a.exitCode),
+              output: cut(strOf(a.stdout) + strOf(a.stderr), 300)
+            })
+          );
+        else if (kind === "hook_additional_context")
+          add(
+            "tools",
+            "hooks",
+            at(n, e, {
+              kind: "context",
+              hook: orNull(a.hookName),
+              event: orNull(a.hookEvent),
+              output: cut(asText(a.content), 300)
+            })
+          );
+        else if (kind === "edited_text_file") {
+          const file = strOf(a.filename);
+          const name = (0, import_node_path15.basename)(file);
+          const byAgent = name !== "" && bashSincePrompt.some((c) => c.includes(name));
+          add(
+            "collaboration",
+            "user_edits",
+            at(n, e, { kind: byAgent ? "file_changed_by_agent_command" : "file_edited_outside_agent", file })
+          );
+        } else if (kind === "queued_command")
+          add(
+            "workflow",
+            "autonomy",
+            at(n, e, { kind: "message_while_working", text: cut(typeof a.prompt === "string" ? a.prompt : "", 300) })
+          );
+        else if (kind === "plan_mode" || kind === "plan_mode_exit") add("workflow", "autonomy", at(n, e, { kind }));
+      } else if (t === "assistant") {
+        const m = isRecord3(e.message) ? e.message : {};
+        const model = str(m.model) ?? "?";
+        if (typeof m.model === "string") bump(models, m.model);
+        const mid = str(m.id);
+        if (mid && !seenMessages.has(mid)) {
+          seenMessages.add(mid);
+          const u = isRecord3(m.usage) ? m.usage : {};
+          for (const [k, v] of Object.entries(u))
+            if (typeof v === "number" && Number.isInteger(v)) {
+              const byModel = usage.get(model) ?? /* @__PURE__ */ new Map();
+              usage.set(model, byModel);
+              bump(byModel, k, v);
+            }
+        }
+        if (typeof e.attributionSkill === "string") bump(skillsActive, e.attributionSkill);
+        if (e.isApiErrorMessage) add("cost", "api_errors", at(n, e, { status: orNull(e.apiErrorStatus) }));
+        for (const b of Array.isArray(m.content) ? m.content.filter(isRecord3) : []) {
+          if (b.type !== "tool_use") continue;
+          const name = str(b.name) ?? "?";
+          const input = isRecord3(b.input) ? b.input : {};
+          if (typeof b.id === "string") toolNames.set(b.id, { name, input });
+          bump(toolCalls, name);
+          actionsSincePrompt.push(name);
+          if (name === "Bash") bashSincePrompt.push(strOf(input.command));
+          if (name === "Skill")
+            add("setup", "skills", at(n, e, { kind: "called_by_agent", skill: orNull(input.skill) }));
+          else if (name === "Agent" || name === "Task")
+            add(
+              "setup",
+              "subagents",
+              at(n, e, {
+                kind: "launched",
+                subagent_type: input.subagent_type ?? "general-purpose",
+                description: cut(input.description, 200),
+                tool_use_id: orNull(b.id)
+              })
+            );
+          else if (name === "AskUserQuestion") {
+            const qs = (Array.isArray(input.questions) ? input.questions.filter(isRecord3) : []).map(
+              (q) => cut(q.question, 300)
+            );
+            add("collaboration", "agent_questions", at(n, e, { questions: qs, tool_use_id: orNull(b.id) }));
+          }
+        }
+      } else if (t === "user") {
+        const m = isRecord3(e.message) ? e.message : {};
+        const content = m.content;
+        const tur = isRecord3(e.toolUseResult) ? e.toolUseResult : {};
+        const results = Array.isArray(content) ? content.filter((b) => isRecord3(b) && b.type === "tool_result") : [];
+        for (const b of results) {
+          const { name, input } = toolNames.get(String(b.tool_use_id)) ?? { name: "?", input: {} };
+          const command = name === "Bash" ? strOf(input.command) : "";
+          if (b.is_error) {
+            const err = typeof b.content === "string" ? b.content : textOf2(b.content);
+            add(
+              "tools",
+              "tool_errors",
+              at(n, e, { tool: name, target: toolSummary(name, input), error: cut(err, 300) })
+            );
+            if (name === "Bash") {
+              const key = normCommand(command);
+              errorsByCommand.set(key, [...errorsByCommand.get(key) ?? [], String(e.uuid)]);
+            }
+          }
+          if (name === "Bash" && tur.interrupted)
+            add(
+              "collaboration",
+              "friction",
+              at(n, e, { kind: "command_interrupted", target: toolSummary(name, input) })
+            );
+          const git3 = name === "Bash" ? GIT.exec(command) : null;
+          if (name === "Bash" && (tur.gitOperation || git3) && !b.is_error)
+            add(
+              "delivery",
+              "git",
+              at(n, e, { operation: tur.gitOperation ?? git3?.[1] ?? null, target: toolSummary(name, input) })
+            );
+          if ((name === "Edit" || name === "Write") && tur.userModified)
+            add(
+              "collaboration",
+              "user_edits",
+              at(n, e, { kind: "proposal_modified_by_user", file: orNull(tur.filePath) })
+            );
+          if (name === "Skill" && tur.success === false)
+            add("setup", "skills", at(n, e, { kind: "failed", skill: orNull(tur.commandName) }));
+          if ((name === "Agent" || name === "Task") && Object.keys(tur).length)
+            add(
+              "setup",
+              "subagents",
+              at(n, e, {
+                kind: "result",
+                status: orNull(tur.status),
+                model: orNull(tur.resolvedModel),
+                tokens: orNull(tur.totalTokens),
+                duration_ms: orNull(tur.totalDurationMs),
+                tool_use_id: orNull(b.tool_use_id)
+              })
+            );
+          if (name === "AskUserQuestion" && Object.keys(tur).length)
+            add(
+              "collaboration",
+              "agent_questions",
+              at(n, e, {
+                kind: "answers",
+                answers: cut(JSON.stringify(orNull(tur.answers)), 400),
+                tool_use_id: orNull(b.tool_use_id)
+              })
+            );
+        }
+        const denial = str(e.toolDenialKind);
+        if (denial) {
+          const first = results[0];
+          const { name, input } = (first && toolNames.get(String(first.tool_use_id))) ?? { name: "?", input: {} };
+          const occ = at(n, e, {
+            denial,
+            tool: name,
+            target: toolSummary(name, input),
+            reason: cut(e.userFeedback, 300)
+          });
+          if (denial === "user-rejected") add("collaboration", "friction", { ...occ, kind: "refused_by_user" });
+          else add("tools", "permission_blocks", { ...occ, kind: denial });
+        }
+        const text = results.length ? "" : textOf2(content);
+        if (text.startsWith("[Request interrupted"))
+          add(
+            "collaboration",
+            "friction",
+            at(n, e, {
+              kind: "interruption",
+              interrupted_message: orNull(e.interruptedMessageId),
+              agent_was_doing: actionsSincePrompt.slice(-5)
+            })
+          );
+        const cmd = text ? COMMAND.exec(text) : null;
+        if (cmd) {
+          const name = cmd[1].trim();
+          bump(commands, name);
+          if (name === "clear" && firstUser)
+            add("workflow", "context_pressure", at(n, e, { kind: "started_by_clear" }));
+          else if (name === "compact")
+            add("workflow", "context_pressure", at(n, e, { kind: "compact_command", last_prompt_before: lastPrompt }));
+          else if (name.includes(":") || !BUILTIN.has(name))
+            add("setup", "skills", at(n, e, { kind: "typed_by_user", skill: name }));
+          else add("setup", "commands", at(n, e, { command: name }));
+        }
+        const origin = isRecord3(e.origin) ? e.origin : {};
+        const human = agent.id === "main" && text !== "" && !e.isMeta && !e.isCompactSummary && (origin.kind ?? "human") === "human" && !INJECTED.test(text);
+        if (origin.kind === "channel") add("delivery", "local_review_messages", at(n, e, { text: cut(text, 200) }));
+        if (human) {
+          const after = [...actionsSincePrompt.reduce((m2, a) => bump(m2, a), /* @__PURE__ */ new Map())].sort(
+            (a, b) => b[1] - a[1]
+          );
+          const p = at(n, e, {
+            chars: text.length,
+            source: orNull(e.promptSource),
+            after_actions: after,
+            text: cut(text, 600)
+          });
+          prompts.push(p);
+          if (actionsSincePrompt.length)
+            add("collaboration", "corrections", {
+              agent: p.agent,
+              uuid: p.uuid,
+              time: p.time,
+              line: p.line,
+              after_actions: after,
+              text: p.text
+            });
+          lastPrompt = { uuid: orNull(e.uuid), text: cut(text, 300) };
+          actionsSincePrompt = [];
+          bashSincePrompt = [];
+        }
+        firstUser = false;
+      }
+    }
+  }
+  for (const [command, uuids] of errorsByCommand)
+    if (uuids.length >= 2) add("tools", "repeated_failures", { command, failures: uuids.length, uuids });
+  if (prompts.length) add("workflow", "handoff", { ...prompts.at(-1), kind: "last_prompt_of_session" });
+  (sig.workflow ??= {}).repeated_requests = prompts;
+  for (const [family, names] of Object.entries(FAMILIES)) for (const name of names) (sig[family] ??= {})[name] ??= [];
+  const skillsCalled = new Set(
+    (sig.setup?.skills ?? []).map((o) => o.skill).filter((s) => typeof s === "string")
+  );
+  times.sort();
+  const top = (m) => [...m].sort((a, b) => b[1] - a[1]).map(([k]) => k);
+  return {
+    schema: ANALYTICS_SCHEMA,
+    session_id: sid,
+    cwd: top(cwd)[0] ?? null,
+    branches: top(branches),
+    start: times[0] ?? null,
+    end: times.at(-1) ?? null,
+    claude_code_versions: [...versions].sort(),
+    entrypoints: [...entrypoints].sort(),
+    title: titles.at(-1) ?? null,
+    custom_title: customTitles.at(-1) ?? null,
+    agents: agents.map((a) => ({
+      id: a.id,
+      type: str(a.meta.agentType) ?? (a.id === "main" ? "main" : null),
+      description: str(a.meta.description),
+      launchedBy: str(a.meta.toolUseId),
+      workflow: Boolean(a.meta.workflow),
+      lines: a.lines.length,
+      file: a.file
+    })),
+    counts: {
+      typed_prompts: prompts.length,
+      lines: agents.reduce((s, a) => s + a.lines.length, 0),
+      tool_calls: sorted(toolCalls),
+      commands: sorted(commands),
+      away_summaries: away,
+      turns: turnMs.length,
+      turn_duration_ms_total: turnMs.reduce((s, x) => s + x, 0),
+      permission_modes: Object.fromEntries(permissionModes)
+    },
+    setup: {
+      instructions_loaded: instructions,
+      skills_available: [...skillsAvailable].sort(),
+      skills_available_never_called: [...skillsAvailable].filter((s) => !skillsCalled.has(s)).sort(),
+      skills_active_messages: sorted(skillsActive)
+    },
+    cost: {
+      tokens_by_model: Object.fromEntries([...usage].map(([k, v]) => [k, Object.fromEntries(v)])),
+      cost_state: costState,
+      models: sorted(models)
+    },
+    signals: sig
+  };
+}
+
+// src/sessionReportBrief.ts
+var REPORT_BRIEF = `You write the **report** on one Claude Code session, from its **analytics** (computed without a model) and its conversations. An analyst will then read the reports of every session of the project, to find what they have in common and propose improvements to the setup (CLAUDE.md, skills, hooks, permissions, workflows) or to the way of working. Write for that analyst: factual, sourced, useful.
+
+## Inputs (files of your working folder; read nothing else)
+
+- \`analytics.json\`: \`signals.<family>.<signal>\` lists occurrences; each one points to a moment: \`agent\` (\`main\` or a sub-agent id), \`uuid\`, \`time\`, \`line\`, plus details. \`agents\` lists the session's sub-agents. It can be long: read it in parts (offset and limit).
+- \`conversation-main.txt\`, and \`conversation-agent-<id>.txt\` for each sub-agent: the conversation, one step per line, each starting with \`L<line> <uuid>\`. Long texts are cut and secrets masked.
+- To read the context of a moment, search its uuid in the agent's conversation with Grep, with lines before (what led to it) and after (what followed), e.g. 8 before and 6 after. Read **as many moments as you need to judge**, but never a whole conversation.
+
+## The signals and their relevance
+
+For each signal present, judge every occurrence (or a representative sample when there are very many: say so in its note): **relevant** or not, with a one-sentence reason. A relevant occurrence reveals something that can be improved in the agent, in the setup or in the way of working.
+
+### collaboration
+- **friction** (interruptions, refusals by the user, command cut short). Relevant when the agent was doing something not asked, too broad, too long, risky, or ignored an instruction. Not relevant: a misclick (same request sent again right away), an interruption to add information without reproach, a legitimate action refused out of caution.
+- **corrections** (a prompt typed after the agent acted). Relevant when the prompt **corrects or redirects** the agent ("no", "not like this", "I told you", redo it differently, undo). Not relevant: approval, a new request, a clarification without reproach, a question.
+- **user_edits** (\`proposal_modified_by_user\`: an edit proposal changed by the user before accepting it; \`file_edited_outside_agent\`: a file changed outside the agent; \`file_changed_by_agent_command\`: a file changed by one of the agent's commands (sed, a script), hence **not** a user edit: not relevant unless something is off). Relevant when the user fixed the substance of the agent's work. Not relevant: automatic formatting, an unrelated file, an expected change (the user writing on their own).
+- **agent_questions** (AskUserQuestion and the answers). Relevant when the answer was already known (an instruction, the conversation) or the same question comes back: a missing or misplaced rule. Not relevant: a real decision of the user.
+
+### tools
+- **permission_blocks** (refused by a rule or by auto mode). Relevant when the command was safe and useful (lead: allow it), or when the agent kept trying.
+- **tool_errors**, **repeated_failures**. Relevant when the error comes from the agent or the setup (wrong command, wrong path, missing tool, version), especially when repeated. Not relevant: an expected failure (a test meant to fail), normal exploration.
+- **hooks**. Relevant when a hook blocked or fixed a real mistake (it is useful), or when it fails or gets in the way.
+
+### setup
+- **skills** (called by the agent, typed by the user, failed); see also \`setup.skills_available_never_called\`. Relevant when a skill should have been used and was not, was misused, or fails.
+- **commands** (built-in commands typed).
+- **subagents** (launch and result). Relevant when the sub-agent failed, returned a result that was not used, or was poorly briefed.
+
+### workflow
+- **context_pressure** (compactions, \`/clear\`, \`/compact\`, with the prompt just before). Relevant when the session ran too long, or when the handoff shows a recurring need (e.g. "write down where we are before starting afresh").
+- **handoff** (the session's last prompt). Relevant when it is a handoff or a recurring closing task.
+- **repeated_requests** (every typed prompt). Spot the **intents** that come back within the session, or that look like a ritual (a way of asking, a sequence of steps): candidates for automation (skill, command, hook).
+- **autonomy** (messages sent while the agent worked, plan mode). Relevant when it is a course correction mid-way.
+
+### cost / delivery
+- **api_errors**, **pull_requests**, **git**, **local_review_messages**: context. No judgement needed, unless something is off.
+
+## Answer
+
+Answer with **one JSON object only**, valid, without comments or text around it, with exactly this shape. **Write its texts in the language the user writes in, in this session's prompts**; keys stay in English.
+
+{
+  "session_id": "\u2026",
+  "summary": "3 to 6 sentences: what the user wanted, what was done, how it went.",
+  "goal": "the main goal in one sentence",
+  "outcome": "achieved | partially_achieved | not_achieved | unclear",
+  "signals": {
+    "<family>": {
+      "<signal>": {
+        "occurrences": 0,
+        "relevant": [ { "agent": "main", "uuid": "\u2026", "verdict": "what happened, in one sentence", "why_relevant": "what it reveals", "quote": "a short exact excerpt (\u2264 200 characters)" } ],
+        "not_relevant": [ { "uuid": "\u2026", "reason": "one sentence" } ],
+        "note": "optional: sampling, remark"
+      }
+    }
+  },
+  "patterns": [ { "name": "short", "description": "a way of working or a request that comes back, or a ritual", "evidence": ["uuid", "\u2026"], "automation_idea": "optional" } ],
+  "setup_observations": [ { "subject": "skill | rule | hook | permission | subagent | other", "observation": "\u2026", "evidence": ["uuid"] } ],
+  "improvement_hints": [ { "hint": "a concrete lead", "target": "CLAUDE.md | CLAUDE.local.md | skill | hook | permission | workflow | user | tool", "evidence": ["uuid"], "confidence": "high | medium | low" } ],
+  "confidence": "high | medium | low",
+  "limits": "what you could not judge, and why"
+}
+
+Rules:
+- Include **every family and every signal** of the analytics, even empty ones (\`occurrences: 0\`, empty lists).
+- Every \`uuid\` you cite must be one of the analytics or of a conversation you read: they are checked by program, and a moment that does not exist is removed. **Invent nothing**; what you did not check goes into \`limits\`.
+- **Mask any secret** (key, token, password) that would appear in a quote.
+- A lead without evidence has no place: better no lead than a generic one.`;
+var reportPrompt = (sessionId, agents) => `${REPORT_BRIEF}
+
+The session: ${sessionId}, with ${agents - 1} sub-agent(s). Its files are in your working folder.`;
+
+// src/sessionTranscript.ts
+var import_node_path16 = require("node:path");
+var WIDTH = { result: 500, agent: 1500, user: 3e3 };
+var isRecord4 = (x) => typeof x === "object" && x !== null && !Array.isArray(x);
+var flat = (s) => s.replace(/\s*\n\s*/g, " \u23CE ");
+var asText2 = (x) => typeof x === "string" ? x : x == null ? "" : JSON.stringify(x);
+function renderLine(e) {
+  const t = e.type;
+  const time = typeof e.timestamp === "string" ? e.timestamp.slice(11, 19) : "";
+  const m = isRecord4(e.message) ? e.message : {};
+  const out = [];
+  if (t === "assistant") {
+    for (const b of Array.isArray(m.content) ? m.content.filter(isRecord4) : []) {
+      if (b.type === "text" && typeof b.text === "string" && b.text.trim())
+        out.push(`[${time}] AGENT: ${flat(cut(b.text, WIDTH.agent))}`);
+      else if (b.type === "tool_use")
+        out.push(`[${time}] AGENT \u2192 ${String(b.name)}: ${flat(toolSummary(String(b.name), b.input))}`);
+    }
+  } else if (t === "user") {
+    const content = m.content;
+    const results = Array.isArray(content) ? content.filter((b) => isRecord4(b) && b.type === "tool_result") : [];
+    if (results.length) {
+      for (const b of results) {
+        const body = typeof b.content === "string" ? b.content : textOf2(b.content);
+        out.push(`[${time}]   \u2190 ${b.is_error ? "ERROR" : "result"}: ${flat(cut(body, WIDTH.result))}`);
+      }
+      if (typeof e.toolDenialKind === "string")
+        out.push(`[${time}]   \u2190 REFUSED (${e.toolDenialKind}) ${flat(cut(e.userFeedback, 300))}`);
+    } else {
+      const who2 = isRecord4(e.origin) && typeof e.origin.kind === "string" ? e.origin.kind : "human";
+      out.push(`[${time}] USER (${who2}): ${flat(cut(textOf2(content), WIDTH.user))}`);
+    }
+  } else if (t === "attachment") {
+    const a = isRecord4(e.attachment) ? e.attachment : {};
+    if (a.type === "hook_success" || a.type === "hook_non_blocking_error" || a.type === "hook_additional_context")
+      out.push(`[${time}]   (hook ${String(a.hookName)}: ${flat(cut(asText2(a.stdout ?? a.content), 200))})`);
+    else if (a.type === "edited_text_file")
+      out.push(`[${time}]   (file changed outside the agent: ${String(a.filename)})`);
+    else if (a.type === "queued_command")
+      out.push(`[${time}]   (message sent while the agent worked: ${flat(cut(asText2(a.prompt), 300))})`);
+  } else if (t === "system" && ["compact_boundary", "away_summary", "local_command"].includes(String(e.subtype)))
+    out.push(`[${time}]   (system ${String(e.subtype)}: ${flat(cut(asText2(e.content), 300))})`);
+  return out;
+}
+async function renderSession(sessionFile) {
+  const uuids = /* @__PURE__ */ new Set();
+  const files = [{ id: "main", file: sessionFile }, ...await subagentFiles(sessionFile)];
+  const transcripts = [];
+  for (const f of files) {
+    const lines = [];
+    for (const { n, e } of await readJsonl(f.file)) {
+      const uuid = typeof e.uuid === "string" ? e.uuid : "";
+      if (uuid) uuids.add(uuid);
+      const shown = renderLine(e);
+      if (shown.length) lines.push(`L${n} ${uuid || "-"} ${shown.join(" | ")}`);
+    }
+    transcripts.push({
+      agent: f.id,
+      name: f.id === "main" ? "conversation-main.txt" : `conversation-${(0, import_node_path16.basename)(f.file, ".jsonl")}.txt`,
+      text: lines.join("\n") + "\n"
+    });
+  }
+  return { transcripts, uuids };
+}
+
+// src/sessionReports.ts
+var REPORTS_SOURCE = "Claude Code session records";
+var REPORT_MODEL = "opus";
+var REPORT_TIMEOUT_MS = 20 * 6e4;
+var REPORT_CONCURRENCY = 4;
+var REPORT_COST = { baseUsd: 0.05, perPromptUsd: 0.04, baseMs: 4e4, perPromptMs: 6500 };
+async function currentSession(env) {
+  const sessions = await new SessionRegistry(localReviewHome(env)).list().catch(() => []);
+  return sessionOfProcess(sessions, await processAncestors())?.id;
+}
+async function planReports(book, transcripts, opts = {}) {
+  const plan = { candidates: [], noPrompt: 0, current: 0 };
+  for (const t of transcripts) {
+    if (opts.exclude?.has(t.id) || opts.retroId && await mentions(t.file, opts.retroId)) {
+      plan.current++;
+      continue;
+    }
+    const analytics = await analyseSession(t.file).catch(() => null);
+    if (!analytics) continue;
+    if (analytics.counts.typed_prompts === 0) {
+      plan.noPrompt++;
+      continue;
+    }
+    const existing = await readSessionReport(book, t.id);
+    const upToDate = existing !== null && (existing.v > SESSION_REPORT_VERSION || existing.covered.lines >= analytics.counts.lines);
+    plan.candidates.push({ transcript: t, analytics, action: upToDate ? "keep" : "write" });
+  }
+  return plan;
+}
+var mentions = async (file, text) => (await (0, import_promises15.readFile)(file, "utf8").catch(() => "")).includes(text);
+var expected = (prompts) => ({
+  costUsd: REPORT_COST.baseUsd + REPORT_COST.perPromptUsd * prompts,
+  ms: REPORT_COST.baseMs + REPORT_COST.perPromptMs * prompts
+});
+async function reportScale(book) {
+  let actualCost = 0;
+  let expectedCost = 0;
+  let actualMs = 0;
+  let expectedMs = 0;
+  for (const id of await sessionReportIds(book)) {
+    const r = await readSessionReport(book, id);
+    if (!r) continue;
+    const counts = r.analytics.counts;
+    const e = expected(typeof counts?.typed_prompts === "number" ? counts.typed_prompts : 0);
+    if (r.run.costUsd != null) {
+      actualCost += r.run.costUsd;
+      expectedCost += e.costUsd;
+    }
+    if (r.run.durationMs != null) {
+      actualMs += r.run.durationMs;
+      expectedMs += e.ms;
+    }
+  }
+  return { cost: expectedCost ? actualCost / expectedCost : 1, time: expectedMs ? actualMs / expectedMs : 1 };
+}
+async function estimateReports(book, prompts) {
+  const scale = await reportScale(book);
+  const workers = Array.from({ length: REPORT_CONCURRENCY }, () => 0);
+  let costUsd = 0;
+  for (const p of prompts) {
+    const e = expected(p);
+    costUsd += e.costUsd * scale.cost;
+    const free = workers.indexOf(Math.min(...workers));
+    workers[free] += e.ms * scale.time;
+  }
+  return { costUsd, ms: Math.max(0, ...workers) };
+}
+function reportArgs(prompt) {
+  return [
+    "-p",
+    prompt,
+    "--model",
+    REPORT_MODEL,
+    "--safe-mode",
+    "--tools",
+    "Read,Grep",
+    "--no-session-persistence",
+    "--permission-mode",
+    "default",
+    "--output-format",
+    "json"
+  ];
+}
+var isRecord5 = (x) => typeof x === "object" && x !== null && !Array.isArray(x);
+function jsonOfAnswer(text) {
+  const candidates = [text.trim(), /```(?:json)?\s*([\s\S]*?)```/.exec(text)?.[1] ?? ""];
+  const first = text.indexOf("{");
+  const last = text.lastIndexOf("}");
+  if (first !== -1 && last > first) candidates.push(text.slice(first, last + 1));
+  for (const c of candidates) {
+    try {
+      const v = JSON.parse(c);
+      if (isRecord5(v)) return v;
+    } catch {
+    }
+  }
+  return null;
+}
+function maskAll(x) {
+  if (typeof x === "string") return mask(x);
+  if (Array.isArray(x)) return x.map(maskAll);
+  if (isRecord5(x)) return Object.fromEntries(Object.entries(x).map(([k, v]) => [k, maskAll(v)]));
+  return x;
+}
+function dropUnknownMoments(node, known) {
+  if (Array.isArray(node))
+    return node.filter((x) => !(isRecord5(x) && typeof x.uuid === "string" && !known.has(x.uuid))).map((x) => dropUnknownMoments(x, known));
+  if (isRecord5(node))
+    return Object.fromEntries(
+      Object.entries(node).map(([k, v]) => [
+        k,
+        k === "evidence" && Array.isArray(v) ? v.filter((x) => typeof x !== "string" || known.has(x)) : dropUnknownMoments(v, known)
+      ])
+    );
+  return node;
+}
+var tokensOf2 = (usage) => {
+  if (!isRecord5(usage)) return null;
+  const n = ["input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"].map((k) => usage[k]).filter((v) => typeof v === "number").reduce((s, v) => s + v, 0);
+  return n || null;
+};
+async function writeReport(c, env, run = runProcess, timeoutMs = REPORT_TIMEOUT_MS) {
+  const work = await (0, import_promises15.mkdtemp)((0, import_node_path17.join)((0, import_node_os3.tmpdir)(), "lr-session-report-"));
+  try {
+    const { transcripts, uuids } = await renderSession(c.transcript.file);
+    await (0, import_promises15.writeFile)((0, import_node_path17.join)(work, "analytics.json"), JSON.stringify(c.analytics, null, 1));
+    for (const t of transcripts) await (0, import_promises15.writeFile)((0, import_node_path17.join)(work, t.name), t.text);
+    const claude = env.LR_CLAUDE_BIN?.trim() || "claude";
+    const r = await run(claude, reportArgs(reportPrompt(c.transcript.id, transcripts.length)), {
+      cwd: work,
+      env,
+      timeoutMs
+    });
+    if (r.timedOut)
+      return fail(`it took more than ${Math.round(timeoutMs / 6e4)} min`, { costUsd: null, ms: null, tokens: null });
+    let out;
+    try {
+      out = JSON.parse(r.stdout);
+    } catch {
+      const why = (r.stderr || r.stdout).trim().split("\n").at(-1) ?? "";
+      return fail(`Claude Code ended with code ${r.code ?? "?"}${why ? `: ${why}` : ""}`, {
+        costUsd: null,
+        ms: null,
+        tokens: null
+      });
+    }
+    const spent = {
+      costUsd: typeof out.total_cost_usd === "number" ? out.total_cost_usd : null,
+      ms: typeof out.duration_ms === "number" ? out.duration_ms : null,
+      tokens: tokensOf2(out.usage)
+    };
+    const answer = typeof out.result === "string" ? out.result : "";
+    if (out.is_error === true) return fail(answer.split("\n")[0] || "an error", spent);
+    const raw = jsonOfAnswer(answer);
+    if (!raw || typeof raw.summary !== "string" || !isRecord5(raw.signals))
+      return fail("the model did not answer with a report", spent);
+    const cited = citedMoments(raw);
+    const unknown = [...cited].filter((u) => !uuids.has(u)).sort();
+    const analysis = maskAll(dropUnknownMoments({ ...raw, session_id: c.transcript.id }, uuids));
+    const a = c.analytics;
+    return {
+      kind: "done",
+      report: {
+        v: SESSION_REPORT_VERSION,
+        session: c.transcript.id,
+        agent: "Claude Code",
+        folder: a.cwd ?? c.transcript.cwd,
+        start: a.start ?? c.transcript.start,
+        end: a.end ?? c.transcript.start,
+        covered: { lines: a.counts.lines },
+        generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        model: REPORT_MODEL,
+        run: { costUsd: spent.costUsd, durationMs: spent.ms, tokens: spent.tokens },
+        checks: { citedMoments: cited.size, unknownMoments: unknown },
+        analysis,
+        analytics: a
+      }
+    };
+  } finally {
+    await (0, import_promises15.rm)(work, { recursive: true, force: true });
+  }
+}
+var fail = (reason, spent) => ({ kind: "failed", reason, costUsd: spent.costUsd, durationMs: spent.ms, tokens: spent.tokens });
+async function writeReports(book, plan, env, run = runProcess, concurrency = REPORT_CONCURRENCY) {
+  const started = Date.now();
+  const refs = /* @__PURE__ */ new Map();
+  let costUsd = null;
+  let tokens = null;
+  const queue = plan.candidates.filter((c) => c.action === "write");
+  for (const c of plan.candidates)
+    if (c.action === "keep")
+      refs.set(c.transcript.id, { id: c.transcript.id, start: c.transcript.start, status: "reused" });
+  const worker = async () => {
+    for (let c = queue.shift(); c; c = queue.shift()) {
+      const outcome = await writeReport(c, env, run).catch(
+        (err) => fail(err instanceof Error ? err.message : String(err), {
+          costUsd: null,
+          ms: null,
+          tokens: null
+        })
+      );
+      const spent = outcome.kind === "done" ? outcome.report.run : outcome;
+      if (spent.costUsd !== null) costUsd = (costUsd ?? 0) + spent.costUsd;
+      if (spent.tokens !== null) tokens = (tokens ?? 0) + spent.tokens;
+      const ref = { id: c.transcript.id, start: c.transcript.start, status: "analysed" };
+      if (outcome.kind === "done") await writeSessionReport(book, outcome.report);
+      else if (await readSessionReport(book, c.transcript.id))
+        Object.assign(ref, { status: "reused", reason: `not brought up to date: ${outcome.reason}` });
+      else Object.assign(ref, { status: "failed", reason: outcome.reason });
+      refs.set(c.transcript.id, ref);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, concurrency) }, worker));
+  const ordered = plan.candidates.map((c) => refs.get(c.transcript.id)).filter((x) => !!x);
+  return { refs: ordered, costUsd, durationMs: Date.now() - started, tokens };
 }
 
 // src/retroJev.ts
-var import_promises11 = require("node:fs/promises");
+var import_promises16 = require("node:fs/promises");
 var JEV_URL = "https://jevtypesafeai.com/api/v1/decide";
 var INTRO = "Code review thread between a developer and their AI coding agent. ";
 var QUESTIONS = {
@@ -1952,7 +3275,7 @@ async function readJevKey(env = process.env) {
   const s = await jevKeyStatus(env);
   if (!s.exists) throw new Error(`no Jev key: ${s.path} does not exist (lr retro key tells how to add one)`);
   if (!s.ok) throw new Error(`the Jev key file is not safe, fix it first: ${s.fixes.join("; ")}`);
-  const key = (await (0, import_promises11.readFile)(s.path, "utf8")).trim();
+  const key = (await (0, import_promises16.readFile)(s.path, "utf8")).trim();
   if (!key) throw new Error(`the Jev key file ${s.path} is empty`);
   return key;
 }
@@ -2008,8 +3331,8 @@ async function classifyWithJev(threads, rules, deps) {
 }
 
 // src/retroConversation.ts
-var import_promises12 = require("node:fs/promises");
-var import_node_path13 = require("node:path");
+var import_promises17 = require("node:fs/promises");
+var import_node_path18 = require("node:path");
 function linkedReplies(t) {
   return t.conversation.flatMap(
     (e) => e.kind === "comment" && e.author === "agent" && e.session ? [{ session: e.session.id, ...e.session.message ? { message: e.session.message } : {}, at: e.at }] : []
@@ -2018,26 +3341,26 @@ function linkedReplies(t) {
 var SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/;
 async function transcriptsOf(claudeDir, session) {
   if (!SAFE_ID.test(session)) return [];
-  const projects = (0, import_node_path13.join)(claudeDir, "projects");
+  const projects = (0, import_node_path18.join)(claudeDir, "projects");
   let folders;
   try {
-    folders = await (0, import_promises12.readdir)(projects);
+    folders = await (0, import_promises17.readdir)(projects);
   } catch {
     return [];
   }
   const found2 = [];
   for (const folder of folders.sort()) {
-    const main = (0, import_node_path13.join)(projects, folder, `${session}.jsonl`);
+    const main = (0, import_node_path18.join)(projects, folder, `${session}.jsonl`);
     if (await readable(main)) found2.push(main);
     try {
-      const sub = (0, import_node_path13.join)(projects, folder, session, "subagents");
-      for (const f of (await (0, import_promises12.readdir)(sub)).sort()) if (f.endsWith(".jsonl")) found2.push((0, import_node_path13.join)(sub, f));
+      const sub = (0, import_node_path18.join)(projects, folder, session, "subagents");
+      for (const f of (await (0, import_promises17.readdir)(sub)).sort()) if (f.endsWith(".jsonl")) found2.push((0, import_node_path18.join)(sub, f));
     } catch {
     }
   }
   return found2;
 }
-var readable = (file) => (0, import_promises12.stat)(file).then(
+var readable = (file) => (0, import_promises17.stat)(file).then(
   (s) => s.isFile(),
   () => false
 );
@@ -2072,11 +3395,11 @@ function findReply(entries, reply, threadId) {
   for (let i = entries.length - 1; i >= 0; i--) {
     const e = entries[i];
     if (Date.parse(e.timestamp ?? "") > until) continue;
-    const named = toolUses(e).some((b) => {
+    const named2 = toolUses(e).some((b) => {
       const command = b.input?.command;
       return typeof command === "string" && /\blr\b/.test(command) && command.includes(threadId);
     });
-    if (named) return i;
+    if (named2) return i;
   }
   return -1;
 }
@@ -2157,7 +3480,7 @@ function excerpt(entries, at, budget = EXCERPT_BUDGET) {
   if (usage) lines.push(`- This turn up to there: ${usage}`);
   return lines.join("\n");
 }
-async function threadConversations(thread, claudeDir, read = (f) => (0, import_promises12.readFile)(f, "utf8")) {
+async function threadConversations(thread, claudeDir, read = (f) => (0, import_promises17.readFile)(f, "utf8")) {
   const replies = linkedReplies(thread);
   const sessions = [...new Set(replies.map((r) => r.session))];
   const head = `# The agent's conversation for thread ${thread.id}`;
@@ -2221,19 +3544,19 @@ The conversation exists (${files[0]}), but this reply was not found in it: read 
 }
 
 // src/retroSetup.ts
-var import_promises13 = require("node:fs/promises");
-var import_node_path14 = require("node:path");
+var import_promises18 = require("node:fs/promises");
+var import_node_path19 = require("node:path");
 var FILE_CAP = 24e3;
 var SETUP_BUDGET = 1e5;
-var orNull = (p) => p.catch(() => null);
-var exists = async (p) => await orNull((0, import_promises13.stat)(p)) !== null;
+var orNull2 = (p) => p.catch(() => null);
+var exists = async (p) => await orNull2((0, import_promises18.stat)(p)) !== null;
 async function markdown(dir, depth = 3) {
   if (depth < 0) return [];
-  const names = await (0, import_promises13.readdir)(dir).catch(() => []);
+  const names = await (0, import_promises18.readdir)(dir).catch(() => []);
   const out = [];
   for (const name of names.sort()) {
-    const p = (0, import_node_path14.join)(dir, name);
-    const st = await orNull((0, import_promises13.stat)(p));
+    const p = (0, import_node_path19.join)(dir, name);
+    const st = await orNull2((0, import_promises18.stat)(p));
     if (!st) continue;
     if (st.isDirectory()) out.push(...await markdown(p, depth - 1));
     else if (name.endsWith(".md")) out.push(p);
@@ -2241,18 +3564,18 @@ async function markdown(dir, depth = 3) {
   return out;
 }
 var isInside = (path, dir) => {
-  const rel = (0, import_node_path14.relative)(dir, path);
-  return rel !== "" && !rel.startsWith("..") && !(0, import_node_path14.isAbsolute)(rel);
+  const rel = (0, import_node_path19.relative)(dir, path);
+  return rel !== "" && !rel.startsWith("..") && !(0, import_node_path19.isAbsolute)(rel);
 };
 function projectDirs(root, repos, home) {
   const parents = [];
-  let dir = (0, import_node_path14.dirname)((0, import_node_path14.resolve)(root));
-  const top = (0, import_node_path14.resolve)(home);
-  while (dir !== (0, import_node_path14.dirname)(dir) && isInside(dir, top)) {
+  let dir = (0, import_node_path19.dirname)((0, import_node_path19.resolve)(root));
+  const top = (0, import_node_path19.resolve)(home);
+  while (dir !== (0, import_node_path19.dirname)(dir) && isInside(dir, top)) {
     parents.unshift(dir);
-    dir = (0, import_node_path14.dirname)(dir);
+    dir = (0, import_node_path19.dirname)(dir);
   }
-  return [.../* @__PURE__ */ new Set([...parents, (0, import_node_path14.resolve)(root), ...repos.map((r) => (0, import_node_path14.resolve)(r))])];
+  return [.../* @__PURE__ */ new Set([...parents, (0, import_node_path19.resolve)(root), ...repos.map((r) => (0, import_node_path19.resolve)(r))])];
 }
 async function found(root, repos, home, claudeDir) {
   const files = [];
@@ -2262,21 +3585,39 @@ async function found(root, repos, home, claudeDir) {
   const dirs = projectDirs(root, repos, home);
   for (const d of dirs)
     for (const name of ["CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md"])
-      await add((0, import_node_path14.join)(d, name), "rules", "project");
-  await add((0, import_node_path14.join)(claudeDir, "CLAUDE.md"), "rules", "user");
+      await add((0, import_node_path19.join)(d, name), "rules", "project");
+  await add((0, import_node_path19.join)(claudeDir, "CLAUDE.md"), "rules", "user");
   const setupOf = async (claude, agents, scope) => {
-    for (const f of await markdown((0, import_node_path14.join)(claude, "rules"))) await add(f, "rules", scope);
-    for (const f of await markdown((0, import_node_path14.join)(claude, "skills"), 2))
-      if ((0, import_node_path14.basename)(f) === "SKILL.md") await add(f, "skill", scope);
-    for (const f of await markdown((0, import_node_path14.join)(claude, "commands"))) await add(f, "command", scope);
-    for (const f of await markdown((0, import_node_path14.join)(claude, "agents"))) await add(f, "agent", scope);
-    for (const name of ["settings.json", "settings.local.json"]) await add((0, import_node_path14.join)(claude, name), "hooks", scope);
+    for (const f of await markdown((0, import_node_path19.join)(claude, "rules"))) await add(f, "rules", scope);
+    for (const f of await markdown((0, import_node_path19.join)(claude, "skills"), 2))
+      if ((0, import_node_path19.basename)(f) === "SKILL.md") await add(f, "skill", scope);
+    for (const f of await markdown((0, import_node_path19.join)(claude, "commands"))) await add(f, "command", scope);
+    for (const f of await markdown((0, import_node_path19.join)(claude, "agents"))) await add(f, "agent", scope);
+    for (const name of ["settings.json", "settings.local.json"]) await add((0, import_node_path19.join)(claude, name), "hooks", scope);
     for (const f of await markdown(agents)) await add(f, "other", scope);
   };
-  for (const d of [(0, import_node_path14.resolve)(root), ...repos.map((r) => (0, import_node_path14.resolve)(r))])
-    await setupOf((0, import_node_path14.join)(d, ".claude"), (0, import_node_path14.join)(d, ".agents"), "project");
-  await setupOf(claudeDir, (0, import_node_path14.join)(home, ".agents"), "user");
+  for (const d of [(0, import_node_path19.resolve)(root), ...repos.map((r) => (0, import_node_path19.resolve)(r))])
+    await setupOf((0, import_node_path19.join)(d, ".claude"), (0, import_node_path19.join)(d, ".agents"), "project");
+  await setupOf(claudeDir, (0, import_node_path19.join)(home, ".agents"), "user");
   return files;
+}
+var frontName = (text) => /^---\n[\s\S]*?^name:\s*["']?([^"'\n]+?)["']?\s*$/m.exec(text)?.[1]?.trim();
+async function setupTools(root, repos, home, claudeDir = (0, import_node_path19.join)(home, ".claude")) {
+  const out = [];
+  for (const f of await found(root, repos, home, claudeDir)) {
+    if (f.kind !== "skill" && f.kind !== "command" && f.kind !== "agent") continue;
+    const text = await orNull2((0, import_promises18.readFile)(f.path, "utf8")) ?? "";
+    if (f.kind === "skill") {
+      if ((0, import_node_path19.basename)((0, import_node_path19.dirname)((0, import_node_path19.dirname)(f.path))) !== "skills") continue;
+      out.push({ ...f, kind: "skill", name: (0, import_node_path19.basename)((0, import_node_path19.dirname)(f.path)), file: f.path, path: (0, import_node_path19.dirname)(f.path) });
+    } else if (f.kind === "command") {
+      const dir = f.path.slice(0, f.path.lastIndexOf("/commands/") + "/commands/".length);
+      const name = f.path.slice(dir.length, -".md".length).split("/").join(":");
+      out.push({ ...f, kind: "command", name, file: f.path, path: f.path });
+    } else
+      out.push({ ...f, kind: "agent", name: frontName(text) ?? (0, import_node_path19.basename)(f.path, ".md"), file: f.path, path: f.path });
+  }
+  return out;
 }
 function header(text) {
   const m = /^---\n([\s\S]*?)\n---/.exec(text);
@@ -2293,13 +3634,13 @@ function hooksOf(text) {
     return null;
   }
 }
-async function collectSetup(root, repos, home, claudeDir = (0, import_node_path14.join)(home, ".claude"), budget = SETUP_BUDGET) {
+async function collectSetup(root, repos, home, claudeDir = (0, import_node_path19.join)(home, ".claude"), budget = SETUP_BUDGET) {
   const out = [];
   let used = 0;
   const all = await found(root, repos, home, claudeDir);
   const order = (f) => (f.kind === "rules" || f.kind === "hooks" ? 0 : 1) + (f.scope === "user" ? 2 : 0);
   for (const f of [...all].sort((a, b) => order(a) - order(b))) {
-    const raw = await orNull((0, import_promises13.readFile)(f.path, "utf8"));
+    const raw = await orNull2((0, import_promises18.readFile)(f.path, "utf8"));
     if (raw === null) continue;
     let content = f.kind === "hooks" ? hooksOf(raw) : raw;
     if (content === null) continue;
@@ -2326,8 +3667,8 @@ var TITLES = {
 };
 function renderSetup(root, home, files) {
   const label = (p) => {
-    if (isInside(p, (0, import_node_path14.resolve)(root))) return (0, import_node_path14.relative)(root, p);
-    if (isInside(p, (0, import_node_path14.resolve)(home))) return "~/" + (0, import_node_path14.relative)(home, p);
+    if (isInside(p, (0, import_node_path19.resolve)(root))) return (0, import_node_path19.relative)(root, p);
+    if (isInside(p, (0, import_node_path19.resolve)(home))) return "~/" + (0, import_node_path19.relative)(home, p);
     return p;
   };
   const lines = [
@@ -2354,6 +3695,135 @@ function renderSetup(root, home, files) {
   return lines.join("\n");
 }
 
+// src/toolUsage.ts
+var import_node_fs3 = require("node:fs");
+var import_promises19 = require("node:fs/promises");
+var import_node_path20 = require("node:path");
+var import_node_readline2 = require("node:readline");
+var USAGE_SOURCE = "Claude Code";
+var DEFAULT_KEPT_DAYS = 30;
+var bump2 = (m, k) => m.set(k, (m.get(k) ?? 0) + 1);
+var isRecord6 = (x) => typeof x === "object" && x !== null && !Array.isArray(x);
+var COMMAND2 = /<command-name>\/?([^<]+)<\/command-name>/;
+function userText(content) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content.filter(isRecord6).map((b) => b.type === "text" && typeof b.text === "string" ? b.text : "").join("\n");
+}
+async function readUses(file, use) {
+  const lines = (0, import_node_readline2.createInterface)({ input: (0, import_node_fs3.createReadStream)(file, { encoding: "utf8" }), crlfDelay: Infinity });
+  try {
+    for await (const line of lines) {
+      const ts = /"timestamp":"([^"]+)"/.exec(line)?.[1];
+      if (ts && (use.last === null || ts > use.last)) use.last = ts;
+      if (!line.includes("command-name") && !line.includes('"Skill"') && !line.includes("subagent_type")) continue;
+      let e;
+      try {
+        e = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      const m = isRecord6(e.message) ? e.message : {};
+      if (e.type === "user") {
+        const cmd = COMMAND2.exec(userText(m.content));
+        if (cmd) bump2(use.typed, cmd[1].trim());
+      } else if (e.type === "assistant" && Array.isArray(m.content))
+        for (const b of m.content.filter(isRecord6)) {
+          if (b.type !== "tool_use" || !isRecord6(b.input)) continue;
+          if (b.name === "Skill" && typeof b.input.skill === "string") bump2(use.called, b.input.skill.trim());
+          if ((b.name === "Agent" || b.name === "Task") && typeof b.input.subagent_type === "string")
+            bump2(use.agents, b.input.subagent_type.trim());
+        }
+    }
+  } finally {
+    lines.close();
+  }
+}
+async function sessionUses(file) {
+  const use = { typed: /* @__PURE__ */ new Map(), called: /* @__PURE__ */ new Map(), agents: /* @__PURE__ */ new Map(), last: null };
+  await readUses(file, use);
+  for (const s of await subagentFiles(file)) await readUses(s.file, use);
+  return use;
+}
+async function allTranscripts(claudeDir) {
+  const projects = (0, import_node_path20.join)(claudeDir, "projects");
+  const out = [];
+  for (const dir of await (0, import_promises19.readdir)(projects).catch(() => []))
+    for (const name of await (0, import_promises19.readdir)((0, import_node_path20.join)(projects, dir)).catch(() => []))
+      if (name.endsWith(".jsonl")) out.push((0, import_node_path20.join)(projects, dir, name));
+  return out;
+}
+async function keptDays(claudeDir) {
+  try {
+    const raw = JSON.parse(await (0, import_promises19.readFile)((0, import_node_path20.join)(claudeDir, "settings.json"), "utf8"));
+    const n = raw.cleanupPeriodDays;
+    return typeof n === "number" && n > 0 ? n : DEFAULT_KEPT_DAYS;
+  } catch {
+    return DEFAULT_KEPT_DAYS;
+  }
+}
+var named = (m, name) => m.get(name) ?? 0;
+function countUses(tools, sessions) {
+  return tools.map((t) => {
+    let byUser = 0;
+    let byAgent = 0;
+    let used = 0;
+    let lastUsed = null;
+    for (const s of sessions) {
+      const u = t.kind === "agent" ? 0 : named(s.typed, t.name);
+      const a = t.kind === "agent" ? named(s.agents, t.name) : t.kind === "skill" ? named(s.called, t.name) : 0;
+      const c = t.kind === "command" ? named(s.called, t.name) : 0;
+      byUser += u;
+      byAgent += a + c;
+      if (u + a + c > 0) {
+        used++;
+        if (s.last && (lastUsed === null || s.last > lastUsed)) lastUsed = s.last;
+      }
+    }
+    return { byUser, byAgent, sessions: used, lastUsed };
+  });
+}
+var oldest = (xs) => xs.map((x) => x.start).sort()[0] ?? null;
+async function setupUsage(tools, claudeDir, root, env, exclude = /* @__PURE__ */ new Set()) {
+  const until = (/* @__PURE__ */ new Date()).toISOString();
+  const project = (await projectTranscripts(claudeDir, root, { since: null, until }, env)).filter(
+    (t) => !exclude.has(t.id)
+  );
+  const projectUses = await Promise.all(project.map((t) => sessionUses(t.file)));
+  const userTools = tools.filter((t) => t.scope === "user");
+  let all = [];
+  let allUses = [];
+  let allSince = null;
+  if (userTools.length > 0) {
+    all = (await allTranscripts(claudeDir)).filter(
+      (f) => !exclude.has(f.slice(f.lastIndexOf("/") + 1, -".jsonl".length))
+    );
+    allUses = await Promise.all(all.map((f) => sessionUses(f)));
+    allSince = allUses.map((u) => u.last).filter((x) => x !== null).sort()[0] ?? null;
+  }
+  const kept = await keptDays(claudeDir);
+  const projectTools = tools.filter((t) => t.scope === "project");
+  const counts = /* @__PURE__ */ new Map();
+  countUses(projectTools, projectUses).forEach((c, i) => counts.set(projectTools[i], c));
+  countUses(userTools, allUses).forEach((c, i) => counts.set(userTools[i], c));
+  const windows = [
+    { scope: "project", sessions: project.length, since: oldest(project), keptDays: kept },
+    ...userTools.length ? [{ scope: "user", sessions: all.length, since: allSince, keptDays: kept }] : []
+  ];
+  return {
+    source: USAGE_SOURCE,
+    tools: tools.map((t) => ({
+      kind: t.kind,
+      name: t.name,
+      scope: t.scope,
+      file: t.file,
+      path: t.path,
+      ...counts.get(t)
+    })),
+    windows
+  };
+}
+
 // src/retroCli.ts
 var RETRO_CLI_USAGE = `lr-retro \u2014 the Claude Code part of Local Review's retros
 
@@ -2368,12 +3838,23 @@ var RETRO_CLI_USAGE = `lr-retro \u2014 the Claude Code part of Local Review's re
 
   lr-retro sessions [--root <dir>] [--since <date> | --all]
                                              How many Claude Code sessions the project had in the
-                                             period of the next retro (as lr retro scope)
+                                             period of the next retro (as lr retro scope), how many
+                                             need a report, and what writing them would take
+  lr-retro reports <retro-id> [--root <dir>]
+                                             Write a report on each Claude Code session of the
+                                             project and of the retro's period (one separate Claude
+                                             Code each, with Opus, several at once), or reuse the
+                                             one already written, for its analysis
   lr-retro insights <retro-id> [--root <dir>]
                                              Run Claude Code's /insights (a separate Claude Code,
                                              about a minute), then keep what it knows of the
                                              sessions of the project and of the retro's period, for
                                              its analysis
+
+  lr-retro usage <retro-id> [--root <dir>]   Count how much each skill, command and sub-agent of the
+                                             setup was used, from Claude Code's sessions (the
+                                             project's tools on its sessions, the user's on every
+                                             project), without a model, for the analysis of the audit
 
   lr-retro conversation <retro-id> <thread-id> [--root <dir>]
                                              Read back Claude Code's conversation where the agent
@@ -2384,6 +3865,11 @@ var localDay = (iso) => {
   const d = new Date(iso);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
+var MODE_LINE = {
+  reports: "The retro reads them through these reports (setting retro-sessions: reports; Claude Code's /insights is cheaper: lr config set retro-sessions insights).",
+  insights: "The retro reads them through Claude Code's /insights (setting retro-sessions: insights; a report on each session is finer: lr config set retro-sessions reports)."
+};
+var minutes = (ms) => `${Math.max(1, Math.round(ms / 6e4))} min`;
 var RULES_CAP = 8e3;
 async function runRetroCli(args, io) {
   try {
@@ -2393,23 +3879,82 @@ async function runRetroCli(args, io) {
       allowPositionals: true
     });
     const [action, id, threadId] = positionals;
-    const actions = ["setup", "jev", "audit", "conversation", "insights", "sessions"];
+    const actions = ["setup", "jev", "audit", "conversation", "insights", "sessions", "reports", "usage"];
     if (action === void 0 || !actions.includes(action)) {
       io.out(RETRO_CLI_USAGE);
       return action === void 0 || action === "help" ? 0 : 1;
     }
     const root = values.root ?? io.cwd;
-    const home = io.env.HOME?.trim() || (0, import_node_os3.homedir)();
-    const claudeDir = io.env.CLAUDE_CONFIG_DIR?.trim() || (0, import_node_path15.join)(home, ".claude");
+    const home = io.env.HOME?.trim() || (0, import_node_os4.homedir)();
+    const claudeDir = io.env.CLAUDE_CONFIG_DIR?.trim() || (0, import_node_path21.join)(home, ".claude");
     if (action === "sessions") {
       if (values.since !== void 0 && values.all) throw new Error("give --since or --all, not both");
       const since = values.since === void 0 ? void 0 : parseDateArg(values.since);
       if (since === null) throw new Error(`--since takes a date (2026-10-01) or a number of days ago (7d)`);
       const scope = await retroScope(root, { ...since ? { since } : {}, all: values.all === true, env: io.env });
-      const n2 = await countSessions(claudeDir, scope.root, scope, io.env);
+      const book2 = new RetroBook(await retroHome(scope.root, io.env));
+      const own = await (io.session ?? currentSession)(io.env);
+      const period = async (from) => {
+        const transcripts = await projectTranscripts(
+          claudeDir,
+          scope.root,
+          { since: from, until: scope.until },
+          io.env
+        );
+        const plan = await planReports(book2, transcripts, own ? { exclude: /* @__PURE__ */ new Set([own]) } : {});
+        const writing2 = plan.candidates.filter((c) => c.action === "write");
+        const est = await estimateReports(
+          book2,
+          writing2.map((c) => c.analytics.counts.typed_prompts)
+        );
+        return {
+          sessions: transcripts.length,
+          plan,
+          toWrite: writing2.length,
+          kept: plan.candidates.length - writing2.length,
+          est
+        };
+      };
+      const mode = (await readConfig(io.env)).retroSessions;
+      if (mode === "insights") {
+        const count = async (from) => (await projectTranscripts(claudeDir, scope.root, { since: from, until: scope.until }, io.env)).filter(
+          (t) => t.id !== own
+        ).length;
+        const n2 = await count(scope.since);
+        const lines = [
+          `${n2} Claude Code session${n2 === 1 ? "" : "s"} in this project ` + (scope.since ? `since ${localDay(scope.since)}` : "over the whole history") + (own ? " (this session left out)" : "") + ".",
+          `${MODE_LINE.insights} No report is written.`
+        ];
+        if (scope.options.length > 0) {
+          lines.push("", "Periods to choose from (as lr retro scope lists them):");
+          for (const o of scope.options) {
+            const x = o.since === scope.since ? n2 : await count(o.since);
+            lines.push(
+              `- ${o.label} (${o.flag || "the default"}${o.proposed ? ", proposed" : ""}): ${x} session${x === 1 ? "" : "s"}, read by /insights (about a minute)`
+            );
+          }
+        }
+        io.out(lines.join("\n"));
+        return 0;
+      }
+      const p = await period(scope.since);
       io.out(
-        `${n2} Claude Code session${n2 === 1 ? "" : "s"} in this project ` + (scope.since ? `since ${localDay(scope.since)}` : "over the whole history") + "."
+        [
+          `${p.sessions} Claude Code session${p.sessions === 1 ? "" : "s"} in this project ` + (scope.since ? `since ${localDay(scope.since)}` : "over the whole history") + ".",
+          `Reports on them: ${p.toWrite} to write` + (p.toWrite ? ` (about ${minutes(p.est.ms)} with ${REPORT_CONCURRENCY} at once, and about $${p.est.costUsd.toFixed(2)} at the API list price: on a subscription, tokens counted against the usage limits, not a bill)` : "") + `, ${p.kept} already written` + (p.plan.noPrompt ? `, ${p.plan.noPrompt} without any prompt typed by the user (not analysed)` : "") + (p.plan.current ? ", and this session (not analysed)" : "") + ".",
+          MODE_LINE.reports
+        ].join("\n")
       );
+      if (scope.options.length > 0) {
+        const lines = ["", "Periods to choose from (as lr retro scope lists them):"];
+        for (const o of scope.options) {
+          const x = o.since === scope.since ? p : await period(o.since);
+          lines.push(
+            `- ${o.label} (${o.flag || "the default"}${o.proposed ? ", proposed" : ""}): ${x.sessions} session${x.sessions === 1 ? "" : "s"}, ${x.toWrite} report${x.toWrite === 1 ? "" : "s"} to write` + (x.toWrite ? ` (about ${minutes(x.est.ms)}, about $${x.est.costUsd.toFixed(2)})` : "") + `, ${x.kept} already written`
+          );
+        }
+        io.out(lines.join("\n"));
+      }
       return 0;
     }
     if (!id) throw new Error("missing <retro-id>");
@@ -2429,6 +3974,21 @@ async function runRetroCli(args, io) {
       io.out(result2.text);
       return 0;
     }
+    if (action === "usage") {
+      const own = await (io.session ?? currentSession)(io.env);
+      const tools = await setupTools(retro.root, repos, home, claudeDir);
+      const usage = await setupUsage(tools, claudeDir, retro.root, io.env, new Set(own ? [own] : []));
+      await book.record(retro.id, [{ type: "retro.usage", ...usage }]);
+      const never = usage.tools.filter((t) => t.byUser + t.byAgent === 0);
+      io.out(
+        [
+          `Usage of the ${usage.tools.length} skills, commands and sub-agents of the setup, from Claude Code's sessions ` + usage.windows.map(
+            (w) => `(${w.scope === "project" ? "the project's" : "every project's, for the user's tools"}: ${w.sessions} session${w.sessions === 1 ? "" : "s"})`
+          ).join(" ") + `: ${never.length} never used. lr retro input --for audit includes it.`
+        ].join("\n")
+      );
+      return 0;
+    }
     if (action === "setup") {
       const files = await collectSetup(retro.root, repos, home, claudeDir);
       const file = await writeRetroFile(book, retro.id, "setup.md", renderSetup(retro.root, home, files));
@@ -2439,14 +3999,60 @@ ${files.length} setup files (${files.filter((f) => f.kind === "rules").length} r
       );
       return 0;
     }
+    if (action === "reports" || action === "insights") {
+      const wanted = action;
+      if (retro.sessionsMode !== null && retro.sessionsMode !== wanted) {
+        io.out(
+          `Skipped: this retro reads the sessions ${retro.sessionsMode === "reports" ? "through a report on each one" : "through Claude Code's /insights"} (setting retro-sessions when it started), never both.`
+        );
+        return 0;
+      }
+    }
+    if (action === "reports") {
+      const transcripts = await projectTranscripts(claudeDir, retro.root, retro, io.env);
+      const own = await (io.session ?? currentSession)(io.env);
+      const plan = await planReports(book, transcripts, {
+        retroId: retro.id,
+        ...own ? { exclude: /* @__PURE__ */ new Set([own]) } : {}
+      });
+      const done = await writeReports(book, plan, io.env, io.run);
+      const count = (status) => done.refs.filter((r) => r.status === status).length;
+      const written = count("analysed");
+      const kept = count("reused");
+      const refs = await Promise.all(
+        done.refs.map(
+          async (ref) => ref.status === "reused" && !ref.reason && ((await readSessionReport(book, ref.id))?.generatedAt ?? "") >= retro.startedAt ? { ...ref, status: "analysed" } : ref
+        )
+      );
+      await book.record(retro.id, [
+        {
+          type: "retro.reports",
+          source: REPORTS_SOURCE,
+          sessions: refs,
+          durationMs: done.durationMs,
+          ...done.costUsd !== null ? { costUsd: done.costUsd } : {},
+          ...done.tokens !== null ? { tokens: done.tokens } : {}
+        }
+      ]);
+      const failed = done.refs.filter((r) => r.status === "failed");
+      io.out(
+        [
+          `Reports on the ${done.refs.length} Claude Code session${done.refs.length === 1 ? "" : "s"} of this project in the period: ${written} written, ${kept} kept from before` + (failed.length ? `, ${failed.length} could not be written` : "") + (written ? `, in ${minutes(done.durationMs)}` : "") + (done.costUsd !== null ? ` (about $${done.costUsd.toFixed(2)} at the API list price)` : "") + ". lr retro input --for analysis includes them.",
+          ...failed.map((r) => `- ${r.id}: ${r.reason ?? "failed"}`)
+        ].join("\n")
+      );
+      return written + kept > 0 || done.refs.length === 0 ? 0 : 1;
+    }
     if (action === "insights") {
       const ran = await runInsights(retro.root, io.env, io.run);
+      const own = await (io.session ?? currentSession)(io.env);
       const { sessions, files, read } = await projectSessions(
-        (0, import_node_path15.join)(claudeDir, "usage-data"),
+        (0, import_node_path21.join)(claudeDir, "usage-data"),
         retro.root,
         retro,
         io.env,
-        io.run
+        io.run,
+        new Set(own ? [own] : [])
       );
       if (files > 0 && read === 0) {
         io.err(
@@ -2488,7 +4094,7 @@ ${files.length} setup files (${files.filter((f) => f.kind === "rules").length} r
       const file = await writeRetroFile(
         book,
         retro.id,
-        "audit.md",
+        AUDIT_FILE,
         [
           `# Audit of the setup \u2014 ${AUDIT_COMMAND}`,
           "",
@@ -2498,10 +4104,10 @@ ${files.length} setup files (${files.filter((f) => f.kind === "rules").length} r
           ""
         ].join("\n")
       );
-      const minutes = outcome.durationMs === null ? "" : ` in ${Math.max(1, Math.round(outcome.durationMs / 6e4))} min`;
+      const minutes2 = outcome.durationMs === null ? "" : ` in ${Math.max(1, Math.round(outcome.durationMs / 6e4))} min`;
       const cost = outcome.costUsd === null ? "" : ` (about $${outcome.costUsd.toFixed(2)})`;
       io.out(`Written: ${file}
-The audit of the setup is done${minutes}${cost}.`);
+The audit of the setup is done${minutes2}${cost}.`);
       return 0;
     }
     const key = await readJevKey(io.env);

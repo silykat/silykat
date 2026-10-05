@@ -434,6 +434,20 @@
           "scope": "application",
           "markdownDescription": "Keep the history of what you delete, for `lr history` and retros (looking back at your review comments with your agent): a deleted thread stays on disk, out of sight, and the agent saves the threads of a git worktree before removing it. When off, deleting a thread erases it for good, nothing is saved when a worktree is removed, and you are offered to erase the history already kept. For this machine: machine setting `keep-history` of `lr config`, updated when you change it here."
         },
+        "localReview.retroSessions": {
+          "type": "string",
+          "enum": [
+            "reports",
+            "insights"
+          ],
+          "enumDescriptions": [
+            "A report on each of the agent's sessions, written by a model when the retro starts: finer, takes longer and costs more.",
+            "The agent's own summaries of its sessions (Claude Code's /insights): cheaper, less precise."
+          ],
+          "default": "reports",
+          "scope": "application",
+          "markdownDescription": "How a retro (looking back at your review comments with your agent, e.g. `/local-review:retro`) reads your sessions with the agent, next to the review threads. Never both: they tell the same sessions twice. For this machine: machine setting `retro-sessions` of `lr config`, updated when you change it here."
+        },
         "localReview.retroReminder.days": {
           "type": "integer",
           "default": 7,

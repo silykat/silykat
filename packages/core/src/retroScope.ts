@@ -3,6 +3,9 @@ import { join, resolve } from 'node:path';
 import { deletionLabel, type HistoryEntry, type ThreadHistory } from './history';
 import { projectHistory, type ProjectHistory } from './project';
 import { renderSessions, type RetroSession } from './retroSessions';
+import { findingsFormat, type Finding, type FindingSource, type SourceFindings } from './retroFindings';
+import { TOOL_TITLE, toolOfFile, usesOf, type SetupUsage } from './retroUsage';
+import { renderSessionReports, type SessionReport } from './sessionReports';
 import {
   FEEDBACK_CATEGORIES,
   RetroBook,
@@ -25,15 +28,19 @@ import {
 /** How the period of a retro was chosen. */
 export type PeriodSource = 'last-retro' | 'given' | 'proposed' | 'all';
 
-/** A period offered for a first retro, with what it holds. */
+/** A period offered for a retro, with what it holds. */
 export interface PeriodOption {
   label: string;
   /** `null`: the whole history. */
   since: string | null;
-  /** How to ask for it: `--since 7d`, `--all`. */
+  /** How to ask for it: `--since 7d`, `--all`; empty for the period of the last retro on (the default). */
   flag: string;
   threads: number;
   bytes: number;
+  /** The period proposed: the one a retro covers when none is asked for. */
+  proposed: boolean;
+  /** It starts before the end of the last retro: it reads again threads that retro read. */
+  overlapsLastRetro: boolean;
 }
 
 /** Rough durations, in seconds: they are announced to the user before anything is spent. */
@@ -57,7 +64,7 @@ export interface RetroScope {
   /** Retros started and never finished. */
   unfinished: RetroState[];
   preferences: Preference[];
-  /** For a first retro: the periods to choose from. */
+  /** The periods to choose from (none when a period is asked for), the proposed one first. */
   options: PeriodOption[];
   /** The changes adopted at the last retro, that this one will check. */
   toVerify: AdoptedChange[];
@@ -68,7 +75,9 @@ const DAY = 86_400_000;
 /**
  * What a retro of the project `root` would cover: since the last finished retro, or `since` when
  * given (`null` with `all`). A first retro proposes the last 7 days (a retro a week), or longer
- * when they hold nothing.
+ * when they hold nothing. Without a period asked for, it lists the periods to choose from, with what
+ * each holds: since the last retro (when there is one), the last 7 days (first retro) or 30 days,
+ * and the whole history.
  */
 export async function retroScope(
   root: string,
@@ -82,34 +91,40 @@ export async function retroScope(
   const retros = (await book.list()).filter((r) => r.root === dir);
   const lastRetro = retros.filter((r) => r.finishedAt !== null).at(-1) ?? null;
   const unfinished = retros.filter((r) => r.finishedAt === null);
+  // Just after the last retro: what it read is not read again.
+  const afterLast = lastRetro ? Date.parse(lastRetro.until) + 1 : null;
 
-  const options: PeriodOption[] = [];
+  let options: PeriodOption[] = [];
   let since: Date | null;
   let source: PeriodSource;
   if (opts.all) [since, source] = [null, 'all'];
   else if (opts.since) [since, source] = [opts.since, 'given'];
-  // Just after the last retro: what it read is not read again.
-  else if (lastRetro) [since, source] = [new Date(Date.parse(lastRetro.until) + 1), 'last-retro'];
   else {
     const whole = await projectHistory(dir, { env });
-    for (const [label, days] of [
-      ['last 7 days', 7],
-      ['last 30 days', 30],
-    ] as const) {
-      const from = now - days * DAY;
-      const ts = whole.stores.flatMap((s) => s.threads).filter((t) => Date.parse(t.lastActivityAt) >= from);
-      options.push({
+    const threads = whole.stores.flatMap((s) => s.threads);
+    const option = (label: string, from: number | null, flag: string): PeriodOption => {
+      const ts = from === null ? threads : threads.filter((t) => Date.parse(t.lastActivityAt) >= from);
+      return {
         label,
-        since: new Date(from).toISOString(),
-        flag: `--since ${days}d`,
+        since: from === null ? null : new Date(from).toISOString(),
+        flag,
         threads: ts.length,
         bytes: ts.reduce((n, t) => n + t.bytes, 0),
-      });
-    }
-    options.push({ label: 'whole history', since: null, flag: '--all', threads: whole.threads, bytes: whole.bytes });
-    const pick = options.find((o) => o.threads > 0) ?? options[0]!;
+        proposed: false,
+        overlapsLastRetro: afterLast !== null && (from === null || from < afterLast),
+      };
+    };
+    const days = (n: number) => option(`last ${n} days`, now - n * DAY, `--since ${n}d`);
+    options = [
+      ...(afterLast !== null ? [option('since the last retro', afterLast, '')] : [days(7)]),
+      days(30),
+      option('whole history', null, '--all'),
+    ];
+    const pick = afterLast !== null ? options[0]! : (options.find((o) => o.threads > 0) ?? options[0]!);
+    pick.proposed = true;
+    options = [pick, ...options.filter((o) => o !== pick)];
     since = pick.since ? new Date(pick.since) : null;
-    source = 'proposed';
+    source = afterLast !== null ? 'last-retro' : 'proposed';
   }
   const history = await projectHistory(dir, { since, env });
   return {
@@ -246,6 +261,8 @@ export interface AnalysisContext {
   preferences: readonly Preference[];
   /** The agent's sessions of the project and of the period, when its adapter found them. */
   sessions?: readonly RetroSession[];
+  /** The reports on those sessions, when its adapter wrote them, and the folder they are kept in. */
+  reports?: { list: readonly SessionReport[]; dir: string };
 }
 
 /** Numbers of the period, without a model. */
@@ -297,13 +314,12 @@ function renderPrevious(previous: readonly RetroState[], exclusions: readonly Ex
   return out;
 }
 
-/** The input of the analysis step: preferences, previous retros, statistics, and every thread. */
-export function analysisInput(ctx: AnalysisContext): string {
+/** The head of every input of the analysis: the retro, the user's preferences, the previous retros. */
+function inputHead(title: string, ctx: AnalysisContext): string[] {
   const { retro, threads } = ctx;
-  const labels = retro.classification?.labels ?? {};
   const prefs = ctx.preferences.length ? ctx.preferences.map((p) => `- ${p.id}: ${p.body}`) : ['None yet.'];
   return [
-    `# Retro input — ${retro.root}`,
+    `# ${title} — ${retro.root}`,
     `Retro ${retro.id}. Period: ${retro.since ?? 'the whole history'} to ${retro.until}. ${threads.size} threads, from ${retro.stores.length} comment store(s): ${retro.stores.map((s) => s.root).join(', ')}.`,
     '',
     "## The user's retro preferences (apply them)",
@@ -312,13 +328,16 @@ export function analysisInput(ctx: AnalysisContext): string {
     '## Previous retros',
     ...renderPrevious(ctx.previous, exclusionsOf(ctx.previous)),
     '',
-    ...renderToVerify(changesToVerify(retro, ctx.previous)),
-    '## Statistics (computed without a model)',
-    ...renderStats(statsOf(ctx)),
+  ];
+}
+
+/** Every thread of the period, with its classification and signals. */
+function renderThreads(ctx: AnalysisContext): string[] {
+  const labels = ctx.retro.classification?.labels ?? {};
+  return [
+    `## Threads (all ${ctx.threads.size} of them, oldest first)`,
     '',
-    `## Threads (all ${threads.size} of them, oldest first)`,
-    '',
-    ...[...threads.values()].map(({ thread, store }) => {
+    ...[...ctx.threads.values()].map(({ thread, store }) => {
       const sig = threadSignals(thread);
       const extra = [
         label(labels[thread.id]),
@@ -329,9 +348,201 @@ export function analysisInput(ctx: AnalysisContext): string {
       ].filter(Boolean);
       return threadText(thread, store) + (extra.length ? `\n(${extra.join(' · ')})` : '') + '\n';
     }),
+  ];
+}
+
+/** The agent's sessions the retro reads: their reports, or the agent's own summaries. */
+function renderRetroSessions(ctx: AnalysisContext): string[] {
+  return [
     ...renderSessions(ctx.sessions ?? []),
+    ...(ctx.reports ? renderSessionReports(ctx.reports.list, ctx.reports.dir) : []),
+  ];
+}
+
+/**
+ * The input of the analysis in one go, every source together: preferences, previous retros,
+ * statistics, every thread, the sessions. Used when the sources were not read by their own agents.
+ */
+export function analysisInput(ctx: AnalysisContext): string {
+  return [
+    ...inputHead('Retro input', ctx),
+    ...renderToVerify(changesToVerify(ctx.retro, ctx.previous)),
+    '## Statistics (computed without a model)',
+    ...renderStats(statsOf(ctx)),
+    '',
+    ...renderThreads(ctx),
+    ...renderRetroSessions(ctx),
   ].join('\n');
 }
+
+/** What a source's agent needs besides the retro: the audit's report, the usage of the setup's tools. */
+export interface SourceExtras {
+  /** The report of the audit of the setup, when it ran. */
+  audit?: string | null;
+  usage?: SetupUsage | null;
+}
+
+/** The input of the agent that reads one source of the retro, and records its findings. */
+export function sourceInput(ctx: AnalysisContext, source: FindingSource, extras: SourceExtras = {}): string {
+  const body: string[] = [];
+  if (source === 'threads')
+    body.push(
+      ...renderToVerify(changesToVerify(ctx.retro, ctx.previous)),
+      '## Statistics (computed without a model)',
+      ...renderStats(statsOf(ctx)),
+      '',
+      ...renderThreads(ctx),
+    );
+  else if (source === 'sessions') {
+    const sessions = renderRetroSessions(ctx);
+    body.push(
+      ...(sessions.length ? sessions : ["## The agent's sessions", '', 'None: the retro reads no session.', '']),
+    );
+  } else
+    body.push(
+      '## The audit of the setup',
+      '',
+      extras.audit?.trim() || 'None: the audit did not run.',
+      '',
+      ...renderUsage(extras.usage ?? null),
+    );
+  return [...inputHead(`Retro input: ${SOURCE_TITLE[source]}`, ctx), ...body, '', ...findingsFormat(source)].join('\n');
+}
+
+export const SOURCE_TITLE: Record<FindingSource, string> = {
+  threads: 'the review threads',
+  sessions: "the agent's sessions",
+  audit: 'the audit of the setup',
+};
+
+/** How much each tool of the setup was used: the never used first. */
+export function renderUsage(usage: SetupUsage | null): string[] {
+  if (!usage) return ["## Usage of the setup's tools", '', 'Not counted.', ''];
+  const lines = [
+    "## Usage of the setup's tools (counted without a model)",
+    '',
+    `From ${usage.source}'s own records, on this machine only: ` +
+      usage.windows
+        .map(
+          (w) =>
+            `${w.scope === 'project' ? "the project's tools on its" : "the user's tools on every project's"} ${w.sessions} session(s)` +
+            (w.since ? ` since ${w.since.slice(0, 10)}` : ''),
+        )
+        .join('; ') +
+      `. Sessions inactive for more than ${usage.windows[0]?.keptDays ?? 30} days are deleted by the agent: older uses are not seen. A tool shared in a repository may serve the rest of the team.`,
+    '',
+  ];
+  const sorted = [...usage.tools].sort((a, b) => usesOf(a) - usesOf(b) || a.name.localeCompare(b.name));
+  for (const t of sorted)
+    lines.push(
+      `- ${TOOL_TITLE[t.kind]} ${t.name} (${t.scope}, ${t.file}): ` +
+        (usesOf(t) === 0
+          ? 'NEVER USED'
+          : `used ${usesOf(t)} time(s) (${t.byUser} typed by the user, ${t.byAgent} by the agent) in ${t.sessions} session(s), last ${t.lastUsed?.slice(0, 10) ?? '?'}`),
+    );
+  if (sorted.length === 0) lines.push('No skill, command or sub-agent in the setup.');
+  return [...lines, ''];
+}
+
+/** A finding, as the analysis reads it. */
+function renderFinding(f: Finding, usage: SetupUsage | null, root: string): string[] {
+  const tool = usage && f.source === 'audit' ? toolOfFile(f.file || f.audit?.location || '', usage.tools, root) : null;
+  return [
+    `### ${f.id} · ${f.subject}` + (f.column ? ` (suggests: ${f.column}${f.kind ? `, ${f.kind}` : ''})` : ''),
+    `- cause: ${f.cause}`,
+    ...f.evidence.map((e) => `- thread ${e.thread}${e.excerpt ? `: "${e.excerpt}"` : ''}`),
+    ...f.sessions.map(
+      (e) =>
+        `- session ${e.session}${e.excerpt ? `: "${e.excerpt}"` : ''}` +
+        (e.moments?.length ? ` (moments ${e.moments.join(', ')})` : ''),
+    ),
+    ...(f.audit ? [`- audit, ${f.audit.location}: ${f.audit.finding}`] : []),
+    ...(tool
+      ? [
+          `- usage: ${TOOL_TITLE[tool.kind]} ${tool.name} ` +
+            (usesOf(tool) === 0
+              ? 'NEVER USED (the user will be asked whether to keep it or remove it)'
+              : `used ${usesOf(tool)} time(s)`),
+        ]
+      : []),
+    ...(f.file ? [`- file: ${f.file}`] : []),
+    ...(f.rule ? [`- existing: ${f.rule.replace(/\s+/g, ' ').slice(0, 400)}`] : []),
+    ...(f.change ? [`- suggested change: ${f.change.replace(/\s+/g, ' ').slice(0, 600)}`] : []),
+    ...(f.target ? [`- target: ${f.target}${f.targetEvidence.length ? ` (${f.targetEvidence.join(', ')})` : ''}`] : []),
+    `- confidence: ${f.confidence}` + (f.note ? ` · ${f.note}` : ''),
+    '',
+  ];
+}
+
+/** Where the analysis goes back to a source, to settle a doubt. */
+export interface SourceFiles {
+  threads?: string;
+  sessions?: string;
+  audit?: string;
+}
+
+/**
+ * The input of the analysis that weighs the findings of every source against each other and writes
+ * the proposals: the findings, the check of the last retro's changes, the statistics; the sources
+ * themselves stay in their files, to go back to.
+ */
+export function arbiterInput(
+  ctx: AnalysisContext,
+  findings: Partial<Record<FindingSource, SourceFindings>>,
+  files: SourceFiles,
+  usage: SetupUsage | null,
+): string {
+  const lines = [...inputHead('Retro input: the findings of every source', ctx)];
+  const verifications = findings.threads?.verifications ?? [];
+  if (verifications.length > 0) {
+    lines.push(
+      '## Changes adopted at the last retro: checked by the reading of the threads',
+      '',
+      'Already in "verify" (copied into your proposals when you leave "verify" out). A change that did not reduce the feedback, with 2 threads or more, needs a proposal to revise it ("revisits": "<ref>").',
+      '',
+      ...verifications.map(
+        (v) =>
+          `- ${changeRef(v)} ${v.title}: ${v.before.threads} of ${v.before.total} threads before, ${v.after.threads} of ${v.after.total} since → ${v.verdict}` +
+          (v.after.ids.length ? ` (${v.after.ids.join(', ')})` : '') +
+          (v.note ? `; ${v.note}` : ''),
+      ),
+      '',
+    );
+  }
+  lines.push('## Statistics (computed without a model)', ...renderStats(statsOf(ctx)), '');
+  for (const source of FINDING_ORDER) {
+    const f = findings[source];
+    lines.push(`## Findings: ${SOURCE_TITLE[source]}`, '');
+    if (!f) {
+      lines.push('Not read (no such source in this retro).', '');
+      continue;
+    }
+    if (f.findings.length === 0) lines.push('No finding.', '');
+    for (const x of f.findings) lines.push(...renderFinding(x, usage, ctx.retro.root));
+    if (f.overview)
+      lines.push(
+        '### What recurs across the sessions (prepared by the reading of the sessions)',
+        '',
+        'Copied into your proposals as "overview" when you leave it out.',
+        '',
+        '```json',
+        JSON.stringify(f.overview, null, 1),
+        '```',
+        '',
+      );
+  }
+  lines.push(
+    '## The sources, to go back to',
+    '',
+    ...(files.threads ? [`- The threads, every one of them: ${files.threads}`] : []),
+    ...(files.sessions ? [`- The agent's sessions: ${files.sessions}`] : []),
+    ...(files.audit ? [`- The audit of the setup and the usage of its tools: ${files.audit}`] : []),
+    '',
+  );
+  return lines.join('\n');
+}
+
+const FINDING_ORDER: readonly FindingSource[] = ['threads', 'sessions', 'audit'];
 
 function renderToVerify(changes: readonly AdoptedChange[]): string[] {
   if (changes.length === 0) return [];

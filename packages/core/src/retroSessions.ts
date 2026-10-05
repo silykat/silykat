@@ -33,8 +33,10 @@ export interface RetroSessionRef {
 export interface SessionEvidence {
   session: string;
   start: string;
-  /** Words of the session's summary, as written there (never the analysis' own). */
+  /** Words of the session's summary or report, as written there (never the analysis' own). */
   excerpt: string;
+  /** Moments of the session's conversation it points at (`uuid`s cited by its report). */
+  moments?: string[];
 }
 
 export const SESSIONS_FILE = 'sessions.json';

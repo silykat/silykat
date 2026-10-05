@@ -545,10 +545,10 @@ describe('the scope of a retro', () => {
     const now = Date.now();
     const first = await retroScope(join(base, 'work'), { env: env(), now });
     expect(first.source).toBe('proposed');
-    expect(first.options.map((o) => [o.label, o.flag, o.threads])).toEqual([
-      ['last 7 days', '--since 7d', 1],
-      ['last 30 days', '--since 30d', 1],
-      ['whole history', '--all', 1],
+    expect(first.options.map((o) => [o.label, o.flag, o.threads, o.proposed, o.overlapsLastRetro])).toEqual([
+      ['last 7 days', '--since 7d', 1, true, false],
+      ['last 30 days', '--since 30d', 1, false, false],
+      ['whole history', '--all', 1, false, false],
     ]);
     expect(first.history.threads).toBe(1);
     expect(first.home).toBe(join(base, 'work'));
@@ -572,6 +572,14 @@ describe('the scope of a retro', () => {
     });
     expect(next.lastRetro!.id).toBe(r.id);
     expect(next.history.threads).toBe(0);
+    // At every retro, the periods to choose from: those that read the last retro's threads again say so.
+    expect(next.options.map((o) => [o.label, o.flag, o.threads, o.proposed, o.overlapsLastRetro])).toEqual([
+      ['since the last retro', '', 0, true, false],
+      ['last 30 days', '--since 30d', 1, false, true],
+      ['whole history', '--all', 1, false, true],
+    ]);
+    expect(next.options[0]!.since).toBe(next.since);
+    expect((await retroScope(join(base, 'work'), { env: env(), all: true })).options).toEqual([]);
     expect((await retroScope(join(base, 'work'), { env: env(), all: true })).history.threads).toBe(1);
     const given = await retroScope(join(base, 'work'), { env: env(), since: new Date('2020-01-01T00:00:00Z') });
     expect(given).toMatchObject({ source: 'given', since: '2020-01-01T00:00:00.000Z' });
