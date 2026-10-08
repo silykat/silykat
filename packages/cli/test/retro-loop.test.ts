@@ -95,7 +95,9 @@ describe('the next retro checks the changes adopted at the last one', () => {
     const verify = [{ change: ref, threads: after.slice(0, 2), note: 'Two dates in local time again' }];
     const notRevised = await lr(['retro', 'check', second, '--body', json({ proposals: [], verify })]);
     expect(notRevised.code).toBe(1);
-    expect(notRevised.out).toContain('did not reduce the feedback on its subject (2 of 3 threads before, 2 of 3 now)');
+    expect(notRevised.out).toContain(
+      'did not reduce the feedback on its subject (2 of 3 threads (67%) before, 2 of 3 threads (67%) since)',
+    );
     expect(notRevised.out).toContain(
       `- ${ref} Say that dates are UTC: 2 of 3 threads (67%) before, 2 of 3 threads (67%) since → not decreased: to revise (${after[0]}, ${after[1]})`,
     );
@@ -144,7 +146,7 @@ describe('the next retro checks the changes adopted at the last one', () => {
 describe('the retro cadence', () => {
   it('tells whether a retro is due, and why', async () => {
     const empty = await lr(['retro', 'cadence']);
-    expect(empty.out).toContain('No retro due yet: 0 B of review threads (0), no retro yet.');
+    expect(empty.out).toContain('No retro due yet: 0 B of review threads (0) and 0 agent sessions, no retro yet.');
     expect(empty.out).toContain(
       'Reminder settings (lr config): 7 days, or 1.0 MB of threads, and never more than 25 days.',
     );
@@ -152,7 +154,7 @@ describe('the retro cadence', () => {
     await lr(['config', 'set', 'retro-reminder-size', '1']);
     const due = await lr(['retro', 'cadence']);
     expect(due.out).toMatch(
-      /^A retro is due: 0 days and .* of review threads \(1\) since the first thread \(.*\), no retro yet\./,
+      /^A retro is due: 0 days, .* of review threads \(1\) and 0 agent sessions since the first thread \(.*\), no retro yet\./,
     );
     expect(due.out).toContain('of threads to look back at (reminder at 1.0 KB)');
     expect(JSON.parse((await lr(['retro', 'cadence', '--format', 'json'])).out)).toMatchObject({
@@ -166,7 +168,7 @@ describe('the retro cadence', () => {
     const id = await startRetro();
     await new RetroBook(work).record(id, [{ type: 'retro.finished' }]);
     expect((await lr(['retro', 'cadence'])).out).toMatch(
-      /^No retro due yet: 0 days and 0 B of review threads \(0\) since the last retro/,
+      /^No retro due yet: 0 days, 0 B of review threads \(0\) and 0 agent sessions since the last retro/,
     );
   });
 

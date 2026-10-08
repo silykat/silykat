@@ -473,7 +473,7 @@ describe('the inputs of the analysis, one source at a time', () => {
     expect(text).toContain('### T1 · Dates');
     expect(text).toContain(`- thread ${T1}`);
     expect(text).toContain(
-      `- rt_X/p1 Say dates are UTC: 2 of 10 threads before, 1 of 2 since → not-decreased (${T1}); still`,
+      `- rt_X/p1 Say dates are UTC, by the reading of the threads: 2 of 10 threads (20%) before, 1 of 2 threads (50%) since → not-decreased (${T1}); still`,
     );
     expect(text).toContain('- session sess-1: "asked for UTC dates" (moments u-1)');
     expect(text).toContain('- existing: An old rule');
@@ -482,7 +482,7 @@ describe('the inputs of the analysis, one source at a time', () => {
     expect(text).toContain('- confidence: 0.6 · every session');
     expect(text).toContain('### What recurs across the sessions (prepared by the reading of the sessions)');
     expect(arbiterInput(analysis, { threads: { source: 'threads', findings: [] } }, {}, null)).toContain(
-      "## Findings: the agent's sessions\n\nNot read (no such source in this retro).",
+      "## Findings: the agent's sessions\n\nNot read: the user left it out of this retro, or it had nothing to read.",
     );
     expect(text).toContain('- usage: skill specs NEVER USED (the user will be asked whether to keep it or remove it)');
     expect(text).toContain('- The threads, every one of them: /x/threads-input.md');

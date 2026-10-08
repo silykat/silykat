@@ -175,6 +175,9 @@ describe('machine settings', () => {
       retroReminderSizeKB: 5,
       retroReminderMaxDays: 25,
       retroSessions: 'reports',
+      retroSourceReviews: 'ask',
+      retroSourceSessions: 'ask',
+      retroSourceAudit: 'ask',
     });
     // A failed write does not stop the next ones.
     await writeFile(join(base, 'blocker'), '');

@@ -1,5 +1,6 @@
 import { realpath } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { projectAgentSessions } from './agentSessions';
 import { DEFAULT_CONFIG, readConfig, type MachineConfig } from './config';
 import { projectHistory } from './project';
 import { readRetros, RETROS_DIR, type RetroState } from './retro';
@@ -9,7 +10,8 @@ import { worktreeInfo, worktreesOf } from './worktrees';
 
 /**
  * The cadence of retros: when is a retro worth it? Measured in days since the last retro and in
- * size of the threads since then (not in number of threads), with a retro a week as the mark.
+ * size of the threads since then (not in number of threads), with a retro a week as the mark. The
+ * agent sessions of the project count too: a project without review threads has its retros.
  */
 export interface CadenceThresholds {
   /** A retro is due this many days after the last one… */
@@ -36,13 +38,19 @@ export interface RetroCadence {
   root: string;
   /** The last finished retro of this folder or of a folder above it (its threads include these). */
   lastRetro: { id: string; root: string; until: string } | null;
-  /** Where the count starts: the end of the last retro's period, else the first thread of the project. */
+  /**
+   * Where the count starts: the end of the last retro's period, else the first thread or agent
+   * session of the project (`first` says which).
+   */
   since: string | null;
+  first?: 'thread' | 'session';
   /** Whole days since then. */
   days: number;
   /** Threads with activity since then, and the size of their journals. */
   threads: number;
   bytes: number;
+  /** Agent sessions started since then, as the agents' adapters recorded them. */
+  sessions: number;
   thresholds: CadenceThresholds;
   /** A retro is worth it now: there is something to look back at, and enough of it, or for long enough. */
   due: boolean;
@@ -69,11 +77,16 @@ export async function retroCadence(
   // Just after the last retro, as the next retro will read.
   const history = await projectHistory(dir, { since: since === null ? null : new Date(since + 1), env });
   const threads = history.stores.flatMap((s) => s.threads);
-  if (since === null && threads.length > 0)
-    since = threads.reduce((first, t) => Math.min(first, Date.parse(t.createdAt)), Infinity);
+  const sessions = await projectAgentSessions(dir, since === null ? null : new Date(since).toISOString(), env);
+  let first: RetroCadence['first'];
+  if (since === null && threads.length + sessions.length > 0) {
+    const thread = threads.reduce((x, t) => Math.min(x, Date.parse(t.createdAt)), Infinity);
+    const session = sessions.reduce((x, t) => Math.min(x, Date.parse(t.startedAt)), Infinity);
+    [since, first] = thread <= session ? [thread, 'thread'] : [session, 'session'];
+  }
   const days = since === null ? 0 : Math.max(0, Math.floor((now - since) / DAY));
   const reasons: DueReason[] = [];
-  if (threads.length > 0) {
+  if (threads.length + sessions.length > 0) {
     if (days >= Math.min(thresholds.days, thresholds.maxDays)) reasons.push('days');
     if (history.bytes >= thresholds.bytes) reasons.push('size');
     if (days >= thresholds.maxDays) reasons.push('max-days');
@@ -82,9 +95,11 @@ export async function retroCadence(
     root: dir,
     lastRetro: last ? { id: last.id, root: last.root, until: last.until } : null,
     since: since === null ? null : new Date(since).toISOString(),
+    ...(first ? { first } : {}),
     days,
     threads: threads.length,
     bytes: history.bytes,
+    sessions: sessions.length,
     thresholds,
     due: reasons.length > 0,
     reasons,
@@ -180,16 +195,20 @@ export function formatBytes(n: number): string {
 }
 
 /**
- * One line on the cadence, e.g. "8 days and 1.2 MB of review threads (45) since the last retro (2026-09-25)",
- * or "3 days and 2.1 KB of review threads (4) since the first thread (2026-09-30), no retro yet".
+ * One line on the cadence, e.g. "8 days, 1.2 MB of review threads (45) and 12 agent sessions since
+ * the last retro (2026-09-25)", or "3 days, 2.1 KB of review threads (4) and 2 agent sessions since
+ * the first thread (2026-09-30), no retro yet".
  */
 export function cadenceSummary(c: RetroCadence): string {
   const day = (iso: string) => iso.slice(0, 10);
   const days = `${c.days} day${c.days === 1 ? '' : 's'}`;
-  const data = `${formatBytes(c.bytes)} of review threads (${c.threads})`;
-  if (c.lastRetro) return `${days} and ${data} since the last retro (${day(c.lastRetro.until)})`;
+  const sessions = c.sessions;
+  const data =
+    `${formatBytes(c.bytes)} of review threads (${c.threads})` +
+    ` and ${sessions} agent session${sessions === 1 ? '' : 's'}`;
+  if (c.lastRetro) return `${days}, ${data} since the last retro (${day(c.lastRetro.until)})`;
   return c.since
-    ? `${days} and ${data} since the first thread (${day(c.since)}), no retro yet`
+    ? `${days}, ${data} since the first ${c.first === 'session' ? 'agent session' : 'thread'} (${day(c.since)}), no retro yet`
     : `${data}, no retro yet`;
 }
 
@@ -198,7 +217,7 @@ export function dueReasons(c: RetroCadence): string[] {
   const t = c.thresholds;
   return c.reasons.map((r) =>
     r === 'days'
-      ? `${c.days} days since ${c.lastRetro ? 'the last retro' : 'the first thread'} (reminder at ${Math.min(t.days, t.maxDays)})`
+      ? `${c.days} days since ${c.lastRetro ? 'the last retro' : c.first === 'session' ? 'the first agent session' : 'the first thread'} (reminder at ${Math.min(t.days, t.maxDays)})`
       : r === 'size'
         ? `${formatBytes(c.bytes)} of threads to look back at (reminder at ${formatBytes(t.bytes)})`
         : `${t.maxDays} days or more: agents delete their conversations after a while (often 30 days), and the retro reads back those linked to replies`,

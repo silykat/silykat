@@ -15,10 +15,13 @@ import {
   type RetroState,
   type ThreadLabel,
 } from './retro';
+import type { MeasuredSource } from './retro';
 import {
   adoptedChanges,
   changeRef,
   exclusionsOf,
+  measurableSources,
+  measureText,
   retroStats,
   threadSignals,
   type Exclusion,
@@ -49,6 +52,8 @@ export interface RetroEstimate {
   classifyJev: number;
   classifyModel: number;
   analysis: number;
+  /** The audit of the setup (a separate agent): about 8 minutes on a real project. */
+  audit: number;
 }
 
 export interface RetroScope {
@@ -171,6 +176,7 @@ export function estimate(h: ProjectHistory): RetroEstimate {
     classifyJev: Math.round(10 + threads.length * 0.25),
     classifyModel: Math.round(45 + threads.length),
     analysis: Math.round(60 + tokens / 1000),
+    audit: 480,
   };
 }
 
@@ -366,7 +372,7 @@ function renderRetroSessions(ctx: AnalysisContext): string[] {
 export function analysisInput(ctx: AnalysisContext): string {
   return [
     ...inputHead('Retro input', ctx),
-    ...renderToVerify(changesToVerify(ctx.retro, ctx.previous)),
+    ...renderToVerify(ctx),
     '## Statistics (computed without a model)',
     ...renderStats(statsOf(ctx)),
     '',
@@ -387,7 +393,7 @@ export function sourceInput(ctx: AnalysisContext, source: FindingSource, extras:
   const body: string[] = [];
   if (source === 'threads')
     body.push(
-      ...renderToVerify(changesToVerify(ctx.retro, ctx.previous)),
+      ...renderToVerify(ctx, 'threads'),
       '## Statistics (computed without a model)',
       ...renderStats(statsOf(ctx)),
       '',
@@ -396,6 +402,7 @@ export function sourceInput(ctx: AnalysisContext, source: FindingSource, extras:
   else if (source === 'sessions') {
     const sessions = renderRetroSessions(ctx);
     body.push(
+      ...renderToVerify(ctx, 'sessions'),
       ...(sessions.length ? sessions : ["## The agent's sessions", '', 'None: the retro reads no session.', '']),
     );
   } else
@@ -493,17 +500,19 @@ export function arbiterInput(
   usage: SetupUsage | null,
 ): string {
   const lines = [...inputHead('Retro input: the findings of every source', ctx)];
-  const verifications = findings.threads?.verifications ?? [];
+  const verifications = [...(findings.threads?.verifications ?? []), ...(findings.sessions?.verifications ?? [])];
   if (verifications.length > 0) {
     lines.push(
-      '## Changes adopted at the last retro: checked by the reading of the threads',
+      '## Changes adopted at the last retro: checked by the reading of each source',
       '',
-      'Already in "verify" (copied into your proposals when you leave "verify" out). A change that did not reduce the feedback, with 2 threads or more, needs a proposal to revise it ("revisits": "<ref>").',
+      'Already in "verify" (copied into your proposals when you leave "verify" out, the threads and the sessions together). A change that did not reduce the feedback, with 2 threads or sessions or more, needs a proposal to revise it ("revisits": "<ref>").',
       '',
       ...verifications.map(
         (v) =>
-          `- ${changeRef(v)} ${v.title}: ${v.before.threads} of ${v.before.total} threads before, ${v.after.threads} of ${v.after.total} since → ${v.verdict}` +
-          (v.after.ids.length ? ` (${v.after.ids.join(', ')})` : '') +
+          `- ${changeRef(v)} ${v.title}, by the reading of ${v.measured?.includes('sessions') ? 'the sessions' : 'the threads'}: ${measureText(v)} → ${v.verdict}` +
+          ([...v.after.ids, ...(v.afterSessions?.ids ?? [])].length
+            ? ` (${[...v.after.ids, ...(v.afterSessions?.ids ?? [])].join(', ')})`
+            : '') +
           (v.note ? `; ${v.note}` : ''),
       ),
       '',
@@ -514,7 +523,7 @@ export function arbiterInput(
     const f = findings[source];
     lines.push(`## Findings: ${SOURCE_TITLE[source]}`, '');
     if (!f) {
-      lines.push('Not read (no such source in this retro).', '');
+      lines.push('Not read: the user left it out of this retro, or it had nothing to read.', '');
       continue;
     }
     if (f.findings.length === 0) lines.push('No finding.', '');
@@ -544,21 +553,50 @@ export function arbiterInput(
 
 const FINDING_ORDER: readonly FindingSource[] = ['threads', 'sessions', 'audit'];
 
-function renderToVerify(changes: readonly AdoptedChange[]): string[] {
+/** The ids of the agent's sessions the analysis reads: summaries or reports. */
+function sessionIds(ctx: AnalysisContext): Map<string, true> {
+  return new Map([
+    ...(ctx.sessions ?? []).map((x) => [x.id, true] as const),
+    ...(ctx.reports?.list ?? []).map((x) => [x.session, true] as const),
+  ]);
+}
+
+/**
+ * The changes adopted at the last retro, for the agent that checks them: those measurable on `on`
+ * (a source's own agent), or on any source (the analysis in one go).
+ */
+function renderToVerify(ctx: AnalysisContext, on?: MeasuredSource): string[] {
+  const measurable = { threads: ctx.threads, sessions: sessionIds(ctx) };
+  const changes = changesToVerify(ctx.retro, ctx.previous)
+    .map((c) => ({ c, parts: measurableSources(c, measurable).filter((m) => !on || m === on) }))
+    .filter((x) => x.parts.length > 0);
   if (changes.length === 0) return [];
+  const what = on === 'sessions' ? 'sessions' : on === 'threads' ? 'threads' : 'threads and sessions';
   const out = [
     '## Changes adopted at the last retro: did they help?',
     '',
-    'For EACH change below, list in "verify" the threads of this period whose feedback has the same cause (the change did not prevent it), [] when none: { "change": "<ref>", "threads": [...], "note": "what you saw, in a sentence" }. The numbers and the verdict are computed by program: stopped (no thread), decreased (a smaller share of the threads than before) or not decreased. A change that did not reduce the feedback, with 2 threads or more, needs a proposal to revise it, with "revisits": "<ref>" (reword it, move it up, make it a hook, or remove it); its "target" defaults to the one of the change it revises.',
+    `For EACH change below, list in "verify" the ${what} of this period whose feedback has the same cause (the change did not prevent it), [] when none: { "change": "<ref>", ${on ? `"${on}"` : '"threads" / "sessions" (those listed for it)'}: [...], "note": "what you saw, in a sentence" }. The numbers and the verdict are computed by program: stopped (nothing), decreased (a smaller share than before) or not decreased. A change that did not reduce the feedback, with 2 threads or sessions or more, needs a proposal to revise it, with "revisits": "<ref>" (reword it, move it up, make it a hook, or remove it); its "target" defaults to the one of the change it revises.`,
     '',
   ];
-  for (const c of changes) {
+  for (const { c, parts } of changes) {
+    const before = parts
+      .map((m) =>
+        m === 'threads'
+          ? `${c.before.threads} of the ${c.before.total} threads of that retro`
+          : `${c.beforeSessions?.sessions ?? 0} of the ${c.beforeSessions?.total ?? 0} sessions of that retro`,
+      )
+      .join('; ');
     out.push(
       `- ${changeRef(c)} [${c.column}] ${c.title} (${c.kind}, ${c.decision}${c.target ? `, target ${c.target}` : ''}${c.files.length ? `, changed: ${c.files.join(', ')}` : ', no file recorded as changed'}): ${c.subject}`,
-      `  before: ${c.before.threads} of the ${c.before.total} threads of that retro` +
+      `  check on: ${parts.join(' and ')}; before: ${before}` +
         (c.change ? `; change: ${c.change.replace(/\s+/g, ' ').slice(0, 300)}` : '') +
         (c.note ? `; note of the user: ${c.note}` : ''),
-      ...c.evidence.map((e) => `  - ${e.thread}${e.excerpt ? `: "${e.excerpt}"` : ''}`),
+      ...(parts.includes('threads')
+        ? c.evidence.map((e) => `  - ${e.thread}${e.excerpt ? `: "${e.excerpt}"` : ''}`)
+        : []),
+      ...(parts.includes('sessions')
+        ? (c.sessions ?? []).map((e) => `  - session ${e.session}${e.excerpt ? `: "${e.excerpt}"` : ''}`)
+        : []),
     );
   }
   out.push('');

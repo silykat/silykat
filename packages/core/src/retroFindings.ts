@@ -56,7 +56,7 @@ export interface Finding {
 export interface SourceFindings {
   source: FindingSource;
   findings: Finding[];
-  /** Threads only: the check of the changes adopted at the last retro. */
+  /** Threads and sessions: the check of the changes adopted at the last retro, on this source. */
   verifications?: Verification[];
   /** Sessions only: what recurs across them. */
   overview?: SessionsOverview;
@@ -74,8 +74,8 @@ const PREFIX: Record<FindingSource, string> = { threads: 'T', sessions: 'S', aud
  * evidence from its own source: threads of the period (with an excerpt), sessions the retro reads
  * (words copied from their summary or report, moments their report cites), or a finding of the audit.
  * A single thread or session is enough here: the analysis decides what deserves a proposal. The
- * threads also check the changes adopted at the last retro (`verify`), and the sessions say what
- * recurs across them (`overview`).
+ * threads and the sessions also check the changes adopted at the last retro, each on itself
+ * (`verify`), and the sessions say what recurs across them (`overview`).
  */
 export function checkFindings(input: unknown, source: FindingSource, ctx: GuardContext): FindingsResult {
   const result: FindingsResult = { source, findings: [], rejected: [], notes: [] };
@@ -159,8 +159,8 @@ export function checkFindings(input: unknown, source: FindingSource, ctx: GuardC
       note: textOf(raw.note),
     });
   });
-  if (source === 'threads') {
-    const verifications = verifyChanges(input.verify, ctx, result);
+  if (source === 'threads' || source === 'sessions') {
+    const verifications = verifyChanges(input.verify, ctx, result, source);
     if (verifications.length) result.verifications = verifications;
   }
   if (source === 'sessions') {
@@ -204,15 +204,16 @@ export function findingsFormat(source: FindingSource): string[] {
       (source === 'threads'
         ? ',\n  "verify": [{ "change": "<ref>", "threads": ["t_…"], "note": "what you saw" }]'
         : source === 'sessions'
-          ? ',\n  "overview": { "summary": "2 or 3 sentences", "items": [{ "kind": "pattern | friction | ritual", "title": "…", "description": "…", "sessions": ["<id>"], "idea": "optional lead" }] }'
+          ? ',\n  "verify": [{ "change": "<ref>", "sessions": ["<id>"], "note": "what you saw" }]' +
+            ',\n  "overview": { "summary": "2 or 3 sentences", "items": [{ "kind": "pattern | friction | ritual", "title": "…", "description": "…", "sessions": ["<id>"], "idea": "optional lead" }] }'
           : ''),
     '}',
     '```',
     '',
     '- One cause per finding: two causes are two findings.',
     '- Copy ids, excerpts and moments exactly: they are checked by program.',
-    ...(source === 'threads'
-      ? ['- "verify": one item per change adopted at the last retro, when the input lists some (else leave it out).']
+    ...(source !== 'audit'
+      ? ['- "verify": one item per change adopted at the last retro the input lists to check (else leave it out).']
       : []),
     ...(source === 'sessions'
       ? ['- "overview": what recurs across the sessions (8 items at most), for the user to find leads of their own.']

@@ -768,12 +768,12 @@ describe('lr retro', () => {
     const second = (await lr(['retro', 'show', id, '--next'])).out;
     expect(second).toContain('## Proposal 2/3 (p3) · To remove · Remove the tabs rule');
     expect(second).toContain(
-      '**Source**: 0 threads, and the audit of your setup (/doctor prompt-audit)\n- /doctor prompt-audit, `api/CLAUDE.md:2-3`: Contradicts "always 2 spaces"',
+      '**Source**: the audit of your setup (/doctor prompt-audit)\n- /doctor prompt-audit, `api/CLAUDE.md:2-3`: Contradicts "always 2 spaces"',
     );
     expect(second).not.toContain('**Numbers**');
     expect(second).toContain('**Existing rule**:\n> - Always use tabs.');
     expect((await lr(['retro', 'show', id])).out).toContain(
-      '- **Source**: 0 threads, and the audit of the setup\n  - /doctor prompt-audit, api/CLAUDE.md:2-3',
+      '- **Source**: the audit of the setup\n  - /doctor prompt-audit, api/CLAUDE.md:2-3',
     );
 
     const kept = (await lr(['retro', 'show', id, 'p1'])).out;
