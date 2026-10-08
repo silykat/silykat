@@ -87,6 +87,15 @@ describe('the sources of a retro', () => {
     expect((await lr(['config', 'set', 'keep-history', 'off', '--project'])).err).toContain(
       'a project sets retro-source-reviews, retro-source-sessions, retro-source-audit only',
     );
+    expect((await lr(['config', 'set', 'retro-source-audit', 'sometimes', '--project'])).err).toContain(
+      'retro-source-audit takes yes or no or ask, not "sometimes"',
+    );
+    expect((await lr(['config', 'reset', '--project'])).err).toContain('lr config takes "set" or nothing, not "reset"');
+    expect(JSON.parse((await lr(['config', '--project', '--format', 'json'])).out)).toEqual({ retroSourceAudit: 'no' });
+    expect((await lr(['retro', 'sources'])).out).toContain(
+      "- **Audit of the setup (/doctor prompt-audit)**: no, never read (the project's setting).",
+    );
+    expect((await lr(['retro', 'sources', '--set', 'reviews'])).err).toContain('--set reviews takes yes, no, ask');
     expect((await lr(['config', 'set', 'retro-source-sessions', 'no'])).code).toBe(0);
     expect((await readConfig(env())).retroSourceSessions).toBe('no');
     expect((await lr(['config'])).out).toContain('  retro-source-sessions: no');
@@ -146,5 +155,42 @@ describe('the retro cadence', () => {
     expect(out).toMatch(
       /^No retro due yet: 0 days, 0 B of review threads \(0\) and 1 agent session since the first agent session/,
     );
+  });
+});
+
+describe('a retro without review threads', () => {
+  it('shows a change of the last retro it could not measure, and proposals on sessions without numbers of threads', async () => {
+    const first = await lr(['retro', 'start', '--all', '--sources', 'audit', '--format', 'json']);
+    const id = (JSON.parse(first.out) as { id: string }).id;
+    const proposal = {
+      column: 'improve',
+      subject: 'Stale rule',
+      title: 'Rewrite the stale rule',
+      kind: 'rule',
+      file: 'CLAUDE.md',
+      rule: 'old',
+      change: 'new',
+      why: 'The audit says it is stale',
+      causes: ['stale'],
+      audit: { location: 'CLAUDE.md:1', finding: 'stale' },
+      target: 'project-shared',
+      confidence: 0.7,
+    };
+    expect((await lr(['retro', 'propose', id, '--body', JSON.stringify({ proposals: [proposal] })])).code).toBe(0);
+    await lr(['retro', 'decide', id, 'p1', 'accepted']);
+    await lr(['retro', 'finish', id]);
+    await new Promise((r) => setTimeout(r, 5));
+
+    const second = await lr(['retro', 'start', '--sources', 'audit', '--format', 'json']);
+    const next = (JSON.parse(second.out) as { id: string }).id;
+    const checked = await lr(['retro', 'propose', next, '--body', JSON.stringify({ proposals: [] })]);
+    expect(checked.code).toBe(0);
+    const shown = await lr(['retro', 'show', next]);
+    expect(shown.out).toContain(
+      `- ${id}/p1 Rewrite the stale rule: not measured: no data in this period from the sources it rested on`,
+    );
+    const p1 = await lr(['retro', 'show', id]);
+    expect(p1.out).toContain('- **Source**: the audit of the setup');
+    expect(p1.out).not.toContain('**Numbers**');
   });
 });
