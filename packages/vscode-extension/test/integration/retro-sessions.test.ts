@@ -24,6 +24,8 @@ describe('How a retro reads the agent sessions', () => {
   after(async () => {
     await settings().update('retroSessions', undefined, vscode.ConfigurationTarget.Global);
     await until('the machine setting back to reports', async () => (await readConfig()).retroSessions === 'reports');
+    await settings().update('retroSources.audit', undefined, vscode.ConfigurationTarget.Global);
+    await until('the audit back to ask', async () => (await readConfig()).retroSourceAudit === 'ask');
   });
 
   it('reads their reports by default, and follows the VS Code setting on the machine', async () => {
@@ -32,5 +34,16 @@ describe('How a retro reads the agent sessions', () => {
     await until('the machine setting set to insights', async () => (await readConfig()).retroSessions === 'insights');
     await settings().update('retroSessions', undefined, vscode.ConfigurationTarget.Global);
     await until('the machine setting back to reports', async () => (await readConfig()).retroSessions === 'reports');
+  });
+
+  it('reads each source as asked by default, and follows the VS Code setting on the machine', async () => {
+    for (const source of ['reviews', 'sessions', 'audit'])
+      assert.equal(settings().get(`retroSources.${source}`), 'ask');
+    await settings().update('retroSources.audit', 'no', vscode.ConfigurationTarget.Global);
+    await until('the audit set to no', async () => (await readConfig()).retroSourceAudit === 'no');
+    // The other settings are untouched.
+    assert.equal((await readConfig()).retroSourceReviews, 'ask');
+    await settings().update('retroSources.audit', undefined, vscode.ConfigurationTarget.Global);
+    await until('the audit back to ask', async () => (await readConfig()).retroSourceAudit === 'ask');
   });
 });

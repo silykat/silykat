@@ -11,7 +11,7 @@ The prompt gives you the retro id and the project folder. Pass `--root <project>
 
 ## 1. Read everything, together
 
-1. `lr retro input <retro-id> --root <project> --for sessions`: it writes a file and prints its path. It holds the user's **retro preferences** (apply them), the **previous retros** (decisions, excluded subjects), **the sessions**, and, at the end, **the format of your answer**. The sessions come in one of two forms, never both, depending on the retro's setting:
+1. `lr retro input <retro-id> --root <project> --for sessions`: it writes a file and prints its path. It holds the user's **retro preferences** (apply them), the **previous retros** (decisions, excluded subjects), the **changes adopted at the last retro** to check on the sessions (when there are some), **the sessions**, and, at the end, **the format of your answer**. The sessions come in one of two forms, never both, depending on the retro's setting:
    - **"Reports on the agent's sessions"**: one report per session, written by a model that read the session's records: summary, goal and outcome, the **signals judged relevant** (corrections, frictions, tool errors, permission blocks, repeated requests…), each pointing at a **moment** of the conversation by its `uuid`, the **patterns** that recur in it, **observations on the setup** and **leads**. The whole report, with the signals computed without a model (`analytics`), is in its file: read it when a moment needs more context;
    - **"The agent's sessions in this project"**: what Claude Code's `/insights` knows of them: facts counted without a model (messages, interruptions, tool errors, tools used…) and, for most, a **summary written by a model** (goal, outcome, frictions and their detail).
 2. `lr-retro setup <retro-id> --root <project>`: the **setup** of Claude Code for this project (rules files, skills, commands, sub-agents, hooks), to tell what a session shows about it.
@@ -28,6 +28,8 @@ Read **the input entirely** (with offset and limit for a long file), every sessi
 
 Cite each session with **words copied exactly** from its report or summary, and, for a report, the **moments** it cites (their `uuid`, as the report gives them): both are checked by program.
 
+**The changes adopted at the last retro** (when the input lists them to check on the sessions): for each one, name in `verify` the sessions of this period that show **the same cause** (the change did not prevent it), `[]` when none. Be strict both ways: only the sessions where the problem the change addressed came back count, not those that merely touch the same file. The numbers and the verdict are computed by program.
+
 Then write the **overview** of the sessions: what recurs across them (patterns, frictions, rituals), for the developer to find leads of their own (tasks to automate, ways of working), even when it makes no finding. Eight items at most, each on the sessions where it was seen.
 
 ## 3. Record them
@@ -42,4 +44,4 @@ It checks the findings by program (one cause each, sessions the retro reads, exc
 
 ## 4. Answer
 
-Answer in **one line** only: how many sessions you read, how many findings were recorded (how many on several sessions), and how many items the overview has. Never paste the findings: the analysis reads them through `lr`.
+Answer in **one line** only: how many sessions you read, how many findings were recorded (how many on several sessions), how many changes of the last retro you checked, and how many items the overview has. Never paste the findings: the analysis reads them through `lr`.

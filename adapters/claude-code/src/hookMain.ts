@@ -1,4 +1,5 @@
 import { homedir } from 'node:os';
+import { join } from 'node:path';
 import {
   filesChangedSince,
   gitWorktreeOf,
@@ -14,6 +15,7 @@ import {
   worktreeThreadCount,
 } from '@local-review/core';
 import { commandLine, findClaudePid, gitBranch, handleHook, purgeConfirmation, type HookInput } from './hook';
+import { recordClaudeSession } from './sessionLog';
 
 // Entry point of the plugin's hooks. It must never get in Claude's way: whatever happens, it
 // exits 0, and it prints nothing but a message meant for Claude (stdout reaches Claude's context),
@@ -35,6 +37,12 @@ async function main(): Promise<void> {
     filesChangedSince,
     now: () => new Date(),
     home: process.env.HOME || homedir(),
+    // Claude Code keeps its sessions in $CLAUDE_CONFIG_DIR when it is set, else in ~/.claude.
+    recordSession: (session) =>
+      recordClaudeSession(
+        session,
+        process.env.CLAUDE_CONFIG_DIR?.trim() || join(process.env.HOME || homedir(), '.claude'),
+      ),
     retroCadence: async (cwd) => {
       const config = await readConfig();
       return config.retroReminder ? retroCadence(cwd, { thresholds: thresholdsOf(config) }) : null;

@@ -174,7 +174,10 @@ describe('Retro reminder', () => {
     const message = (await vscode.commands.executeCommand('localReview.showRetroReminder')) as string;
     assert.equal(shown.length, 1);
     assert.equal(shown[0]!.message, message);
-    assert.match(message, /^Local Review: a retro is due for [^:]+: 8 days and .* since the last retro/);
+    assert.match(
+      message,
+      /^Local Review: a retro is due for [^:]+: 8 days, .* and 0 agent sessions since the last retro/,
+    );
     assert.ok(message.includes('To run it with Claude Code: /local-review:retro'), message);
     assert.deepEqual(shown[0]!.actions, ['Copy /local-review:retro', 'Reminder Settings']);
     assert.equal(await vscode.env.clipboard.readText(), '/local-review:retro');

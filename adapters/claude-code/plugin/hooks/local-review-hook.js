@@ -3,6 +3,7 @@
 
 // src/hookMain.ts
 var import_node_os3 = require("node:os");
+var import_node_path15 = require("node:path");
 
 // ../../packages/core/src/types.ts
 var SCHEMA_VERSION = 2;
@@ -1207,97 +1208,33 @@ function realpath2(path) {
 }
 
 // ../../packages/core/src/cadence.ts
-var import_promises10 = require("node:fs/promises");
-var import_node_path11 = require("node:path");
+var import_promises11 = require("node:fs/promises");
+var import_node_path12 = require("node:path");
 
-// ../../packages/core/src/config.ts
-var import_promises4 = require("node:fs/promises");
-var import_node_path5 = require("node:path");
-var SESSIONS_MODES = ["reports", "insights"];
-var DEFAULT_CONFIG = {
-  keepHistory: true,
-  retroReminder: true,
-  retroReminderDays: 7,
-  retroReminderSizeKB: 1e3,
-  retroReminderMaxDays: 25,
-  retroSessions: "reports"
-};
-var CONFIG_KEYS = {
-  "keep-history": {
-    key: "keepHistory",
-    kind: "boolean",
-    help: "on|off \u2014 keep deleted threads (for lr history and retros) and save the threads of a worktree before an agent removes it; off, deleting a thread erases it (default: on)"
-  },
-  "retro-reminder": {
-    key: "retroReminder",
-    kind: "boolean",
-    help: "on|off \u2014 when a retro is due, the agent says so at the start of a session (default: on)"
-  },
-  "retro-reminder-days": {
-    key: "retroReminderDays",
-    kind: "number",
-    help: "days \u2014 a retro is due this many days after the last one (default: 7)"
-  },
-  "retro-reminder-size": {
-    key: "retroReminderSizeKB",
-    kind: "number",
-    help: "KB \u2014 or sooner, once the threads since the last one weigh this much (default: 1000, i.e. 1 MB)"
-  },
-  "retro-reminder-max-days": {
-    key: "retroReminderMaxDays",
-    kind: "number",
-    help: "days \u2014 and never later than this, to keep the agent conversations linked to replies (default: 25)"
-  },
-  "retro-sessions": {
-    key: "retroSessions",
-    kind: "choice",
-    choices: SESSIONS_MODES,
-    help: "reports|insights \u2014 how a retro reads the agent sessions: a report on each one by a model (finer, costs more), or the agent's own summaries (Claude Code's /insights, cheaper); never both (default: reports)"
-  }
-};
-var configFile = (env = process.env) => (0, import_node_path5.join)(localReviewHome(env), "config.json");
-var validSettingNumber = (x) => typeof x === "number" && Number.isInteger(x) && x >= 1;
-async function readConfig(env = process.env) {
-  const config = { ...DEFAULT_CONFIG };
-  let raw;
-  try {
-    raw = JSON.parse(await (0, import_promises4.readFile)(configFile(env), "utf8"));
-  } catch {
-    return config;
-  }
-  if (typeof raw !== "object" || raw === null) return config;
-  const values = raw;
-  for (const setting of Object.values(CONFIG_KEYS)) {
-    const value = values[setting.key];
-    if (setting.kind === "boolean" && typeof value === "boolean") config[setting.key] = value;
-    if (setting.kind === "number" && validSettingNumber(value)) config[setting.key] = value;
-    if (setting.kind === "choice" && typeof value === "string" && setting.choices.includes(value))
-      Object.assign(config, { [setting.key]: value });
-  }
-  return config;
-}
-var writing = Promise.resolve();
+// ../../packages/core/src/agentSessions.ts
+var import_promises8 = require("node:fs/promises");
+var import_node_path9 = require("node:path");
 
 // ../../packages/core/src/project.ts
 var import_node_child_process2 = require("node:child_process");
-var import_promises6 = require("node:fs/promises");
-var import_node_path7 = require("node:path");
-
-// ../../packages/core/src/saved.ts
 var import_promises5 = require("node:fs/promises");
 var import_node_path6 = require("node:path");
+
+// ../../packages/core/src/saved.ts
+var import_promises4 = require("node:fs/promises");
+var import_node_path5 = require("node:path");
 var SAVED_DIR = "saved";
 async function savedStores(storeDir) {
   let slots;
   try {
-    slots = (await (0, import_promises5.readdir)((0, import_node_path6.join)(storeDir, SAVED_DIR), { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name).sort();
+    slots = (await (0, import_promises4.readdir)((0, import_node_path5.join)(storeDir, SAVED_DIR), { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name).sort();
   } catch {
     return [];
   }
   const found = [];
   for (const slot of slots) {
-    const dir = (0, import_node_path6.join)(storeDir, SAVED_DIR, slot);
-    const origin = parseOrigin(await (0, import_promises5.readFile)((0, import_node_path6.join)(dir, "origin.json"), "utf8").catch(() => ""));
+    const dir = (0, import_node_path5.join)(storeDir, SAVED_DIR, slot);
+    const origin = parseOrigin(await (0, import_promises4.readFile)((0, import_node_path5.join)(dir, "origin.json"), "utf8").catch(() => ""));
     if (origin) found.push({ ...origin, dir });
   }
   return found;
@@ -1333,11 +1270,11 @@ var SKIPPED = /* @__PURE__ */ new Set([
 ]);
 async function projectStores(root, env = process.env) {
   if (root === LOOSE_ROOT) return [{ root, origin: "root" }];
-  const top = (0, import_node_path7.resolve)(root);
+  const top = (0, import_node_path6.resolve)(root);
   const found = [];
   const seen = /* @__PURE__ */ new Set();
   const add = async (dir, origin) => {
-    const key = await (0, import_promises6.realpath)((0, import_node_path7.join)(dir, STORE_DIR)).catch(() => (0, import_node_path7.join)(dir, STORE_DIR));
+    const key = await (0, import_promises5.realpath)((0, import_node_path6.join)(dir, STORE_DIR)).catch(() => (0, import_node_path6.join)(dir, STORE_DIR));
     if (seen.has(key)) return;
     seen.add(key);
     found.push({ root: dir, origin });
@@ -1353,7 +1290,7 @@ async function projectStores(root, env = process.env) {
       repos.push(above);
     }
   }
-  const realTop = await (0, import_promises6.realpath)(top).catch(() => top);
+  const realTop = await (0, import_promises5.realpath)(top).catch(() => top);
   const worktrees = /* @__PURE__ */ new Set();
   for (const list of await Promise.all(repos.map(worktreesOf)))
     for (const wt of list) if (!walked(realTop, wt)) worktrees.add(wt);
@@ -1363,8 +1300,8 @@ async function projectStores(root, env = process.env) {
     for (const dir of stores) await add(dir, "worktree");
   }
   for (const s of [...found]) {
-    for (const saved of await savedStores((0, import_node_path7.join)(s.root, STORE_DIR))) {
-      const key = await (0, import_promises6.realpath)(saved.dir).catch(() => saved.dir);
+    for (const saved of await savedStores((0, import_node_path6.join)(s.root, STORE_DIR))) {
+      const key = await (0, import_promises5.realpath)(saved.dir).catch(() => saved.dir);
       if (seen.has(key)) continue;
       seen.add(key);
       found.push({ root: saved.root, origin: "saved", saved });
@@ -1374,34 +1311,34 @@ async function projectStores(root, env = process.env) {
   return found.sort((a, b) => order[a.origin] - order[b.origin] || a.root.localeCompare(b.root));
 }
 function walked(top, dir) {
-  const rel = (0, import_node_path7.relative)(top, dir);
+  const rel = (0, import_node_path6.relative)(top, dir);
   if (rel === "") return true;
-  if (rel.startsWith("..") || (0, import_node_path7.isAbsolute)(rel)) return false;
-  return rel.split(import_node_path7.sep).every((part) => !part.startsWith(".") && !SKIPPED.has(part));
+  if (rel.startsWith("..") || (0, import_node_path6.isAbsolute)(rel)) return false;
+  return rel.split(import_node_path6.sep).every((part) => !part.startsWith(".") && !SKIPPED.has(part));
 }
 async function storesUnder(dir, env = process.env) {
   const stores = [];
-  await walk((0, import_node_path7.resolve)(dir), env, stores, []);
+  await walk((0, import_node_path6.resolve)(dir), env, stores, []);
   return stores.sort();
 }
 async function walk(dir, env, stores, repos) {
   let entries;
   try {
-    entries = await (0, import_promises6.readdir)(dir, { withFileTypes: true });
+    entries = await (0, import_promises5.readdir)(dir, { withFileTypes: true });
   } catch {
     return;
   }
   if (entries.some((e) => e.name === ".git")) repos.push(dir);
   if (entries.some((e) => e.name === STORE_DIR && e.isDirectory()) && isStoreRoot(dir, env)) stores.push(dir);
   const children = entries.filter((e) => e.isDirectory() && !e.name.startsWith(".") && !SKIPPED.has(e.name));
-  await Promise.all(children.map((e) => walk((0, import_node_path7.join)(dir, e.name), env, stores, repos)));
+  await Promise.all(children.map((e) => walk((0, import_node_path6.join)(dir, e.name), env, stores, repos)));
 }
 function worktreesOf(dir) {
   return new Promise(
     (done) => (0, import_node_child_process2.execFile)("git", ["worktree", "list", "--porcelain"], { cwd: dir, timeout: 3e3 }, (err, stdout) => {
       if (err) return done([]);
       const paths = stdout.split("\n").filter((l) => l.startsWith("worktree ")).map((l) => l.slice("worktree ".length));
-      void Promise.all(paths.map((p) => (0, import_promises6.realpath)(p).catch(() => null))).then(
+      void Promise.all(paths.map((p) => (0, import_promises5.realpath)(p).catch(() => null))).then(
         (real2) => done(real2.filter((p) => p !== null))
       );
     })
@@ -1433,7 +1370,7 @@ async function projectHistory(root, opts = {}) {
   });
   const all = stores.flatMap((s) => s.threads);
   return {
-    root: root === LOOSE_ROOT ? root : (0, import_node_path7.resolve)(root),
+    root: root === LOOSE_ROOT ? root : (0, import_node_path6.resolve)(root),
     since: opts.since ? opts.since.toISOString() : null,
     stores,
     threads: all.length,
@@ -1444,9 +1381,296 @@ async function projectHistory(root, opts = {}) {
   };
 }
 
-// ../../packages/core/src/retro.ts
+// ../../packages/core/src/worktrees.ts
+var import_node_child_process4 = require("node:child_process");
+var import_node_crypto2 = require("node:crypto");
 var import_promises7 = require("node:fs/promises");
+var import_node_os2 = require("node:os");
 var import_node_path8 = require("node:path");
+
+// ../../packages/core/src/storeHome.ts
+var import_node_child_process3 = require("node:child_process");
+var import_promises6 = require("node:fs/promises");
+var import_node_path7 = require("node:path");
+async function prepareStoreHome(home) {
+  const store = (0, import_node_path7.join)(home, STORE_DIR);
+  if (await (0, import_promises6.stat)(store).catch(() => null)) return;
+  const exclude = await new Promise(
+    (done) => (0, import_node_child_process3.execFile)(
+      "git",
+      ["rev-parse", "--git-path", "info/exclude"],
+      { cwd: home, timeout: 3e3 },
+      (err, out) => done(err ? null : out.trim())
+    )
+  );
+  if (exclude) {
+    const file = (0, import_node_path7.isAbsolute)(exclude) ? exclude : (0, import_node_path7.join)(home, exclude);
+    const current = await (0, import_promises6.readFile)(file, "utf8").catch(() => "");
+    const accepted = [`${STORE_DIR}/`, STORE_DIR, `/${STORE_DIR}/`, `/${STORE_DIR}`];
+    if (!current.split("\n").some((l) => accepted.includes(l.trim()))) {
+      await (0, import_promises6.mkdir)((0, import_node_path7.join)(file, ".."), { recursive: true });
+      await (0, import_promises6.appendFile)(file, `${current === "" || current.endsWith("\n") ? "" : "\n"}${STORE_DIR}/
+`);
+    }
+  }
+  await (0, import_promises6.mkdir)(store, { recursive: true });
+}
+
+// ../../packages/core/src/worktrees.ts
+function git2(args, cwd) {
+  return new Promise(
+    (done) => (0, import_node_child_process4.execFile)("git", args, { cwd, timeout: 3e3 }, (err, stdout) => done(err ? null : stdout.trim()))
+  );
+}
+var real = (p) => (0, import_promises7.realpath)(p).catch(() => (0, import_node_path8.resolve)(p));
+async function worktreeInfo(dir) {
+  const out = await git2(
+    ["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir", "--show-toplevel"],
+    dir
+  );
+  const [gitDir, commonDir, top] = out?.split("\n") ?? [];
+  if (!gitDir || !commonDir || !top) return null;
+  const [realGit, repo, worktree] = await Promise.all([real(gitDir), real(commonDir), real(top)]);
+  const list = await git2(["worktree", "list", "--porcelain"], dir) ?? "";
+  const first = list.split("\n\n")[0]?.split("\n") ?? [];
+  const mainPath = first.find((l) => l.startsWith("worktree "))?.slice("worktree ".length);
+  const main2 = mainPath && !first.includes("bare") ? await real(mainPath) : null;
+  const branch = await git2(["symbolic-ref", "--quiet", "--short", "HEAD"], dir) || null;
+  return { worktree, repo, linked: realGit !== repo, main: main2, branch };
+}
+async function worktreesOf2(dir) {
+  const out = await git2(["worktree", "list", "--porcelain"], dir) ?? "";
+  const paths = out.split("\n").filter((l) => l.startsWith("worktree ")).map((l) => l.slice("worktree ".length));
+  return Promise.all(paths.map(real));
+}
+var expandHome = (p, env = process.env) => p === "~" ? env.HOME || (0, import_node_os2.homedir)() : p.startsWith("~/") ? (0, import_node_path8.join)(env.HOME || (0, import_node_os2.homedir)(), p.slice(2)) : p;
+async function resolveWorktree(cwd, spec) {
+  const path = (0, import_node_path8.resolve)(cwd, expandHome(spec));
+  if (await (0, import_promises7.stat)(path).catch(() => null)) return real(path);
+  const tail = import_node_path8.sep + spec.replace(/[/\\]+$/, "").replace(/\//g, import_node_path8.sep);
+  const matches = (await worktreesOf2(cwd)).filter((wt) => wt.endsWith(tail));
+  return matches.length === 1 ? matches[0] : null;
+}
+function slotOf(storeRoot) {
+  const name = (0, import_node_path8.basename)(storeRoot).replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 60) || "worktree";
+  return `${name}-${(0, import_node_crypto2.createHash)("sha256").update(storeRoot).digest("hex").slice(0, 8)}`;
+}
+async function saveWorktreeThreads(dir, env = process.env) {
+  const info = await worktreeInfo(dir);
+  if (!info) throw new Error(`${dir} is not in a git repository`);
+  if (!info.linked)
+    throw new Error(
+      `${info.worktree} is the main worktree of its repository, not a linked one: git worktree remove never deletes it, so its comments are safe`
+    );
+  if (!info.main) throw new Error(`the repository of ${info.worktree} has no main worktree (bare): nowhere to save`);
+  const result = {
+    worktree: info.worktree,
+    branch: info.branch,
+    main: info.main,
+    copies: [],
+    threads: 0,
+    published: 0
+  };
+  const stores = await storesUnder(info.worktree, env);
+  if (stores.length === 0) return result;
+  await prepareStoreHome(info.main);
+  const mainStore = new Store(info.main);
+  await mainStore.ensureInitialized();
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  for (const root of stores) {
+    const from = await real(root);
+    const target = (0, import_node_path8.join)(mainStore.dir, SAVED_DIR, slotOf(from));
+    let threads = 0;
+    for (const kind of ["threads", "reviews"]) {
+      const files = await (0, import_promises7.readdir)((0, import_node_path8.join)(from, STORE_DIR, kind)).catch(() => []);
+      const journals = files.filter((f) => kind === "threads" ? Store.threadIdOf(f) !== null : f.endsWith(".jsonl"));
+      if (journals.length === 0) continue;
+      await (0, import_promises7.mkdir)((0, import_node_path8.join)(target, kind), { recursive: true });
+      for (const f of journals) await (0, import_promises7.copyFile)((0, import_node_path8.join)(from, STORE_DIR, kind, f), (0, import_node_path8.join)(target, kind, f));
+      if (kind === "threads") threads = journals.length;
+    }
+    if (threads === 0) continue;
+    const previous = parseOrigin(await (0, import_promises7.readFile)((0, import_node_path8.join)(target, "origin.json"), "utf8").catch(() => ""));
+    const origin = {
+      v: 1,
+      worktree: info.worktree,
+      root: from,
+      repo: info.repo,
+      branch: info.branch,
+      firstSavedAt: previous?.firstSavedAt ?? now,
+      savedAt: now
+    };
+    const tmp = (0, import_node_path8.join)(target, `origin.json.${process.pid}.tmp`);
+    await (0, import_promises7.writeFile)(tmp, JSON.stringify(origin, null, 2) + "\n");
+    await (0, import_promises7.rename)(tmp, (0, import_node_path8.join)(target, "origin.json"));
+    const published = (await new Store(from, target).loadHistory()).threads.length;
+    result.copies.push({ from, dir: target, threads, published });
+    result.threads += threads;
+    result.published += published;
+  }
+  return result;
+}
+async function worktreeThreadCount(dir, env = process.env) {
+  let n = 0;
+  for (const root of await storesUnder(dir, env)) n += (await new Store(root).loadHistory()).threads.length;
+  return n;
+}
+
+// ../../packages/core/src/agentSessions.ts
+var LOG_VERSION = 1;
+var agentSessionsFile = (env = process.env) => (0, import_node_path9.join)(localReviewHome(env), "agent-sessions.jsonl");
+async function readAgentSessions(env = process.env) {
+  let text = "";
+  try {
+    text = await (0, import_promises8.readFile)(agentSessionsFile(env), "utf8");
+  } catch {
+    return { sessions: [], imported: /* @__PURE__ */ new Set() };
+  }
+  const byId = /* @__PURE__ */ new Map();
+  const imported = /* @__PURE__ */ new Set();
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    let e;
+    try {
+      e = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (typeof e !== "object" || e === null || typeof e.v !== "number" || e.v > LOG_VERSION) continue;
+    if (e.type === "imported" && typeof e.source === "string") imported.add(e.source);
+    if (e.type === "session" && typeof e.id === "string" && typeof e.cwd === "string" && typeof e.startedAt === "string" && !Number.isNaN(Date.parse(e.startedAt))) {
+      const known = byId.get(e.id);
+      if (!known || e.startedAt < known.startedAt)
+        byId.set(e.id, {
+          id: e.id,
+          agent: typeof e.agent === "string" ? e.agent : "",
+          cwd: e.cwd,
+          startedAt: e.startedAt
+        });
+    }
+  }
+  return { sessions: [...byId.values()], imported };
+}
+async function recordAgentSessions(entries, opts = {}) {
+  const env = opts.env ?? process.env;
+  const lines = entries.map((x) => ({ v: LOG_VERSION, type: "session", ...x }));
+  if (opts.imported)
+    lines.push({ v: LOG_VERSION, type: "imported", source: opts.imported, at: (/* @__PURE__ */ new Date()).toISOString() });
+  if (lines.length === 0) return;
+  await (0, import_promises8.mkdir)(localReviewHome(env), { recursive: true });
+  await (0, import_promises8.appendFile)(agentSessionsFile(env), lines.map((l) => JSON.stringify(l) + "\n").join(""));
+}
+async function projectFolders(root, env = process.env) {
+  const top = (0, import_node_path9.resolve)(root);
+  const folders = /* @__PURE__ */ new Set([top]);
+  for (const wt of await worktreesOf2(top)) folders.add(wt);
+  for (const s of await projectStores(top, env))
+    if (s.origin === "worktree" || s.origin === "below") folders.add(s.root);
+  for (const f of [...folders]) folders.add(await (0, import_promises8.realpath)(f).catch(() => f));
+  return [...folders];
+}
+var inFolders = (path, folders) => folders.some((f) => path === f || path.startsWith(f.endsWith(import_node_path9.sep) ? f : f + import_node_path9.sep));
+async function projectAgentSessions(root, since, env = process.env) {
+  const { sessions } = await readAgentSessions(env);
+  if (sessions.length === 0) return [];
+  const folders = await projectFolders(root, env);
+  return sessions.filter((x) => (since === null || x.startedAt > since) && inFolders(x.cwd, folders)).sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+}
+
+// ../../packages/core/src/config.ts
+var import_promises9 = require("node:fs/promises");
+var import_node_path10 = require("node:path");
+var SESSIONS_MODES = ["reports", "insights"];
+var RETRO_SOURCES = ["reviews", "sessions", "audit"];
+var SOURCE_SETTINGS = ["yes", "no", "ask"];
+var DEFAULT_CONFIG = {
+  keepHistory: true,
+  retroReminder: true,
+  retroReminderDays: 7,
+  retroReminderSizeKB: 1e3,
+  retroReminderMaxDays: 25,
+  retroSessions: "reports",
+  retroSourceReviews: "ask",
+  retroSourceSessions: "ask",
+  retroSourceAudit: "ask"
+};
+var CONFIG_KEYS = {
+  "keep-history": {
+    key: "keepHistory",
+    kind: "boolean",
+    help: "on|off \u2014 keep deleted threads (for lr history and retros) and save the threads of a worktree before an agent removes it; off, deleting a thread erases it (default: on)"
+  },
+  "retro-reminder": {
+    key: "retroReminder",
+    kind: "boolean",
+    help: "on|off \u2014 when a retro is due, the agent says so at the start of a session (default: on)"
+  },
+  "retro-reminder-days": {
+    key: "retroReminderDays",
+    kind: "number",
+    help: "days \u2014 a retro is due this many days after the last one (default: 7)"
+  },
+  "retro-reminder-size": {
+    key: "retroReminderSizeKB",
+    kind: "number",
+    help: "KB \u2014 or sooner, once the threads since the last one weigh this much (default: 1000, i.e. 1 MB)"
+  },
+  "retro-reminder-max-days": {
+    key: "retroReminderMaxDays",
+    kind: "number",
+    help: "days \u2014 and never later than this, to keep the agent conversations linked to replies (default: 25)"
+  },
+  "retro-sessions": {
+    key: "retroSessions",
+    kind: "choice",
+    choices: SESSIONS_MODES,
+    help: "reports|insights \u2014 how a retro reads the agent sessions: a report on each one by a model (finer, costs more), or the agent's own summaries (Claude Code's /insights, cheaper); never both (default: reports)"
+  },
+  "retro-source-reviews": {
+    key: "retroSourceReviews",
+    kind: "choice",
+    choices: SOURCE_SETTINGS,
+    help: "yes|no|ask \u2014 a retro reads your review threads: always, never, or asked at each retro (default: ask)"
+  },
+  "retro-source-sessions": {
+    key: "retroSourceSessions",
+    kind: "choice",
+    choices: SOURCE_SETTINGS,
+    help: "yes|no|ask \u2014 a retro reads your sessions with the agent: always, never, or asked (default: ask)"
+  },
+  "retro-source-audit": {
+    key: "retroSourceAudit",
+    kind: "choice",
+    choices: SOURCE_SETTINGS,
+    help: "yes|no|ask \u2014 a retro audits your setup (/doctor prompt-audit): always, never, or asked (default: ask)"
+  }
+};
+var configFile = (env = process.env) => (0, import_node_path10.join)(localReviewHome(env), "config.json");
+var validSettingNumber = (x) => typeof x === "number" && Number.isInteger(x) && x >= 1;
+async function readConfig(env = process.env) {
+  const config = { ...DEFAULT_CONFIG };
+  let raw;
+  try {
+    raw = JSON.parse(await (0, import_promises9.readFile)(configFile(env), "utf8"));
+  } catch {
+    return config;
+  }
+  if (typeof raw !== "object" || raw === null) return config;
+  const values = raw;
+  for (const setting of Object.values(CONFIG_KEYS)) {
+    const value = values[setting.key];
+    if (setting.kind === "boolean" && typeof value === "boolean") config[setting.key] = value;
+    if (setting.kind === "number" && validSettingNumber(value)) config[setting.key] = value;
+    if (setting.kind === "choice" && typeof value === "string" && setting.choices.includes(value))
+      Object.assign(config, { [setting.key]: value });
+  }
+  return config;
+}
+var writing = Promise.resolve();
+
+// ../../packages/core/src/retro.ts
+var import_promises10 = require("node:fs/promises");
+var import_node_path11 = require("node:path");
 var RETRO_SCHEMA_VERSION = 1;
 var RETROS_DIR = "retros";
 var RETRO_EVENTS = /* @__PURE__ */ new Set([
@@ -1511,6 +1735,7 @@ function foldRetro(events, warnings = [], future = false) {
     bytes: first.bytes,
     preferences: first.preferences ?? [],
     sessionsMode: first.sessionsMode ?? null,
+    sources: Array.isArray(first.sources) ? RETRO_SOURCES.filter((x) => first.sources.includes(x)) : [...RETRO_SOURCES],
     feedback: [],
     classification: null,
     proposals: [],
@@ -1614,7 +1839,7 @@ function foldRetro(events, warnings = [], future = false) {
 async function readRetros(dir) {
   let files;
   try {
-    files = (await (0, import_promises7.readdir)(dir)).filter((f) => f.endsWith(".jsonl") && RETRO_ID.test(f.slice(0, -".jsonl".length)));
+    files = (await (0, import_promises10.readdir)(dir)).filter((f) => f.endsWith(".jsonl") && RETRO_ID.test(f.slice(0, -".jsonl".length)));
   } catch (err) {
     if (err.code === "ENOENT") return [];
     throw err;
@@ -1626,148 +1851,13 @@ async function readRetro(dir, id) {
   if (!RETRO_ID.test(id)) throw new Error(`Invalid retro id: ${id}`);
   let text;
   try {
-    text = await (0, import_promises7.readFile)((0, import_node_path8.join)(dir, `${id}.jsonl`), "utf8");
+    text = await (0, import_promises10.readFile)((0, import_node_path11.join)(dir, `${id}.jsonl`), "utf8");
   } catch (err) {
     if (err.code === "ENOENT") return null;
     throw err;
   }
   const parsed = parseLines(text, `retros/${id}.jsonl`, RETRO_EVENTS);
   return foldRetro(parsed.events, parsed.warnings, parsed.future);
-}
-
-// ../../packages/core/src/worktrees.ts
-var import_node_child_process4 = require("node:child_process");
-var import_node_crypto2 = require("node:crypto");
-var import_promises9 = require("node:fs/promises");
-var import_node_os2 = require("node:os");
-var import_node_path10 = require("node:path");
-
-// ../../packages/core/src/storeHome.ts
-var import_node_child_process3 = require("node:child_process");
-var import_promises8 = require("node:fs/promises");
-var import_node_path9 = require("node:path");
-async function prepareStoreHome(home) {
-  const store = (0, import_node_path9.join)(home, STORE_DIR);
-  if (await (0, import_promises8.stat)(store).catch(() => null)) return;
-  const exclude = await new Promise(
-    (done) => (0, import_node_child_process3.execFile)(
-      "git",
-      ["rev-parse", "--git-path", "info/exclude"],
-      { cwd: home, timeout: 3e3 },
-      (err, out) => done(err ? null : out.trim())
-    )
-  );
-  if (exclude) {
-    const file = (0, import_node_path9.isAbsolute)(exclude) ? exclude : (0, import_node_path9.join)(home, exclude);
-    const current = await (0, import_promises8.readFile)(file, "utf8").catch(() => "");
-    const accepted = [`${STORE_DIR}/`, STORE_DIR, `/${STORE_DIR}/`, `/${STORE_DIR}`];
-    if (!current.split("\n").some((l) => accepted.includes(l.trim()))) {
-      await (0, import_promises8.mkdir)((0, import_node_path9.join)(file, ".."), { recursive: true });
-      await (0, import_promises8.appendFile)(file, `${current === "" || current.endsWith("\n") ? "" : "\n"}${STORE_DIR}/
-`);
-    }
-  }
-  await (0, import_promises8.mkdir)(store, { recursive: true });
-}
-
-// ../../packages/core/src/worktrees.ts
-function git2(args, cwd) {
-  return new Promise(
-    (done) => (0, import_node_child_process4.execFile)("git", args, { cwd, timeout: 3e3 }, (err, stdout) => done(err ? null : stdout.trim()))
-  );
-}
-var real = (p) => (0, import_promises9.realpath)(p).catch(() => (0, import_node_path10.resolve)(p));
-async function worktreeInfo(dir) {
-  const out = await git2(
-    ["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir", "--show-toplevel"],
-    dir
-  );
-  const [gitDir, commonDir, top] = out?.split("\n") ?? [];
-  if (!gitDir || !commonDir || !top) return null;
-  const [realGit, repo, worktree] = await Promise.all([real(gitDir), real(commonDir), real(top)]);
-  const list = await git2(["worktree", "list", "--porcelain"], dir) ?? "";
-  const first = list.split("\n\n")[0]?.split("\n") ?? [];
-  const mainPath = first.find((l) => l.startsWith("worktree "))?.slice("worktree ".length);
-  const main2 = mainPath && !first.includes("bare") ? await real(mainPath) : null;
-  const branch = await git2(["symbolic-ref", "--quiet", "--short", "HEAD"], dir) || null;
-  return { worktree, repo, linked: realGit !== repo, main: main2, branch };
-}
-async function worktreesOf2(dir) {
-  const out = await git2(["worktree", "list", "--porcelain"], dir) ?? "";
-  const paths = out.split("\n").filter((l) => l.startsWith("worktree ")).map((l) => l.slice("worktree ".length));
-  return Promise.all(paths.map(real));
-}
-var expandHome = (p, env = process.env) => p === "~" ? env.HOME || (0, import_node_os2.homedir)() : p.startsWith("~/") ? (0, import_node_path10.join)(env.HOME || (0, import_node_os2.homedir)(), p.slice(2)) : p;
-async function resolveWorktree(cwd, spec) {
-  const path = (0, import_node_path10.resolve)(cwd, expandHome(spec));
-  if (await (0, import_promises9.stat)(path).catch(() => null)) return real(path);
-  const tail = import_node_path10.sep + spec.replace(/[/\\]+$/, "").replace(/\//g, import_node_path10.sep);
-  const matches = (await worktreesOf2(cwd)).filter((wt) => wt.endsWith(tail));
-  return matches.length === 1 ? matches[0] : null;
-}
-function slotOf(storeRoot) {
-  const name = (0, import_node_path10.basename)(storeRoot).replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 60) || "worktree";
-  return `${name}-${(0, import_node_crypto2.createHash)("sha256").update(storeRoot).digest("hex").slice(0, 8)}`;
-}
-async function saveWorktreeThreads(dir, env = process.env) {
-  const info = await worktreeInfo(dir);
-  if (!info) throw new Error(`${dir} is not in a git repository`);
-  if (!info.linked)
-    throw new Error(
-      `${info.worktree} is the main worktree of its repository, not a linked one: git worktree remove never deletes it, so its comments are safe`
-    );
-  if (!info.main) throw new Error(`the repository of ${info.worktree} has no main worktree (bare): nowhere to save`);
-  const result = {
-    worktree: info.worktree,
-    branch: info.branch,
-    main: info.main,
-    copies: [],
-    threads: 0,
-    published: 0
-  };
-  const stores = await storesUnder(info.worktree, env);
-  if (stores.length === 0) return result;
-  await prepareStoreHome(info.main);
-  const mainStore = new Store(info.main);
-  await mainStore.ensureInitialized();
-  const now = (/* @__PURE__ */ new Date()).toISOString();
-  for (const root of stores) {
-    const from = await real(root);
-    const target = (0, import_node_path10.join)(mainStore.dir, SAVED_DIR, slotOf(from));
-    let threads = 0;
-    for (const kind of ["threads", "reviews"]) {
-      const files = await (0, import_promises9.readdir)((0, import_node_path10.join)(from, STORE_DIR, kind)).catch(() => []);
-      const journals = files.filter((f) => kind === "threads" ? Store.threadIdOf(f) !== null : f.endsWith(".jsonl"));
-      if (journals.length === 0) continue;
-      await (0, import_promises9.mkdir)((0, import_node_path10.join)(target, kind), { recursive: true });
-      for (const f of journals) await (0, import_promises9.copyFile)((0, import_node_path10.join)(from, STORE_DIR, kind, f), (0, import_node_path10.join)(target, kind, f));
-      if (kind === "threads") threads = journals.length;
-    }
-    if (threads === 0) continue;
-    const previous = parseOrigin(await (0, import_promises9.readFile)((0, import_node_path10.join)(target, "origin.json"), "utf8").catch(() => ""));
-    const origin = {
-      v: 1,
-      worktree: info.worktree,
-      root: from,
-      repo: info.repo,
-      branch: info.branch,
-      firstSavedAt: previous?.firstSavedAt ?? now,
-      savedAt: now
-    };
-    const tmp = (0, import_node_path10.join)(target, `origin.json.${process.pid}.tmp`);
-    await (0, import_promises9.writeFile)(tmp, JSON.stringify(origin, null, 2) + "\n");
-    await (0, import_promises9.rename)(tmp, (0, import_node_path10.join)(target, "origin.json"));
-    const published = (await new Store(from, target).loadHistory()).threads.length;
-    result.copies.push({ from, dir: target, threads, published });
-    result.threads += threads;
-    result.published += published;
-  }
-  return result;
-}
-async function worktreeThreadCount(dir, env = process.env) {
-  let n = 0;
-  for (const root of await storesUnder(dir, env)) n += (await new Store(root).loadHistory()).threads.length;
-  return n;
 }
 
 // ../../packages/core/src/cadence.ts
@@ -1779,18 +1869,23 @@ var DAY = 864e5;
 async function retroCadence(root, opts = {}) {
   const env = opts.env ?? process.env;
   const now = opts.now ?? Date.now();
-  const dir = (0, import_node_path11.resolve)(root);
-  if (dir === LOOSE_ROOT || (0, import_node_path11.dirname)(dir) === dir) return null;
+  const dir = (0, import_node_path12.resolve)(root);
+  if (dir === LOOSE_ROOT || (0, import_node_path12.dirname)(dir) === dir) return null;
   const thresholds = opts.thresholds ?? thresholdsOf(await readConfig(env));
   const last = await lastRetroCovering(dir);
   let since = last ? Date.parse(last.until) : null;
   const history = await projectHistory(dir, { since: since === null ? null : new Date(since + 1), env });
   const threads = history.stores.flatMap((s) => s.threads);
-  if (since === null && threads.length > 0)
-    since = threads.reduce((first, t) => Math.min(first, Date.parse(t.createdAt)), Infinity);
+  const sessions = await projectAgentSessions(dir, since === null ? null : new Date(since).toISOString(), env);
+  let first;
+  if (since === null && threads.length + sessions.length > 0) {
+    const thread = threads.reduce((x, t) => Math.min(x, Date.parse(t.createdAt)), Infinity);
+    const session = sessions.reduce((x, t) => Math.min(x, Date.parse(t.startedAt)), Infinity);
+    [since, first] = thread <= session ? [thread, "thread"] : [session, "session"];
+  }
   const days = since === null ? 0 : Math.max(0, Math.floor((now - since) / DAY));
   const reasons = [];
-  if (threads.length > 0) {
+  if (threads.length + sessions.length > 0) {
     if (days >= Math.min(thresholds.days, thresholds.maxDays)) reasons.push("days");
     if (history.bytes >= thresholds.bytes) reasons.push("size");
     if (days >= thresholds.maxDays) reasons.push("max-days");
@@ -1799,9 +1894,11 @@ async function retroCadence(root, opts = {}) {
     root: dir,
     lastRetro: last ? { id: last.id, root: last.root, until: last.until } : null,
     since: since === null ? null : new Date(since).toISOString(),
+    ...first ? { first } : {},
     days,
     threads: threads.length,
     bytes: history.bytes,
+    sessions: sessions.length,
     thresholds,
     due: reasons.length > 0,
     reasons
@@ -1811,16 +1908,16 @@ async function lastRetroCovering(dir) {
   return lastFinished(await retrosCovering(dir));
 }
 async function retrosCovering(dir) {
-  const target = (0, import_node_path11.resolve)(dir);
-  const real2 = await (0, import_promises10.realpath)(target).catch(() => target);
+  const target = (0, import_node_path12.resolve)(dir);
+  const real2 = await (0, import_promises11.realpath)(target).catch(() => target);
   const found = await retrosAbove([target, real2]);
   const info = await worktreeInfo(real2);
   if (info) {
-    const rel = (0, import_node_path11.relative)(info.worktree, real2);
-    if (!rel.startsWith("..") && !(0, import_node_path11.isAbsolute)(rel)) {
+    const rel = (0, import_node_path12.relative)(info.worktree, real2);
+    if (!rel.startsWith("..") && !(0, import_node_path12.isAbsolute)(rel)) {
       for (const wt of await worktreesOf2(real2)) {
         if (wt === info.worktree) continue;
-        found.push(...await retrosAbove([(0, import_node_path11.join)(wt, rel)]));
+        found.push(...await retrosAbove([(0, import_node_path12.join)(wt, rel)]));
       }
     }
   }
@@ -1829,14 +1926,14 @@ async function retrosCovering(dir) {
 }
 var lastFinished = (retros) => retros.filter((r) => r.finishedAt !== null).reduce((a, r) => !a || r.until > a.until ? r : a, null);
 async function retrosAbove(dirs) {
-  const covers = (r) => dirs.some((d) => d === r || d.startsWith(r.endsWith(import_node_path11.sep) ? r : r + import_node_path11.sep));
+  const covers = (r) => dirs.some((d) => d === r || d.startsWith(r.endsWith(import_node_path12.sep) ? r : r + import_node_path12.sep));
   const found = [];
-  for (let d = dirs[0]; ; d = (0, import_node_path11.dirname)(d)) {
-    for (const r of await readRetros((0, import_node_path11.join)(d, STORE_DIR, RETROS_DIR)).catch(() => [])) {
-      const rootReal = await (0, import_promises10.realpath)(r.root).catch(() => r.root);
+  for (let d = dirs[0]; ; d = (0, import_node_path12.dirname)(d)) {
+    for (const r of await readRetros((0, import_node_path12.join)(d, STORE_DIR, RETROS_DIR)).catch(() => [])) {
+      const rootReal = await (0, import_promises11.realpath)(r.root).catch(() => r.root);
       if (covers(r.root) || covers(rootReal)) found.push(r);
     }
-    if ((0, import_node_path11.dirname)(d) === d) return found;
+    if ((0, import_node_path12.dirname)(d) === d) return found;
   }
 }
 function formatBytes(n) {
@@ -1847,14 +1944,15 @@ function formatBytes(n) {
 function cadenceSummary(c) {
   const day = (iso) => iso.slice(0, 10);
   const days = `${c.days} day${c.days === 1 ? "" : "s"}`;
-  const data = `${formatBytes(c.bytes)} of review threads (${c.threads})`;
-  if (c.lastRetro) return `${days} and ${data} since the last retro (${day(c.lastRetro.until)})`;
-  return c.since ? `${days} and ${data} since the first thread (${day(c.since)}), no retro yet` : `${data}, no retro yet`;
+  const sessions = c.sessions;
+  const data = `${formatBytes(c.bytes)} of review threads (${c.threads}) and ${sessions} agent session${sessions === 1 ? "" : "s"}`;
+  if (c.lastRetro) return `${days}, ${data} since the last retro (${day(c.lastRetro.until)})`;
+  return c.since ? `${days}, ${data} since the first ${c.first === "session" ? "agent session" : "thread"} (${day(c.since)}), no retro yet` : `${data}, no retro yet`;
 }
 function dueReasons(c) {
   const t = c.thresholds;
   return c.reasons.map(
-    (r) => r === "days" ? `${c.days} days since ${c.lastRetro ? "the last retro" : "the first thread"} (reminder at ${Math.min(t.days, t.maxDays)})` : r === "size" ? `${formatBytes(c.bytes)} of threads to look back at (reminder at ${formatBytes(t.bytes)})` : `${t.maxDays} days or more: agents delete their conversations after a while (often 30 days), and the retro reads back those linked to replies`
+    (r) => r === "days" ? `${c.days} days since ${c.lastRetro ? "the last retro" : c.first === "session" ? "the first agent session" : "the first thread"} (reminder at ${Math.min(t.days, t.maxDays)})` : r === "size" ? `${formatBytes(c.bytes)} of threads to look back at (reminder at ${formatBytes(t.bytes)})` : `${t.maxDays} days or more: agents delete their conversations after a while (often 30 days), and the retro reads back those linked to replies`
   );
 }
 
@@ -1883,8 +1981,8 @@ var STOPWORDS = new Set(
 
 // src/hook.ts
 var import_node_child_process5 = require("node:child_process");
-var import_promises11 = require("node:fs/promises");
-var import_node_path12 = require("node:path");
+var import_promises13 = require("node:fs/promises");
+var import_node_path14 = require("node:path");
 
 // src/channelFlag.ts
 var CHANNEL = "plugin:local-review@local-review";
@@ -1903,6 +2001,72 @@ function hasChannel(commandLine2) {
   return false;
 }
 var isOurChannel = (value) => value === CHANNEL || /^plugin:local-review@[\w.-]+$/.test(value);
+
+// src/retroInsights.ts
+var import_node_fs2 = require("node:fs");
+var import_promises12 = require("node:fs/promises");
+var import_node_path13 = require("node:path");
+var import_node_readline = require("node:readline");
+
+// src/retroAudit.ts
+var AUDIT_TIMEOUT_MS = 15 * 6e4;
+
+// src/retroInsights.ts
+var INSIGHTS_TIMEOUT_MS = 15 * 6e4;
+async function transcriptStart(file) {
+  const lines = (0, import_node_readline.createInterface)({ input: (0, import_node_fs2.createReadStream)(file, { encoding: "utf8" }), crlfDelay: Infinity });
+  let cwd = null;
+  let start = null;
+  let entrypoint;
+  try {
+    for await (const line of lines) {
+      let e;
+      try {
+        e = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (cwd === null && typeof e.cwd === "string") {
+        cwd = e.cwd;
+        if (typeof e.entrypoint === "string") entrypoint = e.entrypoint;
+      }
+      if (start === null && typeof e.timestamp === "string") start = e.timestamp;
+      if (cwd !== null && start !== null) break;
+    }
+  } finally {
+    lines.close();
+  }
+  return cwd !== null && start !== null && !Number.isNaN(Date.parse(start)) ? { cwd, start: new Date(start).toISOString(), ...entrypoint ? { entrypoint } : {} } : null;
+}
+async function allTranscripts(claudeDir) {
+  const projects = (0, import_node_path13.join)(claudeDir, "projects");
+  const out = [];
+  for (const dir of await (0, import_promises12.readdir)(projects).catch(() => [])) {
+    const names = await (0, import_promises12.readdir)((0, import_node_path13.join)(projects, dir)).catch(() => []);
+    for (const name of names.filter((x) => x.endsWith(".jsonl"))) {
+      const file = (0, import_node_path13.join)(projects, dir, name);
+      const s = await transcriptStart(file);
+      if (s) out.push({ id: name.slice(0, -".jsonl".length), file, ...s });
+    }
+  }
+  return out;
+}
+
+// src/sessionLog.ts
+var PROGRAM_ENTRYPOINT = "sdk-cli";
+var isPrintMode = (commandLine2) => commandLine2.trim().split(/\s+/).some((a) => a === "-p" || a === "--print");
+async function recordClaudeSession(session, claudeDir, env = process.env) {
+  const log = await readAgentSessions(env);
+  const first = !log.imported.has(claudeDir);
+  const entries = [];
+  if (first) {
+    for (const t of await allTranscripts(claudeDir))
+      if (t.entrypoint !== PROGRAM_ENTRYPOINT && t.id !== session.id)
+        entries.push({ id: t.id, agent: "Claude", cwd: t.cwd, startedAt: t.start });
+  }
+  if (!log.sessions.some((x) => x.id === session.id)) entries.push({ ...session, agent: "Claude" });
+  await recordAgentSessions(entries, { env, ...first ? { imported: claudeDir } : {} });
+}
 
 // src/hook.ts
 var WRITE_TOOLS = ["Write", "Edit", "MultiEdit", "NotebookEdit"];
@@ -1932,6 +2096,11 @@ async function handleHook(input, deps) {
         if (await deps.registry.subscribe(id, topic, "launch"))
           messages.push(subscribed(topic, "you were started in its worktree"));
       }
+      if (deps.recordSession && !(commandLine2 !== null && isPrintMode(commandLine2)))
+        await inTime(
+          deps.recordSession({ id, cwd, startedAt: deps.now().toISOString() }).catch(() => void 0),
+          deps.reminderTimeoutMs
+        );
       if (input.source !== "resume" && input.source !== "compact") {
         const reminder = await retroReminder(cwd, deps);
         if (reminder) messages.push(reminder);
@@ -1957,7 +2126,7 @@ async function handleHook(input, deps) {
       if (!WRITE_TOOLS.includes(input.tool_name ?? "")) return void 0;
       const target = input.tool_input?.file_path ?? input.tool_input?.notebook_path;
       if (typeof target !== "string" || target === "") return void 0;
-      const file = (0, import_node_path12.isAbsolute)(target) ? target : (0, import_node_path12.resolve)(input.cwd ?? process.cwd(), target);
+      const file = (0, import_node_path14.isAbsolute)(target) ? target : (0, import_node_path14.resolve)(input.cwd ?? process.cwd(), target);
       const topic = await deps.topicOf(file);
       return await deps.registry.subscribe(id, topic, "modified") ? subscribed(topic, "you modified a file there") : void 0;
     }
@@ -1971,23 +2140,30 @@ async function handleHook(input, deps) {
   }
   return void 0;
 }
-async function retroReminder(cwd, deps) {
-  if (!deps.retroCadence) return void 0;
+async function inTime(work, ms = 3e3) {
   let timer;
   const late = new Promise((done) => {
-    timer = setTimeout(() => done(null), deps.reminderTimeoutMs ?? 3e3);
+    timer = setTimeout(() => done(null), ms);
   });
-  const cadence = await Promise.race([deps.retroCadence(cwd).catch(() => null), late]);
+  const result = await Promise.race([work, late]);
   clearTimeout(timer);
+  return result;
+}
+async function retroReminder(cwd, deps) {
+  if (!deps.retroCadence) return void 0;
+  const cadence = await inTime(
+    deps.retroCadence(cwd).catch(() => null),
+    deps.reminderTimeoutMs
+  );
   if (!cadence?.due) return void 0;
-  return `Local Review: a retro is due for this project (${cadence.root}): ${cadenceSummary(cadence)}; ${dueReasons(cadence).join("; ")}. In your first reply of this session, tell the user so in one short sentence and suggest \`/local-review:retro\` (a retro looks back at their review feedback, to improve your setup with them). Say it once only, and do not start the retro unless they ask.`;
+  return `Local Review: a retro is due for this project (${cadence.root}): ${cadenceSummary(cadence)}; ${dueReasons(cadence).join("; ")}. In your first reply of this session, tell the user so in one short sentence and suggest \`/local-review:retro\` (a retro looks back at their review feedback and their sessions with you, to improve your setup with them). Say it once only, and do not start the retro unless they ask.`;
 }
 function replyCall(input) {
   const command = input.tool_input?.command;
   const message = input.tool_use_id ?? "";
   if (typeof command !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(message)) return null;
   const replies = shellSegments(command).some((words) => {
-    const i = words.findIndex((w) => (0, import_node_path12.basename)(w) === "lr");
+    const i = words.findIndex((w) => (0, import_node_path14.basename)(w) === "lr");
     return i >= 0 && words[i + 1] === "reply";
   });
   return replies ? { message, command } : null;
@@ -1996,7 +2172,7 @@ function purgeConfirmation(input, now = Date.now()) {
   const command = input.tool_input?.command;
   if (input.tool_name !== "Bash" || typeof command !== "string") return null;
   for (const words of shellSegments(command)) {
-    const i = words.findIndex((w) => (0, import_node_path12.basename)(w) === "lr");
+    const i = words.findIndex((w) => (0, import_node_path14.basename)(w) === "lr");
     if (i < 0 || words[i + 1] !== "purge" || !words.includes("--yes")) continue;
     const ask = " It runs only if the user allows it; if they refuse, nothing is deleted.";
     if (words.includes("--history"))
@@ -2026,7 +2202,7 @@ async function beforeWorktreeRemoval(input, deps) {
   if (targets.length === 0) return void 0;
   const worktrees = /* @__PURE__ */ new Map();
   for (const t of targets) {
-    const dir = t.kind === "git" ? await wt.resolveWorktree(t.cwd, t.spec) : (0, import_node_path12.resolve)(t.cwd, t.spec);
+    const dir = t.kind === "git" ? await wt.resolveWorktree(t.cwd, t.spec) : (0, import_node_path14.resolve)(t.cwd, t.spec);
     const info = dir ? await wt.worktreeInfo(dir) : null;
     if (!dir || !info?.linked) continue;
     if (t.kind === "rm" && info.worktree !== await realDir(dir)) continue;
@@ -2059,7 +2235,7 @@ async function beforeWorktreeRemoval(input, deps) {
   return messages.length > 0 ? messages.join("\n") : void 0;
 }
 var plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
-var realDir = (dir) => (0, import_promises11.realpath)(dir).catch(() => dir);
+var realDir = (dir) => (0, import_promises13.realpath)(dir).catch(() => dir);
 function worktreeRemovals(command, cwd, home) {
   const found = [];
   let dir = cwd;
@@ -2071,14 +2247,14 @@ function worktreeRemovals(command, cwd, home) {
     if (!cmd) continue;
     if (cmd === "cd" || cmd === "pushd") {
       const to = args.find((a) => !a.startsWith("-"));
-      dir = (0, import_node_path12.resolve)(dir, expandHome(to ?? "~", env));
+      dir = (0, import_node_path14.resolve)(dir, expandHome(to ?? "~", env));
       continue;
     }
-    if ((0, import_node_path12.basename)(cmd) === "git") {
+    if ((0, import_node_path14.basename)(cmd) === "git") {
       let gitDir = dir;
       let i = 0;
       while (i < args.length && args[i].startsWith("-")) {
-        if (args[i] === "-C" && args[i + 1] !== void 0) gitDir = (0, import_node_path12.resolve)(gitDir, expandHome(args[i + 1], env));
+        if (args[i] === "-C" && args[i + 1] !== void 0) gitDir = (0, import_node_path14.resolve)(gitDir, expandHome(args[i + 1], env));
         i += GIT_OPTIONS_WITH_VALUE.has(args[i]) ? 2 : 1;
       }
       if (args[i] !== "worktree" || args[i + 1] !== "remove") continue;
@@ -2086,7 +2262,7 @@ function worktreeRemovals(command, cwd, home) {
       if (spec) found.push({ spec: expandHome(spec, env), cwd: gitDir, kind: "git" });
       continue;
     }
-    if ((0, import_node_path12.basename)(cmd) === "rm") {
+    if ((0, import_node_path14.basename)(cmd) === "rm") {
       const flags = args.filter((a) => a.startsWith("-") && a !== "-" && a !== "--");
       const recursive = flags.some((f) => f === "--recursive" || /^-[A-Za-z]*[rR]/.test(f));
       if (!recursive) continue;
@@ -2171,7 +2347,7 @@ function run(cmd, args, cwd) {
 var gitBranch = async (cwd) => await run("git", ["symbolic-ref", "--quiet", "--short", "HEAD"], cwd) || null;
 var commandLine = (pid) => run("ps", ["-o", "args=", "-p", String(pid)]);
 function runsClaude(args) {
-  return (args ?? "").trim().split(/\s+/).slice(0, 2).some((arg) => (0, import_node_path12.basename)(arg) === "claude");
+  return (args ?? "").trim().split(/\s+/).slice(0, 2).some((arg) => (0, import_node_path14.basename)(arg) === "claude");
 }
 async function findClaudePid(startPid = process.ppid, maxHops = 6) {
   let pid = startPid;
@@ -2180,7 +2356,7 @@ async function findClaudePid(startPid = process.ppid, maxHops = 6) {
     if (!line) return null;
     const match = /^\s*(\d+)\s+(.*)$/.exec(line);
     if (!match) return null;
-    if ((0, import_node_path12.basename)(match[2].trim()) === "claude" || runsClaude(await commandLine(pid))) return pid;
+    if ((0, import_node_path14.basename)(match[2].trim()) === "claude" || runsClaude(await commandLine(pid))) return pid;
     pid = Number(match[1]);
   }
   return null;
@@ -2202,6 +2378,11 @@ async function main() {
     filesChangedSince,
     now: () => /* @__PURE__ */ new Date(),
     home: process.env.HOME || (0, import_node_os3.homedir)(),
+    // Claude Code keeps its sessions in $CLAUDE_CONFIG_DIR when it is set, else in ~/.claude.
+    recordSession: (session) => recordClaudeSession(
+      session,
+      process.env.CLAUDE_CONFIG_DIR?.trim() || (0, import_node_path15.join)(process.env.HOME || (0, import_node_os3.homedir)(), ".claude")
+    ),
     retroCadence: async (cwd) => {
       const config = await readConfig();
       return config.retroReminder ? retroCadence(cwd, { thresholds: thresholdsOf(config) }) : null;
