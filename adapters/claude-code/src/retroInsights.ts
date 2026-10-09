@@ -1,8 +1,8 @@
 import { createReadStream } from 'node:fs';
-import { mkdir, readdir, readFile, realpath, rename, writeFile } from 'node:fs/promises';
-import { isAbsolute, join, resolve, sep } from 'node:path';
+import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { isAbsolute, join } from 'node:path';
 import { createInterface } from 'node:readline';
-import { localReviewHome, projectStores, worktreesOf, type RetroSession } from '@local-review/core';
+import { inFolders, localReviewHome, projectFolders, type RetroSession } from '@local-review/core';
 import { runProcess, type Runner } from './retroAudit';
 
 /**
@@ -260,20 +260,7 @@ export function factsOf(f: Facts, map: FieldMap): RetroSession['facts'] {
   return out;
 }
 
-/** The folders of a project: itself, and the git worktrees of its repositories (sessions started in a subfolder count too). */
-export async function projectFolders(root: string, env: Env): Promise<string[]> {
-  const top = resolve(root);
-  const folders = new Set<string>([top]);
-  for (const wt of await worktreesOf(top)) folders.add(wt);
-  for (const s of await projectStores(top, env))
-    if (s.origin === 'worktree' || s.origin === 'below') folders.add(s.root);
-  // The same folder by its real path too (/tmp and /private/tmp on macOS).
-  for (const f of [...folders]) folders.add(await realpath(f).catch(() => f));
-  return [...folders];
-}
-
-export const inFolders = (path: string, folders: readonly string[]): boolean =>
-  folders.some((f) => path === f || path.startsWith(f.endsWith(sep) ? f : f + sep));
+export { inFolders, projectFolders };
 
 /** Whether a start falls in a retro's period (`since` `null`: the whole history). */
 export const inPeriod = (start: string, since: string | null, until: string): boolean =>
@@ -297,20 +284,27 @@ export async function projectSessions(
   return { sessions: kept, files, read: sessions.length };
 }
 
-/** The first folder and time of a transcript: the session's folder and start. */
-async function transcriptStart(file: string): Promise<{ cwd: string; start: string } | null> {
+/**
+ * The first folder and time of a transcript: the session's folder and start, and how Claude Code was
+ * run (`entrypoint`, on the line with the folder: `cli`, `sdk-cli` for `claude -p`…), when written.
+ */
+async function transcriptStart(file: string): Promise<{ cwd: string; start: string; entrypoint?: string } | null> {
   const lines = createInterface({ input: createReadStream(file, { encoding: 'utf8' }), crlfDelay: Infinity });
   let cwd: string | null = null;
   let start: string | null = null;
+  let entrypoint: string | undefined;
   try {
     for await (const line of lines) {
-      let e: { cwd?: unknown; timestamp?: unknown };
+      let e: { cwd?: unknown; timestamp?: unknown; entrypoint?: unknown };
       try {
         e = JSON.parse(line) as typeof e;
       } catch {
         continue;
       }
-      if (cwd === null && typeof e.cwd === 'string') cwd = e.cwd;
+      if (cwd === null && typeof e.cwd === 'string') {
+        cwd = e.cwd;
+        if (typeof e.entrypoint === 'string') entrypoint = e.entrypoint;
+      }
       if (start === null && typeof e.timestamp === 'string') start = e.timestamp;
       if (cwd !== null && start !== null) break;
     }
@@ -318,7 +312,7 @@ async function transcriptStart(file: string): Promise<{ cwd: string; start: stri
     lines.close();
   }
   return cwd !== null && start !== null && !Number.isNaN(Date.parse(start))
-    ? { cwd, start: new Date(start).toISOString() }
+    ? { cwd, start: new Date(start).toISOString(), ...(entrypoint ? { entrypoint } : {}) }
     : null;
 }
 
@@ -328,12 +322,40 @@ export interface ProjectTranscript {
   file: string;
   cwd: string;
   start: string;
+  /** How Claude Code was run, when written: `cli`, `sdk-cli` (`claude -p`, a program)… */
+  entrypoint?: string;
+}
+
+/** Every Claude Code conversation kept in `claudeDir` (one file per session, sub-agents apart). */
+export async function allTranscripts(claudeDir: string): Promise<ProjectTranscript[]> {
+  const projects = join(claudeDir, 'projects');
+  const out: ProjectTranscript[] = [];
+  for (const dir of await readdir(projects).catch(() => [] as string[])) {
+    const names = await readdir(join(projects, dir)).catch(() => [] as string[]);
+    for (const name of names.filter((x) => x.endsWith('.jsonl'))) {
+      const file = join(projects, dir, name);
+      const s = await transcriptStart(file);
+      if (s) out.push({ id: name.slice(0, -'.jsonl'.length), file, ...s });
+    }
+  }
+  return out;
+}
+
+/**
+ * How Claude Code names a session run by a program (`claude -p`): not one of the user's sessions. The
+ * retro runs some itself (the audit, `/insights`): reading them would make it look back at itself.
+ */
+export const PROGRAM_ENTRYPOINT = 'sdk-cli';
+
+/** The sessions run by a program (`claude -p`) that Claude Code keeps in `claudeDir`. */
+export async function programSessions(claudeDir: string): Promise<Set<string>> {
+  return new Set((await allTranscripts(claudeDir)).filter((t) => t.entrypoint === PROGRAM_ENTRYPOINT).map((t) => t.id));
 }
 
 /**
  * The Claude Code sessions of a project in a period, from Claude Code's own conversations (one file
- * per session in `projects/<folder>/`, sub-agents apart): exact even before `/insights` runs. Oldest
- * first.
+ * per session in `projects/<folder>/`, sub-agents apart): exact even before `/insights` runs. Those run
+ * by a program (`claude -p`: the retro's own audit and `/insights`, scripts) are left out. Oldest first.
  */
 export async function projectTranscripts(
   claudeDir: string,
@@ -341,19 +363,15 @@ export async function projectTranscripts(
   period: { since: string | null; until: string },
   env: Env,
 ): Promise<ProjectTranscript[]> {
-  const projects = join(claudeDir, 'projects');
   const folders = await projectFolders(root, env);
-  const out: ProjectTranscript[] = [];
-  for (const dir of await readdir(projects).catch(() => [] as string[])) {
-    const names = await readdir(join(projects, dir)).catch(() => [] as string[]);
-    for (const name of names.filter((x) => x.endsWith('.jsonl'))) {
-      const file = join(projects, dir, name);
-      const s = await transcriptStart(file);
-      if (s && inFolders(s.cwd, folders) && inPeriod(s.start, period.since, period.until))
-        out.push({ id: name.slice(0, -'.jsonl'.length), file, ...s });
-    }
-  }
-  return out.sort((a, b) => a.start.localeCompare(b.start));
+  return (await allTranscripts(claudeDir))
+    .filter(
+      (t) =>
+        t.entrypoint !== PROGRAM_ENTRYPOINT &&
+        inFolders(t.cwd, folders) &&
+        inPeriod(t.start, period.since, period.until),
+    )
+    .sort((a, b) => a.start.localeCompare(b.start));
 }
 
 /** How many Claude Code sessions a project had in a period (see `projectTranscripts`). */

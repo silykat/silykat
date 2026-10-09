@@ -4,6 +4,12 @@ import {
   agentView,
   callFor,
   CONFIG_KEYS,
+  PROJECT_CONFIG_KEYS,
+  prepareStoreHome,
+  projectConfigFile,
+  readProjectConfig,
+  retroHome,
+  writeProjectConfig,
   validSettingNumber,
   type ConfigSetting,
   type MachineConfig,
@@ -104,6 +110,9 @@ Settings of this machine:
 ${Object.entries(CONFIG_KEYS)
   .map(([name, c]) => `                                            ${name}: ${c.help}`)
   .join('\n')}
+  lr config [set <name> <value>] --project [--root <dir>]
+                                          The project's own settings (its .local-review/config.json,
+                                          personal), which come before the machine's: ${PROJECT_CONFIG_KEYS.join(', ')}
 
 Subscriptions (comments are published to the sessions subscribed to their branch or path):
   lr subscribe [<dir-or-file>] [--path]   Subscribe this session to the branch of that folder
@@ -439,8 +448,9 @@ async function keptHistoryNote(io: Io): Promise<string> {
 }
 
 async function config(rest: string[], io: Io): Promise<number> {
-  const { values, positionals } = parse(rest, { format: { type: 'string' } });
+  const { values, positionals } = parse(rest, { format: { type: 'string' }, project: { type: 'boolean' } });
   const [action, name, value] = positionals;
+  if (values.project === true) return projectConfig(io, str(values.root), action, name, value, str(values.format));
   if (action === 'set') {
     const setting = name ? CONFIG_KEYS[name] : undefined;
     if (!setting) throw new UsageError(`unknown setting "${name ?? ''}": ${Object.keys(CONFIG_KEYS).join(', ')}`);
@@ -470,6 +480,46 @@ async function config(rest: string[], io: Io): Promise<number> {
     [
       `Settings of this machine (${configFile(io.env)}):`,
       ...Object.entries(CONFIG_KEYS).map(([n, c]) => `  ${n}: ${shown(c)}`),
+    ].join('\n'),
+  );
+  return EXIT.OK;
+}
+
+/** `lr config --project`: the settings a project sets for itself, before the machine's. */
+async function projectConfig(
+  io: Io,
+  root: string | undefined,
+  action: string | undefined,
+  name: string | undefined,
+  value: string | undefined,
+  format: string | undefined,
+): Promise<number> {
+  const home = await retroHome(resolve(io.cwd, root ?? '.'), io.env);
+  if (action === 'set') {
+    const setting = name && PROJECT_CONFIG_KEYS.includes(name) ? CONFIG_KEYS[name] : undefined;
+    if (setting?.kind !== 'choice')
+      throw new UsageError(`a project sets ${PROJECT_CONFIG_KEYS.join(', ')} only, not "${name ?? ''}"`);
+    if (!setting.choices.includes(value ?? ''))
+      throw new UsageError(`${name} takes ${setting.choices.join(' or ')}, not "${value ?? ''}"`);
+    await prepareStoreHome(home);
+    await writeProjectConfig(home, { [setting.key]: value });
+    io.out(`${name} is now ${value} for the project (${home}).`);
+    return EXIT.OK;
+  }
+  if (action !== undefined) throw new UsageError(`lr config takes "set" or nothing, not "${action}"`);
+  const own = await readProjectConfig(home);
+  if (format === 'json') {
+    io.out(JSON.stringify(own, null, 2));
+    return EXIT.OK;
+  }
+  const machine = await readConfig(io.env);
+  io.out(
+    [
+      `Settings of the project (${projectConfigFile(home)}), before the machine's:`,
+      ...PROJECT_CONFIG_KEYS.map((n) => {
+        const key = CONFIG_KEYS[n]!.key as keyof typeof own;
+        return `  ${n}: ${own[key] ?? `not set (the machine's: ${String(machine[key])})`}`;
+      }),
     ].join('\n'),
   );
   return EXIT.OK;

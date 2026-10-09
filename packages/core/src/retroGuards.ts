@@ -15,6 +15,7 @@ import {
   type ProposalKind,
   type RetroState,
   type AdoptedChange,
+  type MeasuredSource,
   type Target,
   type ThreadLabel,
   type Verdict,
@@ -151,6 +152,7 @@ const ADOPTED: readonly Decision[] = ['accepted', 'modified', 'retargeted'];
  * user accepted, modified or retargeted ("keep" changes nothing).
  */
 export function adoptedChanges(r: RetroState): AdoptedChange[] {
+  const sessions = sessionsRead(r);
   return r.proposals.flatMap((p): AdoptedChange[] => {
     const d = r.decisions[p.id];
     if (p.column === 'keep' || !d || !ADOPTED.includes(d.decision)) return [];
@@ -168,10 +170,21 @@ export function adoptedChanges(r: RetroState): AdoptedChange[] {
         target: d.target ?? p.target,
         files: r.applied[p.id] ?? [],
         before: { threads: p.figures.threads, total: r.threads.length },
+        ...(sessions > 0 ? { beforeSessions: { sessions: p.sessions?.length ?? 0, total: sessions } } : {}),
         evidence: p.evidence,
+        ...(p.sessions?.length ? { sessions: p.sessions } : {}),
       },
     ];
   });
+}
+
+/** How many of the agent's sessions a retro read: through their reports, or the agent's own summaries. */
+export function sessionsRead(r: RetroState): number {
+  if (!r.sources.includes('sessions')) return 0;
+  const ids = new Set<string>();
+  if (r.sessionsMode !== 'reports') for (const x of r.sessions?.list ?? []) ids.add(x.id);
+  if (r.sessionsMode !== 'insights') for (const x of r.reports?.list ?? []) if (x.status !== 'failed') ids.add(x.id);
+  return ids.size;
 }
 
 /**
@@ -187,6 +200,52 @@ export function verdictOf(
   const share = (x: { threads: number; total: number }) => (x.total > 0 ? x.threads / x.total : 0);
   return share(after) < share(before) ? 'decreased' : 'not-decreased';
 }
+
+/** From the best verdict to the worst: a change is judged on the source where it did worst. */
+const VERDICT_ORDER: readonly Verdict[] = ['stopped', 'decreased', 'not-decreased'];
+
+/**
+ * The sources an adopted change can be measured on in this period: those it rested on (threads or
+ * sessions cited when it was proposed) that the retro reads now, with data.
+ */
+export function measurableSources(
+  c: AdoptedChange,
+  ctx: { threads: { readonly size: number }; sessions?: { readonly size: number } },
+): MeasuredSource[] {
+  return [
+    ...(c.before.threads > 0 && ctx.threads.size > 0 ? (['threads'] as const) : []),
+    ...((c.beforeSessions?.sessions ?? 0) > 0 && (ctx.sessions?.size ?? 0) > 0 ? (['sessions'] as const) : []),
+  ];
+}
+
+/** The sources a check measured (older records: the threads). */
+export const measuredOf = (v: Verification): MeasuredSource[] => v.measured ?? ['threads'];
+
+/**
+ * The numbers of a check, source by source: "3 of 20 threads (15%) before, 1 of 18 threads (6%)
+ * since; 2 of 9 sessions (22%) before, 0 of 7 sessions since". Empty when it was not measured.
+ */
+export function measureText(v: Verification): string {
+  const pct = (n: number, total: number) => (total ? ` (${Math.round((n / total) * 100)}%)` : '');
+  const part = (what: string, b: { n: number; total: number }, a: { n: number; total: number }) =>
+    `${b.n} of ${b.total} ${what}${pct(b.n, b.total)} before, ${a.n} of ${a.total} ${what}${pct(a.n, a.total)} since`;
+  return measuredOf(v)
+    .map((m) =>
+      m === 'threads'
+        ? part('threads', { n: v.before.threads, total: v.before.total }, { n: v.after.threads, total: v.after.total })
+        : part(
+            'sessions',
+            { n: v.beforeSessions?.sessions ?? 0, total: v.beforeSessions?.total ?? 0 },
+            { n: v.afterSessions?.sessions ?? 0, total: v.afterSessions?.total ?? 0 },
+          ),
+    )
+    .join('; ');
+}
+
+/** How much came back since, across the sources measured: threads and sessions on the same subject. */
+export const afterCount = (v: Verification): number =>
+  (measuredOf(v).includes('threads') ? v.after.threads : 0) +
+  (measuredOf(v).includes('sessions') ? (v.afterSessions?.sessions ?? 0) : 0);
 
 /** `rt_…/p1`: how the agents name an adopted change. */
 export const changeRef = (c: { retro: string; proposal: string }) => `${c.retro}/${c.proposal}`;
@@ -606,16 +665,16 @@ export function checkProposals(input: unknown, ctx: GuardContext): GuardResult {
     });
   });
 
-  // A change that did not reduce the feedback is revised, when there is enough to go on (2 threads).
+  // A change that did not reduce the feedback is revised, when there is enough to go on (2 threads or sessions).
   for (const v of verifications) {
-    if (v.verdict !== 'not-decreased' || v.after.threads < 2) continue;
+    if (v.verdict !== 'not-decreased' || afterCount(v) < 2) continue;
     if (result.proposals.some((p) => p.revisits && changeRef(p.revisits) === changeRef(v))) continue;
     if (revisionsRejected.has(changeRef(v))) continue;
     result.rejected.push({
       index: 0,
       subject: `check of ${changeRef(v)}`,
       reasons: [
-        `"${v.title}" did not reduce the feedback on its subject (${v.before.threads} of ${v.before.total} threads before, ${v.after.threads} of ${v.after.total} now): add a proposal to revise it, with "revisits": "${changeRef(v)}" (reword it, move it up, make it a hook, or remove it)`,
+        `"${v.title}" did not reduce the feedback on its subject (${measureText(v)}): add a proposal to revise it, with "revisits": "${changeRef(v)}" (reword it, move it up, make it a hook, or remove it)`,
       ],
     });
   }
@@ -659,43 +718,68 @@ function unusedOf(files: readonly string[], ctx: GuardContext): ToolUsage | null
 
 /**
  * The check of the changes adopted at the last retro: the analysis names, for each one, the threads
- * of this period on the same subject (`verify: [{ change, threads, note }]`); the numbers and the
- * verdict are computed here. A change left unchecked is rejected.
+ * and the agent's sessions of this period on the same subject (`verify: [{ change, threads, sessions,
+ * note }]`); the numbers and the verdict are computed here, source by source, on the sources the
+ * change rested on that have data now (`measurableSources`); none: `not-measured`. A change left
+ * unchecked on a source it can be measured on is rejected. `only`: the agent of one source checks
+ * the changes measurable on it, and only on it.
  */
 export function verifyChanges(
   input: unknown,
   ctx: GuardContext,
   result: Pick<GuardResult, 'notes' | 'rejected'>,
+  only?: MeasuredSource,
 ): Verification[] {
   const adopted = ctx.adopted ?? [];
   const given = new Map<string, Raw>();
   for (const x of Array.isArray(input) ? input.filter(isRawRecord) : []) given.set(textOf(x.change), x);
-  const total = ctx.threads.size;
   const out: Verification[] = [];
   for (const c of adopted) {
     const ref = changeRef(c);
+    const parts = measurableSources(c, ctx).filter((m) => !only || m === only);
     const x = given.get(ref);
     given.delete(ref);
-    if (!x || !Array.isArray(x.threads)) {
+    // Not this source's to check.
+    if (only && parts.length === 0) continue;
+    const missing = parts.filter((m) => !x || !Array.isArray(x[m]));
+    if (missing.length > 0) {
+      const shape = parts.map((m) => `"${m}": [the ${m} of this period on the same subject, [] when none]`).join(', ');
       result.rejected.push({
         index: 0,
         subject: `check of ${ref}`,
-        reasons: [
-          `"verify" must check "${c.title}", adopted at the last retro: { "change": "${ref}", "threads": [the threads of this period on the same subject, [] when none] }`,
-        ],
+        reasons: [`"verify" must check "${c.title}", adopted at the last retro: { "change": "${ref}", ${shape} }`],
       });
       continue;
     }
-    const all = [...new Set(idsOf(x.threads))];
-    const kept = all.filter((id) => ctx.threads.has(id));
-    for (const id of all.filter((id) => !ctx.threads.has(id)))
-      result.notes.push(`check of ${ref}: thread ${id} is not in the period, left out`);
-    const after = { threads: kept.length, total, ids: kept };
+    const idsIn = (m: MeasuredSource, known: (id: string) => boolean) => {
+      const all = [...new Set(idsOf(x?.[m]))];
+      for (const id of all.filter((id) => !known(id)))
+        result.notes.push(
+          `check of ${ref}: ${m === 'threads' ? 'thread' : 'session'} ${id} is not in the period, left out`,
+        );
+      return all.filter(known);
+    };
+    const threads = parts.includes('threads') ? idsIn('threads', (id) => ctx.threads.has(id)) : [];
+    const sessions = parts.includes('sessions') ? idsIn('sessions', (id) => ctx.sessions?.has(id) ?? false) : [];
+    const after = { threads: threads.length, total: ctx.threads.size, ids: threads };
+    const afterSessions = { sessions: sessions.length, total: ctx.sessions?.size ?? 0, ids: sessions };
+    const verdicts = parts.map((m) =>
+      m === 'threads'
+        ? verdictOf(c.before, after)
+        : verdictOf(
+            { threads: c.beforeSessions?.sessions ?? 0, total: c.beforeSessions?.total ?? 0 },
+            { threads: afterSessions.sessions, total: afterSessions.total },
+          ),
+    );
     out.push({
       ...c,
       after,
-      verdict: verdictOf(c.before, after),
-      ...(textOf(x.note) ? { note: textOf(x.note) } : {}),
+      ...(parts.includes('sessions') ? { afterSessions } : {}),
+      measured: parts,
+      verdict: verdicts.length
+        ? VERDICT_ORDER[Math.max(...verdicts.map((v) => VERDICT_ORDER.indexOf(v)))]!
+        : 'not-measured',
+      ...(textOf(x?.note) ? { note: textOf(x?.note) } : {}),
     });
   }
   for (const ref of given.keys())

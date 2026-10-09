@@ -448,6 +448,54 @@
           "scope": "application",
           "markdownDescription": "How a retro (looking back at your review comments with your agent, e.g. `/local-review:retro`) reads your sessions with the agent, next to the review threads. Never both: they tell the same sessions twice. For this machine: machine setting `retro-sessions` of `lr config`, updated when you change it here."
         },
+        "localReview.retroSources.reviews": {
+          "type": "string",
+          "enum": [
+            "ask",
+            "yes",
+            "no"
+          ],
+          "enumDescriptions": [
+            "Asked at each retro.",
+            "Always read.",
+            "Never read."
+          ],
+          "default": "ask",
+          "scope": "application",
+          "markdownDescription": "Whether a retro (looking back at your work with your agent, e.g. `/local-review:retro`) reads your review threads (the comments you left in VS Code). A retro reads at least one source. For this machine: machine setting `retro-source-reviews` of `lr config`, updated when you change it here. A project's own setting comes first: it is asked at the first retro of each project, and changed with `lr config set retro-source-reviews <value> --project`."
+        },
+        "localReview.retroSources.sessions": {
+          "type": "string",
+          "enum": [
+            "ask",
+            "yes",
+            "no"
+          ],
+          "enumDescriptions": [
+            "Asked at each retro.",
+            "Always read.",
+            "Never read."
+          ],
+          "default": "ask",
+          "scope": "application",
+          "markdownDescription": "Whether a retro (looking back at your work with your agent, e.g. `/local-review:retro`) reads your sessions with the agent (how they are read: Retro Sessions). A retro reads at least one source. For this machine: machine setting `retro-source-sessions` of `lr config`, updated when you change it here. A project's own setting comes first: it is asked at the first retro of each project, and changed with `lr config set retro-source-sessions <value> --project`."
+        },
+        "localReview.retroSources.audit": {
+          "type": "string",
+          "enum": [
+            "ask",
+            "yes",
+            "no"
+          ],
+          "enumDescriptions": [
+            "Asked at each retro.",
+            "Always read.",
+            "Never read."
+          ],
+          "default": "ask",
+          "scope": "application",
+          "markdownDescription": "Whether a retro (looking back at your work with your agent, e.g. `/local-review:retro`) reads the audit of your setup by the agent (Claude Code's `/doctor prompt-audit`, about 8 minutes). A retro reads at least one source. For this machine: machine setting `retro-source-audit` of `lr config`, updated when you change it here. A project's own setting comes first: it is asked at the first retro of each project, and changed with `lr config set retro-source-audit <value> --project`."
+        },
         "localReview.retroReminder.days": {
           "type": "integer",
           "default": 7,

@@ -67,7 +67,7 @@ export function retroReminderMessage(
   const t = c?.thresholds ?? thresholds;
   const settings = `Reminder at ${Math.min(t.days, t.maxDays)} days, or sooner at ${formatBytes(t.bytes)} of threads.`;
   const how =
-    'A retro looks back at your review comments with your agent, to improve its setup together (rules, skills, hooks).' +
+    'A retro looks back at your work with your agent (your review comments, your sessions with it), to improve its setup together (rules, skills, hooks).' +
     ` To run it with Claude Code: ${RETRO_COMMAND}, in a session started in the project folder.` +
     ' With another agent, ask it for a retro: it runs the `lr retro` commands.';
   if (!c) return `Local Review: nothing to look back at since the last retro. ${settings}`;

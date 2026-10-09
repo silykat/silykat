@@ -224,7 +224,7 @@ describe('did the changes of the last retro help?', () => {
       const verify = [{ change: 'rt_X/p1', threads: ['t_n1', 't_n2'] }];
       const missing = checkProposals({ proposals: [], verify }, ctx);
       expect(missing.rejected[0]!.reasons[0]).toContain(
-        'did not reduce the feedback on its subject (2 of 10 threads before, 2 of 4 now)',
+        'did not reduce the feedback on its subject (2 of 10 threads (20%) before, 2 of 4 threads (50%) since)',
       );
       const wrong = checkProposals({ proposals: [{ ...revise, revisits: 'rt_X/p7' }], verify }, ctx);
       expect(wrong.rejected[0]!.reasons).toEqual([expect.stringContaining('"revisits" names "rt_X/p7"')]);
@@ -277,7 +277,7 @@ describe('did the changes of the last retro help?', () => {
     expect(input).toContain(
       `- ${last.id}/p1 [improve] Say dates are UTC (rule, accepted, target project-shared, changed: /x/CLAUDE.md): Dates are UTC`,
     );
-    expect(input).toContain('  before: 2 of the 10 threads of that retro; change: - Dates are UTC.');
+    expect(input).toContain('  check on: threads; before: 2 of the 10 threads of that retro; change: - Dates are UTC.');
     expect(input).toContain('  - t_a: "UTC please"');
 
     const check = checkProposals(
@@ -314,7 +314,7 @@ describe('the cadence of retros', () => {
     expect(now!.since).toBe(t.createdAt);
     expect(now!.thresholds).toEqual(DEFAULT_CADENCE);
     expect(cadenceSummary(now!)).toMatch(
-      /^0 days and \d+(\.\d)? (B|KB) of review threads \(1\) since the first thread \(\d{4}-\d\d-\d\d\), no retro yet$/,
+      /^0 days, \d+(\.\d)? (B|KB) of review threads \(1\) and 0 agent sessions since the first thread \(\d{4}-\d\d-\d\d\), no retro yet$/,
     );
     const week = await retroCadence(work, at(7.5));
     expect(week).toMatchObject({ days: 7, due: true, reasons: ['days'] });
@@ -330,7 +330,7 @@ describe('the cadence of retros', () => {
     const c = await retroCadence(api, { env: env() });
     expect(c).toMatchObject({ lastRetro: { id: r.id, root: work }, days: 3, threads: 1, due: false });
     expect(cadenceSummary(c!)).toMatch(
-      /^3 days and .* of review threads \(1\) since the last retro \(\d{4}-\d\d-\d\d\)$/,
+      /^3 days, .* of review threads \(1\) and 0 agent sessions since the last retro \(\d{4}-\d\d-\d\d\)$/,
     );
     // A retro of a sibling folder does not cover this one.
     await pastRetro(join(work, 'web'), 1);
@@ -397,6 +397,9 @@ describe('the reminder settings of the machine', () => {
       retroReminderSizeKB: 1000,
       retroReminderMaxDays: 25,
       retroSessions: 'reports',
+      retroSourceReviews: 'ask',
+      retroSourceSessions: 'ask',
+      retroSourceAudit: 'ask',
     });
     await mkdir(join(base, 'machine'), { recursive: true });
     await writeFile(
@@ -415,6 +418,9 @@ describe('the reminder settings of the machine', () => {
       retroReminderSizeKB: 1000,
       retroReminderMaxDays: 30,
       retroSessions: 'reports',
+      retroSourceReviews: 'ask',
+      retroSourceSessions: 'ask',
+      retroSourceAudit: 'ask',
     });
     await writeConfig({ retroSessions: 'insights' }, env());
     expect((await readConfig(env())).retroSessions).toBe('insights');

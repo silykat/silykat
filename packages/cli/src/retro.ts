@@ -23,6 +23,15 @@ import {
   type RetroSession,
   type SessionEvidence,
   readConfig,
+  readSourceSettings,
+  writeProjectConfig,
+  measureText,
+  RETRO_SOURCES,
+  SOURCE_KEY,
+  SOURCE_SETTINGS,
+  type RetroSource,
+  type SourceSetting,
+  type SourceSettings,
   cadenceSummary,
   changeRef,
   changesToVerify,
@@ -67,8 +76,15 @@ import type { Io } from './cli';
 
 export const RETRO_USAGE = `Retros (look back at the feedback of a period with your agent, and improve its setup):
   lr retro scope [--since <date> | --all]  What a retro would cover: period (since the last retro),
-                                          stores, threads, size, time; the last retro, preferences
-  lr retro start [--since <date> | --all]  Start a retro on that period: prints its id
+                                          stores, threads, size, time; its sources and their
+                                          settings; the last retro, preferences
+  lr retro sources [--set <source>=yes|no|ask]…
+                                          The settings of the sources of a retro (reviews, sessions,
+                                          audit): those of the project, else of the machine; --set
+                                          writes the project's (in its .local-review/config.json)
+  lr retro start [--since <date> | --all] [--sources reviews,sessions,audit]
+                                          Start a retro on that period, reading those sources (at
+                                          least one; default: all three): prints its id
   lr retro feedback <retro> --body -       What the user said about the previous retro
   lr retro input <retro> --for classify|threads|sessions|audit|analysis
                                           Write what a step of the retro reads, in a file of the
@@ -97,8 +113,9 @@ export const RETRO_USAGE = `Retros (look back at the feedback of a period with y
   lr retro list                            The retros of the project
   lr retro prefs [add --body <text> | remove <id>]     The user's retro preferences
   lr retro key                             Is the Jev key set up, and safely? (never read)
-  lr retro cadence                         Is a retro due? Days and size of the threads since the
-                                          last retro, against the reminder settings (lr config)
+  lr retro cadence                         Is a retro due? Days, size of the threads and agent
+                                          sessions since the last retro, against the reminder
+                                          settings (lr config)
   The project is --root (default: the current folder). --body - reads stdin, --body-file a file.`;
 
 const RETRO_OPTIONS = {
@@ -114,6 +131,8 @@ const RETRO_OPTIONS = {
   file: { type: 'string' as const, multiple: true },
   next: { type: 'boolean' as const },
   source: { type: 'string' as const },
+  sources: { type: 'string' as const },
+  set: { type: 'string' as const, multiple: true },
 };
 
 type ParseSince = (value: string | undefined) => Date | null;
@@ -129,6 +148,8 @@ export async function retro(rest: string[], io: Io, parseSince: ParseSince): Pro
       return scope(ctx);
     case 'start':
       return start(ctx);
+    case 'sources':
+      return sources(ctx);
     case 'feedback':
       return feedback(ctx);
     case 'input':
@@ -231,7 +252,61 @@ export const SESSIONS_MODE_LINE: Record<SessionsMode, string> = {
     "through the agent's own summaries of them (Claude Code's /insights: cheaper; or a report on each session, finer: lr config set retro-sessions reports)",
 };
 
-function renderScope(s: RetroScope, keepHistory: boolean, sessionsMode: SessionsMode): string {
+/** The sources of a retro, as the user knows them. */
+export const SOURCE_NAME: Record<RetroSource, string> = {
+  reviews: 'Reviews (your review threads)',
+  sessions: 'Sessions (your sessions with the agent)',
+  audit: 'Audit of the setup (/doctor prompt-audit)',
+};
+
+const SETTING_MEANING: Record<SourceSetting, string> = {
+  yes: 'always read',
+  no: 'never read',
+  ask: 'asked at each retro',
+};
+
+const ORIGIN: Record<SourceSettings['sources'][RetroSource]['origin'], string> = {
+  project: "the project's setting",
+  machine: "the machine's setting",
+  default: 'the default',
+};
+
+/** The settings of the sources, and what to ask when the project has none yet. */
+function renderSources(settings: SourceSettings, s: RetroScope | null, root: string): string[] {
+  const lines = [
+    '## Sources',
+    '',
+    'A retro reads one source or more (at least one), as their settings say: yes (always), no (never), ask (asked at each retro).',
+    '',
+  ];
+  for (const src of RETRO_SOURCES) {
+    const x = settings.sources[src];
+    const data =
+      src === 'reviews' && s
+        ? ` In this period: ${s.history.threads} thread${s.history.threads === 1 ? '' : 's'}.`
+        : src === 'audit' && s
+          ? ` About ${minutes(s.estimate.audit)}.`
+          : '';
+    lines.push(`- **${SOURCE_NAME[src]}**: ${x.setting}, ${SETTING_MEANING[x.setting]} (${ORIGIN[x.origin]}).${data}`);
+  }
+  lines.push(
+    '',
+    ...(settings.projectSet
+      ? ['The project has its retro settings: follow them, without asking for them again (even at its first retro).']
+      : [
+          'This project has no retro settings yet: ask the user the setting of each source (yes, no or ask), then save them for the project:',
+          `lr retro sources --root ${quote(root)} --set reviews=<yes|no|ask> --set sessions=<yes|no|ask> --set audit=<yes|no|ask>`,
+        ]),
+  );
+  return lines;
+}
+
+function renderScope(
+  s: RetroScope,
+  keepHistory: boolean,
+  sessionsMode: SessionsMode,
+  settings: SourceSettings,
+): string {
   const h = s.history;
   const period =
     s.source === 'last-retro'
@@ -257,6 +332,8 @@ function renderScope(s: RetroScope, keepHistory: boolean, sessionsMode: Sessions
     `- **Size**: ${formatBytes(h.bytes)} of journals, about ${Math.round(s.estimate.tokens / 1000)}k tokens to read.`,
     `- **Time** (estimate): classification ${minutes(s.estimate.classifyJev)} with Jev or ${minutes(s.estimate.classifyModel)} with a small model, then analysis ${minutes(s.estimate.analysis)}.`,
     `- **Retro journal**: ${resolve(s.home, '.local-review', 'retros')}`,
+    '',
+    ...renderSources(settings, s, s.root),
     '',
     '## Comment stores',
     '',
@@ -312,12 +389,14 @@ function renderOutcome(r: RetroState): string[] {
 async function scope(c: Ctx): Promise<number> {
   const s = await scopeOf(c);
   const { keepHistory, retroSessions: sessionsMode } = await readConfig(c.io.env);
+  const settings = await readSourceSettings(s.home, c.io.env);
   return out(
     c,
     {
       ...s,
       keepHistory,
       sessionsMode,
+      sources: settings,
       history: undefined,
       threads: s.history.threads,
       bytes: s.history.bytes,
@@ -329,31 +408,92 @@ async function scope(c: Ctx): Promise<number> {
         bytes: st.bytes,
       })),
     },
-    () => renderScope(s, keepHistory, sessionsMode),
+    () => renderScope(s, keepHistory, sessionsMode, settings),
   );
+}
+
+/** `lr retro sources`: the settings of the sources; `--set reviews=yes` writes the project's. */
+async function sources(c: Ctx): Promise<number> {
+  const home = await retroHome(c.root, c.io.env);
+  const sets = Array.isArray(c.values.set) ? c.values.set : [];
+  if (sets.length > 0) {
+    const change: Partial<Record<(typeof SOURCE_KEY)[RetroSource], SourceSetting>> = {};
+    for (const x of sets) {
+      const [name, value] = x.split('=').map((v) => v.trim());
+      if (!RETRO_SOURCES.includes(name as RetroSource))
+        throw new UsageError(`--set takes <source>=<setting>, the source one of ${RETRO_SOURCES.join(', ')}: "${x}"`);
+      if (!SOURCE_SETTINGS.includes(value as SourceSetting))
+        throw new UsageError(`--set ${name} takes ${SOURCE_SETTINGS.join(', ')}, not "${value ?? ''}"`);
+      change[SOURCE_KEY[name as RetroSource]] = value as SourceSetting;
+    }
+    await prepareStoreHome(home);
+    await writeProjectConfig(home, change);
+  }
+  const settings = await readSourceSettings(home, c.io.env);
+  return out(c, settings, () =>
+    [...(sets.length ? [`Saved for the project (${home}).`, ''] : []), ...renderSources(settings, null, c.root)].join(
+      '\n',
+    ),
+  );
+}
+
+/** The sources given with `--sources reviews,sessions,audit` (all three when not given). */
+function sourcesOf(c: Ctx): RetroSource[] {
+  const given = str(c.values.sources);
+  if (given === undefined) return [...RETRO_SOURCES];
+  const names = given
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean);
+  for (const n of names)
+    if (!RETRO_SOURCES.includes(n as RetroSource))
+      throw new UsageError(`--sources takes ${RETRO_SOURCES.join(', ')} (comma-separated), not "${n}"`);
+  if (names.length === 0)
+    throw new UsageError('a retro reads at least one source: nothing to look back at without one');
+  return RETRO_SOURCES.filter((x) => names.includes(x));
 }
 
 async function start(c: Ctx): Promise<number> {
   const s = await scopeOf(c);
-  if (s.history.threads === 0) throw new Error('no thread in this period: nothing to look back at');
+  const chosen = sourcesOf(c);
+  const reviews = chosen.includes('reviews');
+  if (reviews && s.history.threads === 0)
+    throw new Error(
+      'no thread in this period: leave the reviews out of the sources (--sources ' +
+        (chosen.filter((x) => x !== 'reviews').join(',') || 'sessions,audit') +
+        ')',
+    );
   await prepareStoreHome(s.home);
   const r = await new RetroBook(s.home).start({
     root: s.root,
     since: s.since,
     until: s.until,
-    stores: s.history.stores
-      .filter((st) => st.threads.length > 0)
-      .map((st) => ({ root: st.root, origin: st.origin, threads: st.threads.length, bytes: st.bytes })),
-    threads: s.history.stores.flatMap((st) => st.threads.map((t) => t.id)),
-    bytes: s.history.bytes,
+    stores: reviews
+      ? s.history.stores
+          .filter((st) => st.threads.length > 0)
+          .map((st) => ({ root: st.root, origin: st.origin, threads: st.threads.length, bytes: st.bytes }))
+      : [],
+    threads: reviews ? s.history.stores.flatMap((st) => st.threads.map((t) => t.id)) : [],
+    bytes: reviews ? s.history.bytes : 0,
     sessionsMode: (await readConfig(c.io.env)).retroSessions,
+    sources: chosen,
   });
   return out(
     c,
     r,
     () =>
-      `Retro ${r.id} started: ${r.threads.length} threads, ${formatBytes(r.bytes)}, ${day(r.since)} to ${day(r.until)}.`,
+      `Retro ${r.id} started: ` +
+      (reviews ? `${r.threads.length} threads, ${formatBytes(r.bytes)}` : 'no review thread (reviews left out)') +
+      `, ${day(r.since)} to ${day(r.until)}. Sources: ${r.sources.join(', ')}.`,
   );
+}
+
+/** Refuses a step on a source the retro does not read. */
+function needsSource(r: RetroState, source: RetroSource, what: string): void {
+  if (!r.sources.includes(source))
+    throw new Error(
+      `retro ${r.id} does not read ${SOURCE_NAME[source].toLowerCase()} (its sources: ${r.sources.join(', ')}): no ${what}`,
+    );
 }
 
 async function feedback(c: Ctx): Promise<number> {
@@ -402,6 +542,9 @@ async function input(c: Ctx): Promise<number> {
   const { book: b, retro: r } = await retroOf(c);
   const kind = str(c.values.for) as InputKind;
   if (!INPUT_KINDS.includes(kind)) throw new UsageError(`--for must be one of ${INPUT_KINDS.join(', ')}`);
+  if (kind === 'classify' || kind === 'threads') needsSource(r, 'reviews', 'reading of the threads');
+  if (kind === 'sessions') needsSource(r, 'sessions', 'reading of the sessions');
+  if (kind === 'audit') needsSource(r, 'audit', 'reading of the audit');
   const { threads } = await retroThreads(r, c.io.env);
   const missing = r.threads.filter((id) => !threads.has(id));
   let content: string;
@@ -485,6 +628,7 @@ async function findings(c: Ctx): Promise<number> {
   const { book: b, retro: r } = await retroOf(c);
   const source = str(c.values.source) as FindingSource;
   if (!FINDING_SOURCES.includes(source)) throw new UsageError(`--source must be one of ${FINDING_SOURCES.join(', ')}`);
+  needsSource(r, source === 'threads' ? 'reviews' : source, 'findings to record from it');
   const result = checkFindings(parseJson(await body(c)), source, await guardContext(c, b, r));
   const rejected = result.rejected.length > 0;
   if (!rejected)
@@ -521,7 +665,7 @@ async function findings(c: Ctx): Promise<number> {
  * from the file of the retro; none when it reads them through their reports (never both).
  */
 async function retroSessions(b: RetroBook, r: RetroState): Promise<RetroSession[]> {
-  if (!r.sessions || r.sessionsMode === 'reports') return [];
+  if (!r.sessions || r.sessionsMode === 'reports' || !r.sources.includes('sessions')) return [];
   const listed = new Set(r.sessions.list.map((x) => x.id));
   return (await readRetroSessions(b, r.id)).filter((x) => listed.has(x.id));
 }
@@ -532,7 +676,7 @@ const andList = (xs: readonly string[]) =>
 
 /** The reports on the agent's sessions the retro reads: those its journal lists as written (none in `insights` mode). */
 async function retroReports(b: RetroBook, r: RetroState): Promise<SessionReport[]> {
-  if (r.sessionsMode === 'insights') return [];
+  if (r.sessionsMode === 'insights' || !r.sources.includes('sessions')) return [];
   const ids = (r.reports?.list ?? []).filter((x) => x.status !== 'failed').map((x) => x.id);
   const found = await Promise.all(ids.map((id) => readSessionReport(b, id)));
   return found.filter((x): x is SessionReport => x !== null);
@@ -567,9 +711,10 @@ function sourceOf(p: Proposal, audit: string): string {
   const f = p.figures;
   const n = p.sessions?.length ?? 0;
   const parts = [
-    ...(f.threads > 0 || n === 0 ? [`${f.threads} thread${f.threads === 1 ? '' : 's'}`] : []),
+    ...(f.threads > 0 || (n === 0 && !p.audit) ? [`${f.threads} thread${f.threads === 1 ? '' : 's'}`] : []),
     ...(n ? [`${n} session${n === 1 ? '' : 's'} of the agent`] : []),
   ];
+  if (parts.length === 0) return audit;
   return parts.join(' and ') + (p.audit ? `, and ${audit}` : '');
 }
 
@@ -618,6 +763,7 @@ async function classification(c: Ctx): Promise<number> {
   const { book: b, retro: r } = await retroOf(c);
   const by = str(c.values.by)?.trim();
   if (!by) throw new UsageError('say who classified with --by <name> (e.g. jev, haiku)');
+  needsSource(r, 'reviews', 'classification');
   const { labels, problems } = labelsOf(parseJson(await body(c)), new Set(r.threads));
   if (Object.keys(labels).length === 0)
     throw new Error(`no valid label${problems.length ? `: ${problems.join('; ')}` : ''}`);
@@ -648,18 +794,28 @@ async function guardContext(c: Ctx, b: RetroBook, r: RetroState): Promise<GuardC
 
 /**
  * The proposals, with what the sources' agents already did when the analysis leaves it out: the
- * check of the last retro's changes (threads), and what recurs across the sessions.
+ * check of the last retro's changes (threads and sessions), and what recurs across the sessions.
  */
 function withFindings(input: unknown, r: RetroState): unknown {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) return input;
   const x = { ...(input as Record<string, unknown>) };
-  const checked = r.findings.threads?.verifications;
-  if (x.verify === undefined && checked)
-    x.verify = checked.map((v) => ({
-      change: changeRef(v),
-      threads: v.after.ids,
-      ...(v.note ? { note: v.note } : {}),
+  const checked = [...(r.findings.threads?.verifications ?? []), ...(r.findings.sessions?.verifications ?? [])];
+  if (x.verify === undefined && checked.length) {
+    // One item per change: the threads of one source, the sessions of the other.
+    const merged = new Map<string, { change: string; threads?: string[]; sessions?: string[]; notes: string[] }>();
+    for (const v of checked) {
+      const ref = changeRef(v);
+      const m = merged.get(ref) ?? { change: ref, notes: [] };
+      if (v.measured?.includes('sessions')) m.sessions = v.afterSessions?.ids ?? [];
+      else m.threads = v.after.ids;
+      if (v.note) m.notes.push(v.note);
+      merged.set(ref, m);
+    }
+    x.verify = [...merged.values()].map(({ notes, ...m }) => ({
+      ...m,
+      ...(notes.length ? { note: notes.join(' ') } : {}),
     }));
+  }
   if (x.overview === undefined && r.findings.sessions?.overview) x.overview = r.findings.sessions.overview;
   return x;
 }
@@ -718,16 +874,16 @@ const VERDICT: Record<Verdict, string> = {
   stopped: 'stopped: kept',
   decreased: 'decreased: kept',
   'not-decreased': 'not decreased: to revise',
+  'not-measured': 'not measured: no data in this period from the sources it rested on',
 };
 
-const share = (x: { threads: number; total: number }) =>
-  `${x.threads} of ${x.total} threads${x.total ? ` (${Math.round((x.threads / x.total) * 100)}%)` : ''}`;
-
-/** The check of an adopted change, in one line: its numbers before and after, and the verdict. */
+/** The check of an adopted change, in one line: its numbers before and after, source by source, and the verdict. */
 export function verificationLine(v: Verification): string {
+  const ids = [...v.after.ids, ...(v.afterSessions?.ids.map((x) => x.slice(0, 8)) ?? [])];
+  const numbers = measureText(v);
   return (
-    `${changeRef(v)} ${v.title}: ${share(v.before)} before, ${share(v.after)} since → ${VERDICT[v.verdict]}` +
-    (v.after.ids.length ? ` (${v.after.ids.join(', ')})` : '')
+    `${changeRef(v)} ${v.title}: ${numbers ? `${numbers} → ` : ''}${VERDICT[v.verdict]}` +
+    (ids.length ? ` (${ids.join(', ')})` : '')
   );
 }
 
@@ -756,7 +912,11 @@ function renderProposal(p: Proposal, r: RetroState, threads: ReadonlyMap<string,
     ),
     ...(p.sessions ?? []).map((e) => `  - ${sessionLine(e)}`),
     ...(p.audit ? [`  - ${AUDIT_NAME}, ${p.audit.location}: ${p.audit.finding}`] : []),
-    `- **Numbers**: ${f.threads} threads${p.sessions?.length ? ` and ${p.sessions.length} session${p.sessions.length === 1 ? '' : 's'}` : ''}, ${f.reopened} reopened, ${f.questions} with a question from the agent, ${f.rounds} round(s) of back-and-forth, from ${day(f.first)} to ${day(f.last)}`,
+    ...(f.threads > 0
+      ? [
+          `- **Numbers**: ${f.threads} threads${p.sessions?.length ? ` and ${p.sessions.length} session${p.sessions.length === 1 ? '' : 's'}` : ''}, ${f.reopened} reopened, ${f.questions} with a question from the agent, ${f.rounds} round(s) of back-and-forth, from ${day(f.first)} to ${day(f.last)}`,
+        ]
+      : []),
     `- **File**: ${p.file}` + (p.rule ? `\n- **Rule**: ${p.rule}` : ''),
     `- **Why**: ${p.why}`,
   ];
@@ -934,8 +1094,14 @@ async function show(c: Ctx): Promise<number> {
     `# Retro ${r.id} — ${r.root}`,
     '',
     `${day(r.since)} to ${day(r.until)} · ${r.threads.length} threads · ${formatBytes(r.bytes)}` +
-      (r.classification ? ` · classified by ${r.classification.by.join(', ')}` : ' · not classified') +
+      (!r.sources.includes('reviews')
+        ? ''
+        : r.classification
+          ? ` · classified by ${r.classification.by.join(', ')}`
+          : ' · not classified') +
       (r.finishedAt ? ` · finished ${day(r.finishedAt)}` : ''),
+    '',
+    `Sources: ${RETRO_SOURCES.map((x) => `${SOURCE_NAME[x]}: ${r.sources.includes(x) ? 'read' : 'not read'}`).join(' · ')}.`,
   ];
   if (r.sessions) {
     const fromSessions = r.proposals.filter((p) => p.sessions?.length).length;

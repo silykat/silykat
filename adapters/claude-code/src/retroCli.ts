@@ -5,6 +5,7 @@ import {
   AUDIT_FILE,
   parseDateArg,
   readConfig,
+  type RetroSource,
   type SessionsMode,
   readSessionReport,
   recordRetroSessions,
@@ -16,7 +17,7 @@ import {
   writeRetroFile,
 } from '@local-review/core';
 import { AUDIT_COMMAND, runAudit, type Runner } from './retroAudit';
-import { INSIGHTS_SOURCE, projectSessions, projectTranscripts, runInsights } from './retroInsights';
+import { INSIGHTS_SOURCE, programSessions, projectSessions, projectTranscripts, runInsights } from './retroInsights';
 import {
   currentSession,
   estimateReports,
@@ -92,6 +93,21 @@ const MODE_LINE: Record<SessionsMode, string> = {
     "The retro reads them through these reports (setting retro-sessions: reports; Claude Code's /insights is cheaper: lr config set retro-sessions insights).",
   insights:
     "The retro reads them through Claude Code's /insights (setting retro-sessions: insights; a report on each session is finer: lr config set retro-sessions reports).",
+};
+
+/** The source of a retro each action reads: skipped when the retro does not read it. */
+const SOURCE_OF_ACTION: Partial<Record<string, RetroSource>> = {
+  jev: 'reviews',
+  audit: 'audit',
+  usage: 'audit',
+  reports: 'sessions',
+  insights: 'sessions',
+};
+
+const SOURCE_WORDS: Record<RetroSource, string> = {
+  reviews: 'the review threads',
+  sessions: 'the Claude Code sessions',
+  audit: 'the audit of the setup',
 };
 
 /** A duration, in minutes. */
@@ -210,6 +226,15 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
     const book = new RetroBook(await retroHome(root, io.env));
     const retro = await book.get(id);
     const repos = retro.stores.map((s) => s.root);
+    // Only the sources chosen when the retro started are read.
+    const source = SOURCE_OF_ACTION[action];
+    if (source && !retro.sources.includes(source)) {
+      if (action === 'jev') throw new Error(`retro ${retro.id} does not read the review threads: nothing to classify`);
+      io.out(
+        `Skipped: retro ${retro.id} does not read ${SOURCE_WORDS[source]} (its sources: ${retro.sources.join(', ')}).`,
+      );
+      return 0;
+    }
     if (action === 'conversation') {
       if (!threadId) throw new Error('missing <thread-id>');
       const { threads } = await retroThreads(retro, io.env);
@@ -314,7 +339,8 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
     }
     if (action === 'insights') {
       const ran = await runInsights(retro.root, io.env, io.run);
-      // The retro's own session is not one of the sessions it looks back at.
+      // The retro's own session is not one of the sessions it looks back at, nor those run by a
+      // program (`claude -p`: its own audit and /insights).
       const own = await (io.session ?? currentSession)(io.env);
       const { sessions, files, read } = await projectSessions(
         join(claudeDir, 'usage-data'),
@@ -322,7 +348,7 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
         retro,
         io.env,
         io.run,
-        new Set(own ? [own] : []),
+        new Set([...(own ? [own] : []), ...(await programSessions(claudeDir))]),
       );
       if (files > 0 && read === 0) {
         io.err(

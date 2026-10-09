@@ -25,7 +25,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 
 // src/retroCli.ts
 var import_node_os4 = require("node:os");
-var import_node_path21 = require("node:path");
+var import_node_path22 = require("node:path");
 var import_node_util = require("node:util");
 
 // ../../packages/core/src/types.ts
@@ -1208,94 +1208,30 @@ function realpath2(path) {
   }
 }
 
-// ../../packages/core/src/config.ts
-var import_promises4 = require("node:fs/promises");
-var import_node_path5 = require("node:path");
-var SESSIONS_MODES = ["reports", "insights"];
-var DEFAULT_CONFIG = {
-  keepHistory: true,
-  retroReminder: true,
-  retroReminderDays: 7,
-  retroReminderSizeKB: 1e3,
-  retroReminderMaxDays: 25,
-  retroSessions: "reports"
-};
-var CONFIG_KEYS = {
-  "keep-history": {
-    key: "keepHistory",
-    kind: "boolean",
-    help: "on|off \u2014 keep deleted threads (for lr history and retros) and save the threads of a worktree before an agent removes it; off, deleting a thread erases it (default: on)"
-  },
-  "retro-reminder": {
-    key: "retroReminder",
-    kind: "boolean",
-    help: "on|off \u2014 when a retro is due, the agent says so at the start of a session (default: on)"
-  },
-  "retro-reminder-days": {
-    key: "retroReminderDays",
-    kind: "number",
-    help: "days \u2014 a retro is due this many days after the last one (default: 7)"
-  },
-  "retro-reminder-size": {
-    key: "retroReminderSizeKB",
-    kind: "number",
-    help: "KB \u2014 or sooner, once the threads since the last one weigh this much (default: 1000, i.e. 1 MB)"
-  },
-  "retro-reminder-max-days": {
-    key: "retroReminderMaxDays",
-    kind: "number",
-    help: "days \u2014 and never later than this, to keep the agent conversations linked to replies (default: 25)"
-  },
-  "retro-sessions": {
-    key: "retroSessions",
-    kind: "choice",
-    choices: SESSIONS_MODES,
-    help: "reports|insights \u2014 how a retro reads the agent sessions: a report on each one by a model (finer, costs more), or the agent's own summaries (Claude Code's /insights, cheaper); never both (default: reports)"
-  }
-};
-var configFile = (env = process.env) => (0, import_node_path5.join)(localReviewHome(env), "config.json");
-var validSettingNumber = (x) => typeof x === "number" && Number.isInteger(x) && x >= 1;
-async function readConfig(env = process.env) {
-  const config = { ...DEFAULT_CONFIG };
-  let raw;
-  try {
-    raw = JSON.parse(await (0, import_promises4.readFile)(configFile(env), "utf8"));
-  } catch {
-    return config;
-  }
-  if (typeof raw !== "object" || raw === null) return config;
-  const values = raw;
-  for (const setting of Object.values(CONFIG_KEYS)) {
-    const value = values[setting.key];
-    if (setting.kind === "boolean" && typeof value === "boolean") config[setting.key] = value;
-    if (setting.kind === "number" && validSettingNumber(value)) config[setting.key] = value;
-    if (setting.kind === "choice" && typeof value === "string" && setting.choices.includes(value))
-      Object.assign(config, { [setting.key]: value });
-  }
-  return config;
-}
-var writing = Promise.resolve();
+// ../../packages/core/src/agentSessions.ts
+var import_promises7 = require("node:fs/promises");
+var import_node_path8 = require("node:path");
 
 // ../../packages/core/src/project.ts
 var import_node_child_process2 = require("node:child_process");
-var import_promises6 = require("node:fs/promises");
-var import_node_path7 = require("node:path");
-
-// ../../packages/core/src/saved.ts
 var import_promises5 = require("node:fs/promises");
 var import_node_path6 = require("node:path");
+
+// ../../packages/core/src/saved.ts
+var import_promises4 = require("node:fs/promises");
+var import_node_path5 = require("node:path");
 var SAVED_DIR = "saved";
 async function savedStores(storeDir) {
   let slots;
   try {
-    slots = (await (0, import_promises5.readdir)((0, import_node_path6.join)(storeDir, SAVED_DIR), { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name).sort();
+    slots = (await (0, import_promises4.readdir)((0, import_node_path5.join)(storeDir, SAVED_DIR), { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name).sort();
   } catch {
     return [];
   }
   const found2 = [];
   for (const slot of slots) {
-    const dir = (0, import_node_path6.join)(storeDir, SAVED_DIR, slot);
-    const origin = parseOrigin(await (0, import_promises5.readFile)((0, import_node_path6.join)(dir, "origin.json"), "utf8").catch(() => ""));
+    const dir = (0, import_node_path5.join)(storeDir, SAVED_DIR, slot);
+    const origin = parseOrigin(await (0, import_promises4.readFile)((0, import_node_path5.join)(dir, "origin.json"), "utf8").catch(() => ""));
     if (origin) found2.push({ ...origin, dir });
   }
   return found2;
@@ -1331,11 +1267,11 @@ var SKIPPED = /* @__PURE__ */ new Set([
 ]);
 async function projectStores(root, env = process.env) {
   if (root === LOOSE_ROOT) return [{ root, origin: "root" }];
-  const top = (0, import_node_path7.resolve)(root);
+  const top = (0, import_node_path6.resolve)(root);
   const found2 = [];
   const seen = /* @__PURE__ */ new Set();
   const add = async (dir, origin) => {
-    const key = await (0, import_promises6.realpath)((0, import_node_path7.join)(dir, STORE_DIR)).catch(() => (0, import_node_path7.join)(dir, STORE_DIR));
+    const key = await (0, import_promises5.realpath)((0, import_node_path6.join)(dir, STORE_DIR)).catch(() => (0, import_node_path6.join)(dir, STORE_DIR));
     if (seen.has(key)) return;
     seen.add(key);
     found2.push({ root: dir, origin });
@@ -1351,7 +1287,7 @@ async function projectStores(root, env = process.env) {
       repos.push(above);
     }
   }
-  const realTop = await (0, import_promises6.realpath)(top).catch(() => top);
+  const realTop = await (0, import_promises5.realpath)(top).catch(() => top);
   const worktrees = /* @__PURE__ */ new Set();
   for (const list of await Promise.all(repos.map(worktreesOf)))
     for (const wt of list) if (!walked(realTop, wt)) worktrees.add(wt);
@@ -1361,8 +1297,8 @@ async function projectStores(root, env = process.env) {
     for (const dir of stores) await add(dir, "worktree");
   }
   for (const s of [...found2]) {
-    for (const saved of await savedStores((0, import_node_path7.join)(s.root, STORE_DIR))) {
-      const key = await (0, import_promises6.realpath)(saved.dir).catch(() => saved.dir);
+    for (const saved of await savedStores((0, import_node_path6.join)(s.root, STORE_DIR))) {
+      const key = await (0, import_promises5.realpath)(saved.dir).catch(() => saved.dir);
       if (seen.has(key)) continue;
       seen.add(key);
       found2.push({ root: saved.root, origin: "saved", saved });
@@ -1372,29 +1308,29 @@ async function projectStores(root, env = process.env) {
   return found2.sort((a, b) => order[a.origin] - order[b.origin] || a.root.localeCompare(b.root));
 }
 function walked(top, dir) {
-  const rel = (0, import_node_path7.relative)(top, dir);
+  const rel = (0, import_node_path6.relative)(top, dir);
   if (rel === "") return true;
-  if (rel.startsWith("..") || (0, import_node_path7.isAbsolute)(rel)) return false;
-  return rel.split(import_node_path7.sep).every((part) => !part.startsWith(".") && !SKIPPED.has(part));
+  if (rel.startsWith("..") || (0, import_node_path6.isAbsolute)(rel)) return false;
+  return rel.split(import_node_path6.sep).every((part) => !part.startsWith(".") && !SKIPPED.has(part));
 }
 async function walk(dir, env, stores, repos) {
   let entries;
   try {
-    entries = await (0, import_promises6.readdir)(dir, { withFileTypes: true });
+    entries = await (0, import_promises5.readdir)(dir, { withFileTypes: true });
   } catch {
     return;
   }
   if (entries.some((e) => e.name === ".git")) repos.push(dir);
   if (entries.some((e) => e.name === STORE_DIR && e.isDirectory()) && isStoreRoot(dir, env)) stores.push(dir);
   const children = entries.filter((e) => e.isDirectory() && !e.name.startsWith(".") && !SKIPPED.has(e.name));
-  await Promise.all(children.map((e) => walk((0, import_node_path7.join)(dir, e.name), env, stores, repos)));
+  await Promise.all(children.map((e) => walk((0, import_node_path6.join)(dir, e.name), env, stores, repos)));
 }
 function worktreesOf(dir) {
   return new Promise(
     (done) => (0, import_node_child_process2.execFile)("git", ["worktree", "list", "--porcelain"], { cwd: dir, timeout: 3e3 }, (err, stdout) => {
       if (err) return done([]);
       const paths = stdout.split("\n").filter((l) => l.startsWith("worktree ")).map((l) => l.slice("worktree ".length));
-      void Promise.all(paths.map((p) => (0, import_promises6.realpath)(p).catch(() => null))).then(
+      void Promise.all(paths.map((p) => (0, import_promises5.realpath)(p).catch(() => null))).then(
         (real2) => done(real2.filter((p) => p !== null))
       );
     })
@@ -1426,7 +1362,7 @@ async function projectHistory(root, opts = {}) {
   });
   const all = stores.flatMap((s) => s.threads);
   return {
-    root: root === LOOSE_ROOT ? root : (0, import_node_path7.resolve)(root),
+    root: root === LOOSE_ROOT ? root : (0, import_node_path6.resolve)(root),
     since: opts.since ? opts.since.toISOString() : null,
     stores,
     threads: all.length,
@@ -1437,9 +1373,128 @@ async function projectHistory(root, opts = {}) {
   };
 }
 
+// ../../packages/core/src/worktrees.ts
+var import_node_child_process3 = require("node:child_process");
+var import_promises6 = require("node:fs/promises");
+var import_node_path7 = require("node:path");
+function git2(args, cwd) {
+  return new Promise(
+    (done) => (0, import_node_child_process3.execFile)("git", args, { cwd, timeout: 3e3 }, (err, stdout) => done(err ? null : stdout.trim()))
+  );
+}
+var real = (p) => (0, import_promises6.realpath)(p).catch(() => (0, import_node_path7.resolve)(p));
+async function worktreesOf2(dir) {
+  const out = await git2(["worktree", "list", "--porcelain"], dir) ?? "";
+  const paths = out.split("\n").filter((l) => l.startsWith("worktree ")).map((l) => l.slice("worktree ".length));
+  return Promise.all(paths.map(real));
+}
+
+// ../../packages/core/src/agentSessions.ts
+async function projectFolders(root, env = process.env) {
+  const top = (0, import_node_path8.resolve)(root);
+  const folders = /* @__PURE__ */ new Set([top]);
+  for (const wt of await worktreesOf2(top)) folders.add(wt);
+  for (const s of await projectStores(top, env))
+    if (s.origin === "worktree" || s.origin === "below") folders.add(s.root);
+  for (const f of [...folders]) folders.add(await (0, import_promises7.realpath)(f).catch(() => f));
+  return [...folders];
+}
+var inFolders = (path, folders) => folders.some((f) => path === f || path.startsWith(f.endsWith(import_node_path8.sep) ? f : f + import_node_path8.sep));
+
+// ../../packages/core/src/config.ts
+var import_promises8 = require("node:fs/promises");
+var import_node_path9 = require("node:path");
+var SESSIONS_MODES = ["reports", "insights"];
+var RETRO_SOURCES = ["reviews", "sessions", "audit"];
+var SOURCE_SETTINGS = ["yes", "no", "ask"];
+var DEFAULT_CONFIG = {
+  keepHistory: true,
+  retroReminder: true,
+  retroReminderDays: 7,
+  retroReminderSizeKB: 1e3,
+  retroReminderMaxDays: 25,
+  retroSessions: "reports",
+  retroSourceReviews: "ask",
+  retroSourceSessions: "ask",
+  retroSourceAudit: "ask"
+};
+var CONFIG_KEYS = {
+  "keep-history": {
+    key: "keepHistory",
+    kind: "boolean",
+    help: "on|off \u2014 keep deleted threads (for lr history and retros) and save the threads of a worktree before an agent removes it; off, deleting a thread erases it (default: on)"
+  },
+  "retro-reminder": {
+    key: "retroReminder",
+    kind: "boolean",
+    help: "on|off \u2014 when a retro is due, the agent says so at the start of a session (default: on)"
+  },
+  "retro-reminder-days": {
+    key: "retroReminderDays",
+    kind: "number",
+    help: "days \u2014 a retro is due this many days after the last one (default: 7)"
+  },
+  "retro-reminder-size": {
+    key: "retroReminderSizeKB",
+    kind: "number",
+    help: "KB \u2014 or sooner, once the threads since the last one weigh this much (default: 1000, i.e. 1 MB)"
+  },
+  "retro-reminder-max-days": {
+    key: "retroReminderMaxDays",
+    kind: "number",
+    help: "days \u2014 and never later than this, to keep the agent conversations linked to replies (default: 25)"
+  },
+  "retro-sessions": {
+    key: "retroSessions",
+    kind: "choice",
+    choices: SESSIONS_MODES,
+    help: "reports|insights \u2014 how a retro reads the agent sessions: a report on each one by a model (finer, costs more), or the agent's own summaries (Claude Code's /insights, cheaper); never both (default: reports)"
+  },
+  "retro-source-reviews": {
+    key: "retroSourceReviews",
+    kind: "choice",
+    choices: SOURCE_SETTINGS,
+    help: "yes|no|ask \u2014 a retro reads your review threads: always, never, or asked at each retro (default: ask)"
+  },
+  "retro-source-sessions": {
+    key: "retroSourceSessions",
+    kind: "choice",
+    choices: SOURCE_SETTINGS,
+    help: "yes|no|ask \u2014 a retro reads your sessions with the agent: always, never, or asked (default: ask)"
+  },
+  "retro-source-audit": {
+    key: "retroSourceAudit",
+    kind: "choice",
+    choices: SOURCE_SETTINGS,
+    help: "yes|no|ask \u2014 a retro audits your setup (/doctor prompt-audit): always, never, or asked (default: ask)"
+  }
+};
+var configFile = (env = process.env) => (0, import_node_path9.join)(localReviewHome(env), "config.json");
+var validSettingNumber = (x) => typeof x === "number" && Number.isInteger(x) && x >= 1;
+async function readConfig(env = process.env) {
+  const config = { ...DEFAULT_CONFIG };
+  let raw;
+  try {
+    raw = JSON.parse(await (0, import_promises8.readFile)(configFile(env), "utf8"));
+  } catch {
+    return config;
+  }
+  if (typeof raw !== "object" || raw === null) return config;
+  const values = raw;
+  for (const setting of Object.values(CONFIG_KEYS)) {
+    const value = values[setting.key];
+    if (setting.kind === "boolean" && typeof value === "boolean") config[setting.key] = value;
+    if (setting.kind === "number" && validSettingNumber(value)) config[setting.key] = value;
+    if (setting.kind === "choice" && typeof value === "string" && setting.choices.includes(value))
+      Object.assign(config, { [setting.key]: value });
+  }
+  return config;
+}
+var writing = Promise.resolve();
+
 // ../../packages/core/src/retro.ts
-var import_promises7 = require("node:fs/promises");
-var import_node_path8 = require("node:path");
+var import_promises9 = require("node:fs/promises");
+var import_node_path10 = require("node:path");
 var RETRO_SCHEMA_VERSION = 1;
 var RETROS_DIR = "retros";
 var FEEDBACK_CATEGORIES = {
@@ -1525,6 +1580,7 @@ function foldRetro(events, warnings = [], future = false) {
     bytes: first.bytes,
     preferences: first.preferences ?? [],
     sessionsMode: first.sessionsMode ?? null,
+    sources: Array.isArray(first.sources) ? RETRO_SOURCES.filter((x) => first.sources.includes(x)) : [...RETRO_SOURCES],
     feedback: [],
     classification: null,
     proposals: [],
@@ -1635,14 +1691,14 @@ function foldPreferences(events) {
 }
 async function retroHome(root, env = process.env) {
   if (root === LOOSE_ROOT) throw new Error("a retro is about a project folder, not the files outside any folder");
-  const dir = (0, import_node_path8.resolve)(root);
+  const dir = (0, import_node_path10.resolve)(root);
   if (isStoreRoot(dir, env)) return dir;
   return await worktreeTopOf(dir) ?? dir;
 }
 async function readRetros(dir) {
   let files;
   try {
-    files = (await (0, import_promises7.readdir)(dir)).filter((f) => f.endsWith(".jsonl") && RETRO_ID.test(f.slice(0, -".jsonl".length)));
+    files = (await (0, import_promises9.readdir)(dir)).filter((f) => f.endsWith(".jsonl") && RETRO_ID.test(f.slice(0, -".jsonl".length)));
   } catch (err) {
     if (err.code === "ENOENT") return [];
     throw err;
@@ -1654,7 +1710,7 @@ async function readRetro(dir, id) {
   if (!RETRO_ID.test(id)) throw new Error(`Invalid retro id: ${id}`);
   let text;
   try {
-    text = await (0, import_promises7.readFile)((0, import_node_path8.join)(dir, `${id}.jsonl`), "utf8");
+    text = await (0, import_promises9.readFile)((0, import_node_path10.join)(dir, `${id}.jsonl`), "utf8");
   } catch (err) {
     if (err.code === "ENOENT") return null;
     throw err;
@@ -1665,23 +1721,23 @@ async function readRetro(dir, id) {
 var RetroBook = class {
   constructor(home) {
     this.home = home;
-    this.dir = (0, import_node_path8.join)(home, STORE_DIR, RETROS_DIR);
+    this.dir = (0, import_node_path10.join)(home, STORE_DIR, RETROS_DIR);
   }
   home;
   dir;
   retroFile(id) {
     if (!RETRO_ID.test(id)) throw new Error(`Invalid retro id: ${id}`);
-    return (0, import_node_path8.join)(this.dir, `${id}.jsonl`);
+    return (0, import_node_path10.join)(this.dir, `${id}.jsonl`);
   }
   /** A folder for the files a retro writes for its agents. */
   async workDir(id) {
     if (!RETRO_ID.test(id)) throw new Error(`Invalid retro id: ${id}`);
-    const dir = (0, import_node_path8.join)(this.dir, id);
-    await (0, import_promises7.mkdir)(dir, { recursive: true });
+    const dir = (0, import_node_path10.join)(this.dir, id);
+    await (0, import_promises9.mkdir)(dir, { recursive: true });
     return dir;
   }
   get preferencesFile() {
-    return (0, import_node_path8.join)(this.dir, "preferences.jsonl");
+    return (0, import_node_path10.join)(this.dir, "preferences.jsonl");
   }
   /** Every retro of this book, oldest first. */
   list() {
@@ -1698,13 +1754,13 @@ var RetroBook = class {
   }
   /** The last finished retro of the project folder `root`, if any. */
   async lastFinished(root) {
-    const done = (await this.list()).filter((r) => r.finishedAt !== null && r.root === (0, import_node_path8.resolve)(root));
+    const done = (await this.list()).filter((r) => r.finishedAt !== null && r.root === (0, import_node_path10.resolve)(root));
     return done.at(-1) ?? null;
   }
   async preferences() {
     let text;
     try {
-      text = await (0, import_promises7.readFile)(this.preferencesFile, "utf8");
+      text = await (0, import_promises9.readFile)(this.preferencesFile, "utf8");
     } catch (err) {
       if (err.code === "ENOENT") return [];
       throw err;
@@ -1731,7 +1787,7 @@ var RetroBook = class {
   /** Every preference id ever given, removed ones included: an id is never reused. */
   async allPreferenceIds() {
     try {
-      const text = await (0, import_promises7.readFile)(this.preferencesFile, "utf8");
+      const text = await (0, import_promises9.readFile)(this.preferencesFile, "utf8");
       return parseLines(text, "preferences", PREFERENCE_EVENTS).events.map((e) => e.id);
     } catch {
       return [];
@@ -1748,7 +1804,7 @@ var RetroBook = class {
         at: (/* @__PURE__ */ new Date()).toISOString(),
         retroId,
         ...scope,
-        root: (0, import_node_path8.resolve)(scope.root),
+        root: (0, import_node_path10.resolve)(scope.root),
         preferences
       }
     ]);
@@ -1767,26 +1823,10 @@ var RetroBook = class {
     return this.get(id);
   }
   async append(file, events) {
-    await (0, import_promises7.mkdir)(this.dir, { recursive: true });
-    await (0, import_promises7.appendFile)(file, events.map((e) => JSON.stringify(e) + "\n").join(""), { flag: "a" });
+    await (0, import_promises9.mkdir)(this.dir, { recursive: true });
+    await (0, import_promises9.appendFile)(file, events.map((e) => JSON.stringify(e) + "\n").join(""), { flag: "a" });
   }
 };
-
-// ../../packages/core/src/worktrees.ts
-var import_node_child_process3 = require("node:child_process");
-var import_promises8 = require("node:fs/promises");
-var import_node_path9 = require("node:path");
-function git2(args, cwd) {
-  return new Promise(
-    (done) => (0, import_node_child_process3.execFile)("git", args, { cwd, timeout: 3e3 }, (err, stdout) => done(err ? null : stdout.trim()))
-  );
-}
-var real = (p) => (0, import_promises8.realpath)(p).catch(() => (0, import_node_path9.resolve)(p));
-async function worktreesOf2(dir) {
-  const out = await git2(["worktree", "list", "--porcelain"], dir) ?? "";
-  const paths = out.split("\n").filter((l) => l.startsWith("worktree ")).map((l) => l.slice("worktree ".length));
-  return Promise.all(paths.map(real));
-}
 
 // ../../packages/core/src/cadence.ts
 var DEFAULT_CADENCE = thresholdsOf(DEFAULT_CONFIG);
@@ -1806,12 +1846,12 @@ function parseDateArg(value, now = Date.now()) {
 }
 
 // ../../packages/core/src/retroSessions.ts
-var import_promises9 = require("node:fs/promises");
-var import_node_path10 = require("node:path");
+var import_promises10 = require("node:fs/promises");
+var import_node_path11 = require("node:path");
 var SESSIONS_FILE = "sessions.json";
 async function recordRetroSessions(book, retroId, source, sessions, run = { costUsd: null, durationMs: null }) {
-  const file = (0, import_node_path10.join)(await book.workDir(retroId), SESSIONS_FILE);
-  await (0, import_promises9.writeFile)(file, JSON.stringify({ source, sessions }, null, 2) + "\n");
+  const file = (0, import_node_path11.join)(await book.workDir(retroId), SESSIONS_FILE);
+  await (0, import_promises10.writeFile)(file, JSON.stringify({ source, sessions }, null, 2) + "\n");
   await book.record(retroId, [
     {
       type: "retro.sessions",
@@ -1827,6 +1867,7 @@ async function recordRetroSessions(book, retroId, source, sessions, run = { cost
 // ../../packages/core/src/retroGuards.ts
 var ADOPTED = ["accepted", "modified", "retargeted"];
 function adoptedChanges(r) {
+  const sessions = sessionsRead(r);
   return r.proposals.flatMap((p) => {
     const d = r.decisions[p.id];
     if (p.column === "keep" || !d || !ADOPTED.includes(d.decision)) return [];
@@ -1844,26 +1885,37 @@ function adoptedChanges(r) {
         target: d.target ?? p.target,
         files: r.applied[p.id] ?? [],
         before: { threads: p.figures.threads, total: r.threads.length },
-        evidence: p.evidence
+        ...sessions > 0 ? { beforeSessions: { sessions: p.sessions?.length ?? 0, total: sessions } } : {},
+        evidence: p.evidence,
+        ...p.sessions?.length ? { sessions: p.sessions } : {}
       }
     ];
   });
+}
+function sessionsRead(r) {
+  if (!r.sources.includes("sessions")) return 0;
+  const ids = /* @__PURE__ */ new Set();
+  if (r.sessionsMode !== "reports") for (const x of r.sessions?.list ?? []) ids.add(x.id);
+  if (r.sessionsMode !== "insights") {
+    for (const x of r.reports?.list ?? []) if (x.status !== "failed") ids.add(x.id);
+  }
+  return ids.size;
 }
 var STOPWORDS = new Set(
   "the and for with that this from into when then than are was were has have not use uses using les des une pour avec dans sur par pas que qui est sont aux ses son leur".split(" ")
 );
 
 // ../../packages/core/src/retroKey.ts
-var import_promises10 = require("node:fs/promises");
+var import_promises11 = require("node:fs/promises");
 var import_node_os2 = require("node:os");
-var import_node_path11 = require("node:path");
+var import_node_path12 = require("node:path");
 function jevKeyFile(env = process.env) {
-  return (0, import_node_path11.join)(env.HOME?.trim() || (0, import_node_os2.homedir)(), ".config", "local-review", "jev-key");
+  return (0, import_node_path12.join)(env.HOME?.trim() || (0, import_node_os2.homedir)(), ".config", "local-review", "jev-key");
 }
 async function jevKeyStatus(env = process.env) {
   const path = jevKeyFile(env);
   const fromEnv = (env.JEV_API_KEY ?? "").trim() !== "";
-  const st = await (0, import_promises10.stat)(path).catch(() => null);
+  const st = await (0, import_promises11.stat)(path).catch(() => null);
   const exists2 = st?.isFile() === true;
   const status = {
     source: fromEnv ? "env" : exists2 ? "file" : "none",
@@ -1879,7 +1931,7 @@ async function jevKeyStatus(env = process.env) {
   status.mode = (st.mode & 511).toString(8);
   const mine = typeof process.getuid !== "function" || st.uid === process.getuid();
   status.private = (st.mode & 63) === 0 && mine;
-  status.inRepo = await worktreeTopOf((0, import_node_path11.dirname)(path));
+  status.inRepo = await worktreeTopOf((0, import_node_path12.dirname)(path));
   if (!status.private) status.fixes.push(`chmod 600 "${path}"`);
   if (status.inRepo)
     status.fixes.push(`move it out of the repository ${status.inRepo} (e.g. to the default place, ${jevKeyFile(env)})`);
@@ -1888,36 +1940,36 @@ async function jevKeyStatus(env = process.env) {
 }
 
 // ../../packages/core/src/retroScope.ts
-var import_promises12 = require("node:fs/promises");
-var import_node_path13 = require("node:path");
+var import_promises13 = require("node:fs/promises");
+var import_node_path14 = require("node:path");
 
 // ../../packages/core/src/retroFindings.ts
 var AUDIT_FILE = "audit.md";
 
 // ../../packages/core/src/sessionReports.ts
-var import_promises11 = require("node:fs/promises");
-var import_node_path12 = require("node:path");
+var import_promises12 = require("node:fs/promises");
+var import_node_path13 = require("node:path");
 var SESSION_REPORT_VERSION = 1;
 var SESSION_REPORTS_DIR = "sessions";
-var reportsDir = (book) => (0, import_node_path12.join)(book.dir, SESSION_REPORTS_DIR);
+var reportsDir = (book) => (0, import_node_path13.join)(book.dir, SESSION_REPORTS_DIR);
 var SESSION_ID2 = /^[A-Za-z0-9._-]{1,128}$/;
 var reportFile = (book, id) => {
   if (!SESSION_ID2.test(id) || id.startsWith(".")) throw new Error(`Invalid session id: ${id}`);
-  return (0, import_node_path12.join)(reportsDir(book), `${id}.json`);
+  return (0, import_node_path13.join)(reportsDir(book), `${id}.json`);
 };
 async function writeSessionReport(book, report) {
   const file = reportFile(book, report.session);
-  await (0, import_promises11.mkdir)(reportsDir(book), { recursive: true });
+  await (0, import_promises12.mkdir)(reportsDir(book), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
-  await (0, import_promises11.writeFile)(tmp, JSON.stringify(report, null, 1) + "\n");
-  await (0, import_promises11.rename)(tmp, file);
+  await (0, import_promises12.writeFile)(tmp, JSON.stringify(report, null, 1) + "\n");
+  await (0, import_promises12.rename)(tmp, file);
   return file;
 }
 var isRecord2 = (x) => typeof x === "object" && x !== null && !Array.isArray(x);
 async function readSessionReport(book, id) {
   let raw;
   try {
-    raw = JSON.parse(await (0, import_promises11.readFile)(reportFile(book, id), "utf8"));
+    raw = JSON.parse(await (0, import_promises12.readFile)(reportFile(book, id), "utf8"));
   } catch {
     return null;
   }
@@ -1926,7 +1978,7 @@ async function readSessionReport(book, id) {
   return raw;
 }
 async function sessionReportIds(book) {
-  const names = await (0, import_promises11.readdir)(reportsDir(book)).catch(() => []);
+  const names = await (0, import_promises12.readdir)(reportsDir(book)).catch(() => []);
   return names.filter((n) => n.endsWith(".json")).map((n) => n.slice(0, -".json".length)).sort();
 }
 function citedMoments(node, out = /* @__PURE__ */ new Set()) {
@@ -1946,7 +1998,7 @@ var DAY = 864e5;
 async function retroScope(root, opts = {}) {
   const env = opts.env ?? process.env;
   const now = opts.now ?? Date.now();
-  const dir = (0, import_node_path13.resolve)(root);
+  const dir = (0, import_node_path14.resolve)(root);
   const home = await retroHome(dir, env);
   const book = new RetroBook(home);
   const retros = (await book.list()).filter((r) => r.root === dir);
@@ -2009,7 +2061,8 @@ function estimate(h) {
     tokens,
     classifyJev: Math.round(10 + threads.length * 0.25),
     classifyModel: Math.round(45 + threads.length),
-    analysis: Math.round(60 + tokens / 1e3)
+    analysis: Math.round(60 + tokens / 1e3),
+    audit: 480
   };
 }
 var who = (by, agent) => by === "user" ? "User" : agent ?? "Agent";
@@ -2051,8 +2104,8 @@ async function retroThreads(retro, env = process.env) {
   return { history, threads };
 }
 async function writeRetroFile(book, id, name, content) {
-  const file = (0, import_node_path13.join)(await book.workDir(id), name);
-  await (0, import_promises12.writeFile)(file, content);
+  const file = (0, import_node_path14.join)(await book.workDir(id), name);
+  await (0, import_promises13.writeFile)(file, content);
   return file;
 }
 
@@ -2132,8 +2185,8 @@ async function runAudit(root, claudeDir, env, run = runProcess, timeoutMs = AUDI
 
 // src/retroInsights.ts
 var import_node_fs2 = require("node:fs");
-var import_promises13 = require("node:fs/promises");
-var import_node_path14 = require("node:path");
+var import_promises14 = require("node:fs/promises");
+var import_node_path15 = require("node:path");
 var import_node_readline = require("node:readline");
 var INSIGHTS_COMMAND = "/insights";
 var INSIGHTS_SOURCE = "Claude Code /insights";
@@ -2165,11 +2218,11 @@ async function runInsights(root, env, run = runProcess, timeoutMs = INSIGHTS_TIM
     durationMs: typeof out.duration_ms === "number" ? out.duration_ms : null
   };
 }
-var fieldsFile = (env) => (0, import_node_path14.join)(localReviewHome(env), FIELDS_FILE);
+var fieldsFile = (env) => (0, import_node_path15.join)(localReviewHome(env), FIELDS_FILE);
 async function readFieldMaps(env) {
   const maps = [{ ...DEFAULT_FIELDS }];
   try {
-    const raw = JSON.parse(await (0, import_promises13.readFile)(fieldsFile(env), "utf8"));
+    const raw = JSON.parse(await (0, import_promises14.readFile)(fieldsFile(env), "utf8"));
     for (const f of Array.isArray(raw.formats) ? raw.formats : []) {
       const m = f;
       if (KEYS.every((k) => typeof m[k] === "string" && m[k])) maps.push(m);
@@ -2180,10 +2233,10 @@ async function readFieldMaps(env) {
 }
 async function writeFieldMaps(env, maps) {
   const file = fieldsFile(env);
-  await (0, import_promises13.mkdir)(localReviewHome(env), { recursive: true });
+  await (0, import_promises14.mkdir)(localReviewHome(env), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
-  await (0, import_promises13.writeFile)(tmp, JSON.stringify({ formats: maps.slice(1) }, null, 2) + "\n");
-  await (0, import_promises13.rename)(tmp, file);
+  await (0, import_promises14.writeFile)(tmp, JSON.stringify({ formats: maps.slice(1) }, null, 2) + "\n");
+  await (0, import_promises14.rename)(tmp, file);
 }
 function keysWith(f, maps) {
   for (const map of maps) {
@@ -2200,7 +2253,7 @@ function shapeOf(v) {
   if (typeof v !== "string") return typeof v;
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(v) && !Number.isNaN(Date.parse(v))) return "ISO date and time";
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)) return "UUID";
-  if ((0, import_node_path14.isAbsolute)(v) && !/\s{2}/.test(v) && !v.includes("\n")) return "absolute path";
+  if ((0, import_node_path15.isAbsolute)(v) && !/\s{2}/.test(v) && !v.includes("\n")) return "absolute path";
   return "text";
 }
 function describeFields(files) {
@@ -2213,7 +2266,7 @@ function keysOf(f, map) {
   const folder = f[map.project_path];
   const start = f[map.start_time];
   if (typeof id !== "string" || !id.trim()) return null;
-  if (typeof folder !== "string" || !(0, import_node_path14.isAbsolute)(folder)) return null;
+  if (typeof folder !== "string" || !(0, import_node_path15.isAbsolute)(folder)) return null;
   if (typeof start !== "string" || Number.isNaN(Date.parse(start))) return null;
   return { id, folder, start: new Date(start).toISOString() };
 }
@@ -2264,18 +2317,18 @@ async function askFieldMap(files, root, env, run = runProcess) {
 }
 var readJson = async (file) => {
   try {
-    const raw = JSON.parse(await (0, import_promises13.readFile)(file, "utf8"));
+    const raw = JSON.parse(await (0, import_promises14.readFile)(file, "utf8"));
     return typeof raw === "object" && raw !== null && !Array.isArray(raw) ? raw : null;
   } catch {
     return null;
   }
 };
 async function readInsights(usageDir, root, env, run) {
-  const metaDir = (0, import_node_path14.join)(usageDir, "session-meta");
-  const names = (await (0, import_promises13.readdir)(metaDir).catch(() => [])).filter((n) => n.endsWith(".json")).sort();
+  const metaDir = (0, import_node_path15.join)(usageDir, "session-meta");
+  const names = (await (0, import_promises14.readdir)(metaDir).catch(() => [])).filter((n) => n.endsWith(".json")).sort();
   const files = [];
   for (const n of names) {
-    const f = await readJson((0, import_node_path14.join)(metaDir, n));
+    const f = await readJson((0, import_node_path15.join)(metaDir, n));
     if (f) files.push(f);
   }
   const maps = await readFieldMaps(env);
@@ -2292,7 +2345,7 @@ async function readInsights(usageDir, root, env, run) {
   for (const f of files) {
     const k = keysWith(f, maps);
     if (!k) continue;
-    const summary = await readJson((0, import_node_path14.join)(usageDir, "facets", `${k.id}.json`));
+    const summary = await readJson((0, import_node_path15.join)(usageDir, "facets", `${k.id}.json`));
     sessions.push({ id: k.id, folder: k.folder, start: k.start, facts: factsOf(f, k.map), summary });
   }
   return { sessions, files: files.length };
@@ -2311,16 +2364,6 @@ function factsOf(f, map) {
   }
   return out;
 }
-async function projectFolders(root, env) {
-  const top = (0, import_node_path14.resolve)(root);
-  const folders = /* @__PURE__ */ new Set([top]);
-  for (const wt of await worktreesOf2(top)) folders.add(wt);
-  for (const s of await projectStores(top, env))
-    if (s.origin === "worktree" || s.origin === "below") folders.add(s.root);
-  for (const f of [...folders]) folders.add(await (0, import_promises13.realpath)(f).catch(() => f));
-  return [...folders];
-}
-var inFolders = (path, folders) => folders.some((f) => path === f || path.startsWith(f.endsWith(import_node_path14.sep) ? f : f + import_node_path14.sep));
 var inPeriod = (start, since, until) => (since === null || start >= since) && start <= until;
 async function projectSessions(usageDir, root, period, env, run, exclude = /* @__PURE__ */ new Set()) {
   const { sessions, files } = await readInsights(usageDir, root, env, run);
@@ -2332,6 +2375,7 @@ async function transcriptStart(file) {
   const lines = (0, import_node_readline.createInterface)({ input: (0, import_node_fs2.createReadStream)(file, { encoding: "utf8" }), crlfDelay: Infinity });
   let cwd = null;
   let start = null;
+  let entrypoint;
   try {
     for await (const line of lines) {
       let e;
@@ -2340,40 +2384,51 @@ async function transcriptStart(file) {
       } catch {
         continue;
       }
-      if (cwd === null && typeof e.cwd === "string") cwd = e.cwd;
+      if (cwd === null && typeof e.cwd === "string") {
+        cwd = e.cwd;
+        if (typeof e.entrypoint === "string") entrypoint = e.entrypoint;
+      }
       if (start === null && typeof e.timestamp === "string") start = e.timestamp;
       if (cwd !== null && start !== null) break;
     }
   } finally {
     lines.close();
   }
-  return cwd !== null && start !== null && !Number.isNaN(Date.parse(start)) ? { cwd, start: new Date(start).toISOString() } : null;
+  return cwd !== null && start !== null && !Number.isNaN(Date.parse(start)) ? { cwd, start: new Date(start).toISOString(), ...entrypoint ? { entrypoint } : {} } : null;
 }
-async function projectTranscripts(claudeDir, root, period, env) {
-  const projects = (0, import_node_path14.join)(claudeDir, "projects");
-  const folders = await projectFolders(root, env);
+async function allTranscripts(claudeDir) {
+  const projects = (0, import_node_path15.join)(claudeDir, "projects");
   const out = [];
-  for (const dir of await (0, import_promises13.readdir)(projects).catch(() => [])) {
-    const names = await (0, import_promises13.readdir)((0, import_node_path14.join)(projects, dir)).catch(() => []);
+  for (const dir of await (0, import_promises14.readdir)(projects).catch(() => [])) {
+    const names = await (0, import_promises14.readdir)((0, import_node_path15.join)(projects, dir)).catch(() => []);
     for (const name of names.filter((x) => x.endsWith(".jsonl"))) {
-      const file = (0, import_node_path14.join)(projects, dir, name);
+      const file = (0, import_node_path15.join)(projects, dir, name);
       const s = await transcriptStart(file);
-      if (s && inFolders(s.cwd, folders) && inPeriod(s.start, period.since, period.until))
-        out.push({ id: name.slice(0, -".jsonl".length), file, ...s });
+      if (s) out.push({ id: name.slice(0, -".jsonl".length), file, ...s });
     }
   }
-  return out.sort((a, b) => a.start.localeCompare(b.start));
+  return out;
+}
+var PROGRAM_ENTRYPOINT = "sdk-cli";
+async function programSessions(claudeDir) {
+  return new Set((await allTranscripts(claudeDir)).filter((t) => t.entrypoint === PROGRAM_ENTRYPOINT).map((t) => t.id));
+}
+async function projectTranscripts(claudeDir, root, period, env) {
+  const folders = await projectFolders(root, env);
+  return (await allTranscripts(claudeDir)).filter(
+    (t) => t.entrypoint !== PROGRAM_ENTRYPOINT && inFolders(t.cwd, folders) && inPeriod(t.start, period.since, period.until)
+  ).sort((a, b) => a.start.localeCompare(b.start));
 }
 
 // src/sessionReports.ts
-var import_promises15 = require("node:fs/promises");
+var import_promises16 = require("node:fs/promises");
 var import_node_os3 = require("node:os");
-var import_node_path17 = require("node:path");
+var import_node_path18 = require("node:path");
 
 // src/sessionAnalytics.ts
 var import_node_crypto2 = require("node:crypto");
-var import_promises14 = require("node:fs/promises");
-var import_node_path15 = require("node:path");
+var import_promises15 = require("node:fs/promises");
+var import_node_path16 = require("node:path");
 var ANALYTICS_SCHEMA = "session-analytics/1";
 var FAMILIES = {
   collaboration: ["friction", "corrections", "user_edits", "agent_questions"],
@@ -2457,7 +2512,7 @@ function normCommand(cmd) {
   return c.split(" ").slice(0, 3).join(" ");
 }
 async function readJsonl(file) {
-  const text = await (0, import_promises14.readFile)(file, "utf8");
+  const text = await (0, import_promises15.readFile)(file, "utf8");
   const out = [];
   text.split("\n").forEach((line, i) => {
     if (!line.trim()) return;
@@ -2470,28 +2525,28 @@ async function readJsonl(file) {
   return out;
 }
 async function walk2(dir) {
-  const entries = await (0, import_promises14.readdir)(dir, { withFileTypes: true }).catch(() => []);
+  const entries = await (0, import_promises15.readdir)(dir, { withFileTypes: true }).catch(() => []);
   const out = [];
   for (const d of entries) {
-    const p = (0, import_node_path15.join)(dir, d.name);
+    const p = (0, import_node_path16.join)(dir, d.name);
     if (d.isDirectory()) out.push(...await walk2(p));
     else out.push(p);
   }
   return out;
 }
 async function subagentFiles(sessionFile) {
-  const dir = (0, import_node_path15.join)((0, import_node_path15.dirname)(sessionFile), (0, import_node_path15.basename)(sessionFile, ".jsonl"), "subagents");
+  const dir = (0, import_node_path16.join)((0, import_node_path16.dirname)(sessionFile), (0, import_node_path16.basename)(sessionFile, ".jsonl"), "subagents");
   const files = (await walk2(dir)).filter((f) => /\/agent-[^/]+\.jsonl$/.test(f)).sort();
   const out = [];
   for (const file of files) {
     let meta = {};
     try {
-      const raw = JSON.parse(await (0, import_promises14.readFile)(file.replace(/\.jsonl$/, ".meta.json"), "utf8"));
+      const raw = JSON.parse(await (0, import_promises15.readFile)(file.replace(/\.jsonl$/, ".meta.json"), "utf8"));
       if (isRecord3(raw)) meta = raw;
     } catch {
     }
     if (file.includes("/workflows/")) meta = { ...meta, workflow: true };
-    out.push({ id: (0, import_node_path15.basename)(file, ".jsonl").slice("agent-".length), file, meta });
+    out.push({ id: (0, import_node_path16.basename)(file, ".jsonl").slice("agent-".length), file, meta });
   }
   return out;
 }
@@ -2499,7 +2554,7 @@ var bump = (m, k, by = 1) => m.set(k, (m.get(k) ?? 0) + by);
 var sorted = (m) => Object.fromEntries([...m].sort((a, b) => b[1] - a[1]));
 var sha1 = (s) => (0, import_node_crypto2.createHash)("sha1").update(s).digest("hex").slice(0, 12);
 async function analyseSession(sessionFile) {
-  const sid = (0, import_node_path15.basename)(sessionFile, ".jsonl");
+  const sid = (0, import_node_path16.basename)(sessionFile, ".jsonl");
   const agents = [{ id: "main", file: sessionFile, meta: {}, lines: await readJsonl(sessionFile) }];
   for (const s of await subagentFiles(sessionFile)) agents.push({ ...s, lines: await readJsonl(s.file) });
   const sig = {};
@@ -2649,7 +2704,7 @@ async function analyseSession(sessionFile) {
           );
         else if (kind === "edited_text_file") {
           const file = strOf(a.filename);
-          const name = (0, import_node_path15.basename)(file);
+          const name = (0, import_node_path16.basename)(file);
           const byAgent = name !== "" && bashSincePrompt.some((c) => c.includes(name));
           add(
             "collaboration",
@@ -2969,7 +3024,7 @@ var reportPrompt = (sessionId, agents) => `${REPORT_BRIEF}
 The session: ${sessionId}, with ${agents - 1} sub-agent(s). Its files are in your working folder.`;
 
 // src/sessionTranscript.ts
-var import_node_path16 = require("node:path");
+var import_node_path17 = require("node:path");
 var WIDTH = { result: 500, agent: 1500, user: 3e3 };
 var isRecord4 = (x) => typeof x === "object" && x !== null && !Array.isArray(x);
 var flat = (s) => s.replace(/\s*\n\s*/g, " \u23CE ");
@@ -3026,7 +3081,7 @@ async function renderSession(sessionFile) {
     }
     transcripts.push({
       agent: f.id,
-      name: f.id === "main" ? "conversation-main.txt" : `conversation-${(0, import_node_path16.basename)(f.file, ".jsonl")}.txt`,
+      name: f.id === "main" ? "conversation-main.txt" : `conversation-${(0, import_node_path17.basename)(f.file, ".jsonl")}.txt`,
       text: lines.join("\n") + "\n"
     });
   }
@@ -3062,7 +3117,7 @@ async function planReports(book, transcripts, opts = {}) {
   }
   return plan;
 }
-var mentions = async (file, text) => (await (0, import_promises15.readFile)(file, "utf8").catch(() => "")).includes(text);
+var mentions = async (file, text) => (await (0, import_promises16.readFile)(file, "utf8").catch(() => "")).includes(text);
 var expected = (prompts) => ({
   costUsd: REPORT_COST.baseUsd + REPORT_COST.perPromptUsd * prompts,
   ms: REPORT_COST.baseMs + REPORT_COST.perPromptMs * prompts
@@ -3155,11 +3210,11 @@ var tokensOf2 = (usage) => {
   return n || null;
 };
 async function writeReport(c, env, run = runProcess, timeoutMs = REPORT_TIMEOUT_MS) {
-  const work = await (0, import_promises15.mkdtemp)((0, import_node_path17.join)((0, import_node_os3.tmpdir)(), "lr-session-report-"));
+  const work = await (0, import_promises16.mkdtemp)((0, import_node_path18.join)((0, import_node_os3.tmpdir)(), "lr-session-report-"));
   try {
     const { transcripts, uuids } = await renderSession(c.transcript.file);
-    await (0, import_promises15.writeFile)((0, import_node_path17.join)(work, "analytics.json"), JSON.stringify(c.analytics, null, 1));
-    for (const t of transcripts) await (0, import_promises15.writeFile)((0, import_node_path17.join)(work, t.name), t.text);
+    await (0, import_promises16.writeFile)((0, import_node_path18.join)(work, "analytics.json"), JSON.stringify(c.analytics, null, 1));
+    for (const t of transcripts) await (0, import_promises16.writeFile)((0, import_node_path18.join)(work, t.name), t.text);
     const claude = env.LR_CLAUDE_BIN?.trim() || "claude";
     const r = await run(claude, reportArgs(reportPrompt(c.transcript.id, transcripts.length)), {
       cwd: work,
@@ -3212,7 +3267,7 @@ async function writeReport(c, env, run = runProcess, timeoutMs = REPORT_TIMEOUT_
       }
     };
   } finally {
-    await (0, import_promises15.rm)(work, { recursive: true, force: true });
+    await (0, import_promises16.rm)(work, { recursive: true, force: true });
   }
 }
 var fail = (reason, spent) => ({ kind: "failed", reason, costUsd: spent.costUsd, durationMs: spent.ms, tokens: spent.tokens });
@@ -3251,7 +3306,7 @@ async function writeReports(book, plan, env, run = runProcess, concurrency = REP
 }
 
 // src/retroJev.ts
-var import_promises16 = require("node:fs/promises");
+var import_promises17 = require("node:fs/promises");
 var JEV_URL = "https://jevtypesafeai.com/api/v1/decide";
 var INTRO = "Code review thread between a developer and their AI coding agent. ";
 var QUESTIONS = {
@@ -3275,7 +3330,7 @@ async function readJevKey(env = process.env) {
   const s = await jevKeyStatus(env);
   if (!s.exists) throw new Error(`no Jev key: ${s.path} does not exist (lr retro key tells how to add one)`);
   if (!s.ok) throw new Error(`the Jev key file is not safe, fix it first: ${s.fixes.join("; ")}`);
-  const key = (await (0, import_promises16.readFile)(s.path, "utf8")).trim();
+  const key = (await (0, import_promises17.readFile)(s.path, "utf8")).trim();
   if (!key) throw new Error(`the Jev key file ${s.path} is empty`);
   return key;
 }
@@ -3331,8 +3386,8 @@ async function classifyWithJev(threads, rules, deps) {
 }
 
 // src/retroConversation.ts
-var import_promises17 = require("node:fs/promises");
-var import_node_path18 = require("node:path");
+var import_promises18 = require("node:fs/promises");
+var import_node_path19 = require("node:path");
 function linkedReplies(t) {
   return t.conversation.flatMap(
     (e) => e.kind === "comment" && e.author === "agent" && e.session ? [{ session: e.session.id, ...e.session.message ? { message: e.session.message } : {}, at: e.at }] : []
@@ -3341,26 +3396,26 @@ function linkedReplies(t) {
 var SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/;
 async function transcriptsOf(claudeDir, session) {
   if (!SAFE_ID.test(session)) return [];
-  const projects = (0, import_node_path18.join)(claudeDir, "projects");
+  const projects = (0, import_node_path19.join)(claudeDir, "projects");
   let folders;
   try {
-    folders = await (0, import_promises17.readdir)(projects);
+    folders = await (0, import_promises18.readdir)(projects);
   } catch {
     return [];
   }
   const found2 = [];
   for (const folder of folders.sort()) {
-    const main = (0, import_node_path18.join)(projects, folder, `${session}.jsonl`);
+    const main = (0, import_node_path19.join)(projects, folder, `${session}.jsonl`);
     if (await readable(main)) found2.push(main);
     try {
-      const sub = (0, import_node_path18.join)(projects, folder, session, "subagents");
-      for (const f of (await (0, import_promises17.readdir)(sub)).sort()) if (f.endsWith(".jsonl")) found2.push((0, import_node_path18.join)(sub, f));
+      const sub = (0, import_node_path19.join)(projects, folder, session, "subagents");
+      for (const f of (await (0, import_promises18.readdir)(sub)).sort()) if (f.endsWith(".jsonl")) found2.push((0, import_node_path19.join)(sub, f));
     } catch {
     }
   }
   return found2;
 }
-var readable = (file) => (0, import_promises17.stat)(file).then(
+var readable = (file) => (0, import_promises18.stat)(file).then(
   (s) => s.isFile(),
   () => false
 );
@@ -3480,7 +3535,7 @@ function excerpt(entries, at, budget = EXCERPT_BUDGET) {
   if (usage) lines.push(`- This turn up to there: ${usage}`);
   return lines.join("\n");
 }
-async function threadConversations(thread, claudeDir, read = (f) => (0, import_promises17.readFile)(f, "utf8")) {
+async function threadConversations(thread, claudeDir, read = (f) => (0, import_promises18.readFile)(f, "utf8")) {
   const replies = linkedReplies(thread);
   const sessions = [...new Set(replies.map((r) => r.session))];
   const head = `# The agent's conversation for thread ${thread.id}`;
@@ -3544,19 +3599,19 @@ The conversation exists (${files[0]}), but this reply was not found in it: read 
 }
 
 // src/retroSetup.ts
-var import_promises18 = require("node:fs/promises");
-var import_node_path19 = require("node:path");
+var import_promises19 = require("node:fs/promises");
+var import_node_path20 = require("node:path");
 var FILE_CAP = 24e3;
 var SETUP_BUDGET = 1e5;
 var orNull2 = (p) => p.catch(() => null);
-var exists = async (p) => await orNull2((0, import_promises18.stat)(p)) !== null;
+var exists = async (p) => await orNull2((0, import_promises19.stat)(p)) !== null;
 async function markdown(dir, depth = 3) {
   if (depth < 0) return [];
-  const names = await (0, import_promises18.readdir)(dir).catch(() => []);
+  const names = await (0, import_promises19.readdir)(dir).catch(() => []);
   const out = [];
   for (const name of names.sort()) {
-    const p = (0, import_node_path19.join)(dir, name);
-    const st = await orNull2((0, import_promises18.stat)(p));
+    const p = (0, import_node_path20.join)(dir, name);
+    const st = await orNull2((0, import_promises19.stat)(p));
     if (!st) continue;
     if (st.isDirectory()) out.push(...await markdown(p, depth - 1));
     else if (name.endsWith(".md")) out.push(p);
@@ -3564,18 +3619,18 @@ async function markdown(dir, depth = 3) {
   return out;
 }
 var isInside = (path, dir) => {
-  const rel = (0, import_node_path19.relative)(dir, path);
-  return rel !== "" && !rel.startsWith("..") && !(0, import_node_path19.isAbsolute)(rel);
+  const rel = (0, import_node_path20.relative)(dir, path);
+  return rel !== "" && !rel.startsWith("..") && !(0, import_node_path20.isAbsolute)(rel);
 };
 function projectDirs(root, repos, home) {
   const parents = [];
-  let dir = (0, import_node_path19.dirname)((0, import_node_path19.resolve)(root));
-  const top = (0, import_node_path19.resolve)(home);
-  while (dir !== (0, import_node_path19.dirname)(dir) && isInside(dir, top)) {
+  let dir = (0, import_node_path20.dirname)((0, import_node_path20.resolve)(root));
+  const top = (0, import_node_path20.resolve)(home);
+  while (dir !== (0, import_node_path20.dirname)(dir) && isInside(dir, top)) {
     parents.unshift(dir);
-    dir = (0, import_node_path19.dirname)(dir);
+    dir = (0, import_node_path20.dirname)(dir);
   }
-  return [.../* @__PURE__ */ new Set([...parents, (0, import_node_path19.resolve)(root), ...repos.map((r) => (0, import_node_path19.resolve)(r))])];
+  return [.../* @__PURE__ */ new Set([...parents, (0, import_node_path20.resolve)(root), ...repos.map((r) => (0, import_node_path20.resolve)(r))])];
 }
 async function found(root, repos, home, claudeDir) {
   const files = [];
@@ -3585,37 +3640,37 @@ async function found(root, repos, home, claudeDir) {
   const dirs = projectDirs(root, repos, home);
   for (const d of dirs)
     for (const name of ["CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md"])
-      await add((0, import_node_path19.join)(d, name), "rules", "project");
-  await add((0, import_node_path19.join)(claudeDir, "CLAUDE.md"), "rules", "user");
+      await add((0, import_node_path20.join)(d, name), "rules", "project");
+  await add((0, import_node_path20.join)(claudeDir, "CLAUDE.md"), "rules", "user");
   const setupOf = async (claude, agents, scope) => {
-    for (const f of await markdown((0, import_node_path19.join)(claude, "rules"))) await add(f, "rules", scope);
-    for (const f of await markdown((0, import_node_path19.join)(claude, "skills"), 2))
-      if ((0, import_node_path19.basename)(f) === "SKILL.md") await add(f, "skill", scope);
-    for (const f of await markdown((0, import_node_path19.join)(claude, "commands"))) await add(f, "command", scope);
-    for (const f of await markdown((0, import_node_path19.join)(claude, "agents"))) await add(f, "agent", scope);
-    for (const name of ["settings.json", "settings.local.json"]) await add((0, import_node_path19.join)(claude, name), "hooks", scope);
+    for (const f of await markdown((0, import_node_path20.join)(claude, "rules"))) await add(f, "rules", scope);
+    for (const f of await markdown((0, import_node_path20.join)(claude, "skills"), 2))
+      if ((0, import_node_path20.basename)(f) === "SKILL.md") await add(f, "skill", scope);
+    for (const f of await markdown((0, import_node_path20.join)(claude, "commands"))) await add(f, "command", scope);
+    for (const f of await markdown((0, import_node_path20.join)(claude, "agents"))) await add(f, "agent", scope);
+    for (const name of ["settings.json", "settings.local.json"]) await add((0, import_node_path20.join)(claude, name), "hooks", scope);
     for (const f of await markdown(agents)) await add(f, "other", scope);
   };
-  for (const d of [(0, import_node_path19.resolve)(root), ...repos.map((r) => (0, import_node_path19.resolve)(r))])
-    await setupOf((0, import_node_path19.join)(d, ".claude"), (0, import_node_path19.join)(d, ".agents"), "project");
-  await setupOf(claudeDir, (0, import_node_path19.join)(home, ".agents"), "user");
+  for (const d of [(0, import_node_path20.resolve)(root), ...repos.map((r) => (0, import_node_path20.resolve)(r))])
+    await setupOf((0, import_node_path20.join)(d, ".claude"), (0, import_node_path20.join)(d, ".agents"), "project");
+  await setupOf(claudeDir, (0, import_node_path20.join)(home, ".agents"), "user");
   return files;
 }
 var frontName = (text) => /^---\n[\s\S]*?^name:\s*["']?([^"'\n]+?)["']?\s*$/m.exec(text)?.[1]?.trim();
-async function setupTools(root, repos, home, claudeDir = (0, import_node_path19.join)(home, ".claude")) {
+async function setupTools(root, repos, home, claudeDir = (0, import_node_path20.join)(home, ".claude")) {
   const out = [];
   for (const f of await found(root, repos, home, claudeDir)) {
     if (f.kind !== "skill" && f.kind !== "command" && f.kind !== "agent") continue;
-    const text = await orNull2((0, import_promises18.readFile)(f.path, "utf8")) ?? "";
+    const text = await orNull2((0, import_promises19.readFile)(f.path, "utf8")) ?? "";
     if (f.kind === "skill") {
-      if ((0, import_node_path19.basename)((0, import_node_path19.dirname)((0, import_node_path19.dirname)(f.path))) !== "skills") continue;
-      out.push({ ...f, kind: "skill", name: (0, import_node_path19.basename)((0, import_node_path19.dirname)(f.path)), file: f.path, path: (0, import_node_path19.dirname)(f.path) });
+      if ((0, import_node_path20.basename)((0, import_node_path20.dirname)((0, import_node_path20.dirname)(f.path))) !== "skills") continue;
+      out.push({ ...f, kind: "skill", name: (0, import_node_path20.basename)((0, import_node_path20.dirname)(f.path)), file: f.path, path: (0, import_node_path20.dirname)(f.path) });
     } else if (f.kind === "command") {
       const dir = f.path.slice(0, f.path.lastIndexOf("/commands/") + "/commands/".length);
       const name = f.path.slice(dir.length, -".md".length).split("/").join(":");
       out.push({ ...f, kind: "command", name, file: f.path, path: f.path });
     } else
-      out.push({ ...f, kind: "agent", name: frontName(text) ?? (0, import_node_path19.basename)(f.path, ".md"), file: f.path, path: f.path });
+      out.push({ ...f, kind: "agent", name: frontName(text) ?? (0, import_node_path20.basename)(f.path, ".md"), file: f.path, path: f.path });
   }
   return out;
 }
@@ -3634,13 +3689,13 @@ function hooksOf(text) {
     return null;
   }
 }
-async function collectSetup(root, repos, home, claudeDir = (0, import_node_path19.join)(home, ".claude"), budget = SETUP_BUDGET) {
+async function collectSetup(root, repos, home, claudeDir = (0, import_node_path20.join)(home, ".claude"), budget = SETUP_BUDGET) {
   const out = [];
   let used = 0;
   const all = await found(root, repos, home, claudeDir);
   const order = (f) => (f.kind === "rules" || f.kind === "hooks" ? 0 : 1) + (f.scope === "user" ? 2 : 0);
   for (const f of [...all].sort((a, b) => order(a) - order(b))) {
-    const raw = await orNull2((0, import_promises18.readFile)(f.path, "utf8"));
+    const raw = await orNull2((0, import_promises19.readFile)(f.path, "utf8"));
     if (raw === null) continue;
     let content = f.kind === "hooks" ? hooksOf(raw) : raw;
     if (content === null) continue;
@@ -3667,8 +3722,8 @@ var TITLES = {
 };
 function renderSetup(root, home, files) {
   const label = (p) => {
-    if (isInside(p, (0, import_node_path19.resolve)(root))) return (0, import_node_path19.relative)(root, p);
-    if (isInside(p, (0, import_node_path19.resolve)(home))) return "~/" + (0, import_node_path19.relative)(home, p);
+    if (isInside(p, (0, import_node_path20.resolve)(root))) return (0, import_node_path20.relative)(root, p);
+    if (isInside(p, (0, import_node_path20.resolve)(home))) return "~/" + (0, import_node_path20.relative)(home, p);
     return p;
   };
   const lines = [
@@ -3697,8 +3752,8 @@ function renderSetup(root, home, files) {
 
 // src/toolUsage.ts
 var import_node_fs3 = require("node:fs");
-var import_promises19 = require("node:fs/promises");
-var import_node_path20 = require("node:path");
+var import_promises20 = require("node:fs/promises");
+var import_node_path21 = require("node:path");
 var import_node_readline2 = require("node:readline");
 var USAGE_SOURCE = "Claude Code";
 var DEFAULT_KEPT_DAYS = 30;
@@ -3745,17 +3800,17 @@ async function sessionUses(file) {
   for (const s of await subagentFiles(file)) await readUses(s.file, use);
   return use;
 }
-async function allTranscripts(claudeDir) {
-  const projects = (0, import_node_path20.join)(claudeDir, "projects");
+async function allTranscripts2(claudeDir) {
+  const projects = (0, import_node_path21.join)(claudeDir, "projects");
   const out = [];
-  for (const dir of await (0, import_promises19.readdir)(projects).catch(() => []))
-    for (const name of await (0, import_promises19.readdir)((0, import_node_path20.join)(projects, dir)).catch(() => []))
-      if (name.endsWith(".jsonl")) out.push((0, import_node_path20.join)(projects, dir, name));
+  for (const dir of await (0, import_promises20.readdir)(projects).catch(() => []))
+    for (const name of await (0, import_promises20.readdir)((0, import_node_path21.join)(projects, dir)).catch(() => []))
+      if (name.endsWith(".jsonl")) out.push((0, import_node_path21.join)(projects, dir, name));
   return out;
 }
 async function keptDays(claudeDir) {
   try {
-    const raw = JSON.parse(await (0, import_promises19.readFile)((0, import_node_path20.join)(claudeDir, "settings.json"), "utf8"));
+    const raw = JSON.parse(await (0, import_promises20.readFile)((0, import_node_path21.join)(claudeDir, "settings.json"), "utf8"));
     const n = raw.cleanupPeriodDays;
     return typeof n === "number" && n > 0 ? n : DEFAULT_KEPT_DAYS;
   } catch {
@@ -3795,7 +3850,7 @@ async function setupUsage(tools, claudeDir, root, env, exclude = /* @__PURE__ */
   let allUses = [];
   let allSince = null;
   if (userTools.length > 0) {
-    all = (await allTranscripts(claudeDir)).filter(
+    all = (await allTranscripts2(claudeDir)).filter(
       (f) => !exclude.has(f.slice(f.lastIndexOf("/") + 1, -".jsonl".length))
     );
     allUses = await Promise.all(all.map((f) => sessionUses(f)));
@@ -3869,6 +3924,18 @@ var MODE_LINE = {
   reports: "The retro reads them through these reports (setting retro-sessions: reports; Claude Code's /insights is cheaper: lr config set retro-sessions insights).",
   insights: "The retro reads them through Claude Code's /insights (setting retro-sessions: insights; a report on each session is finer: lr config set retro-sessions reports)."
 };
+var SOURCE_OF_ACTION = {
+  jev: "reviews",
+  audit: "audit",
+  usage: "audit",
+  reports: "sessions",
+  insights: "sessions"
+};
+var SOURCE_WORDS = {
+  reviews: "the review threads",
+  sessions: "the Claude Code sessions",
+  audit: "the audit of the setup"
+};
 var minutes = (ms) => `${Math.max(1, Math.round(ms / 6e4))} min`;
 var RULES_CAP = 8e3;
 async function runRetroCli(args, io) {
@@ -3886,7 +3953,7 @@ async function runRetroCli(args, io) {
     }
     const root = values.root ?? io.cwd;
     const home = io.env.HOME?.trim() || (0, import_node_os4.homedir)();
-    const claudeDir = io.env.CLAUDE_CONFIG_DIR?.trim() || (0, import_node_path21.join)(home, ".claude");
+    const claudeDir = io.env.CLAUDE_CONFIG_DIR?.trim() || (0, import_node_path22.join)(home, ".claude");
     if (action === "sessions") {
       if (values.since !== void 0 && values.all) throw new Error("give --since or --all, not both");
       const since = values.since === void 0 ? void 0 : parseDateArg(values.since);
@@ -3961,6 +4028,14 @@ async function runRetroCli(args, io) {
     const book = new RetroBook(await retroHome(root, io.env));
     const retro = await book.get(id);
     const repos = retro.stores.map((s) => s.root);
+    const source = SOURCE_OF_ACTION[action];
+    if (source && !retro.sources.includes(source)) {
+      if (action === "jev") throw new Error(`retro ${retro.id} does not read the review threads: nothing to classify`);
+      io.out(
+        `Skipped: retro ${retro.id} does not read ${SOURCE_WORDS[source]} (its sources: ${retro.sources.join(", ")}).`
+      );
+      return 0;
+    }
     if (action === "conversation") {
       if (!threadId) throw new Error("missing <thread-id>");
       const { threads: threads2 } = await retroThreads(retro, io.env);
@@ -4047,12 +4122,12 @@ ${files.length} setup files (${files.filter((f) => f.kind === "rules").length} r
       const ran = await runInsights(retro.root, io.env, io.run);
       const own = await (io.session ?? currentSession)(io.env);
       const { sessions, files, read } = await projectSessions(
-        (0, import_node_path21.join)(claudeDir, "usage-data"),
+        (0, import_node_path22.join)(claudeDir, "usage-data"),
         retro.root,
         retro,
         io.env,
         io.run,
-        new Set(own ? [own] : [])
+        /* @__PURE__ */ new Set([...own ? [own] : [], ...await programSessions(claudeDir)])
       );
       if (files > 0 && read === 0) {
         io.err(

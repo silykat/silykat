@@ -16,6 +16,7 @@ import {
   type WorktreeSave,
 } from '@local-review/core';
 import { hasChannel, LAUNCH_WITH_CHANNEL } from './channelFlag';
+import { isPrintMode } from './sessionLog';
 
 // Claude Code hooks → the neutral session registry. Everything here is specific to Claude Code:
 // the hook input format, the event names, the tool names and how to find its process.
@@ -64,6 +65,8 @@ export interface HookDeps {
    * machine setting). Given up after `reminderTimeoutMs`: a session never waits for it.
    */
   retroCadence?(cwd: string): Promise<RetroCadence | null>;
+  /** Records the session in Local Review's log of agent sessions, which the cadence of retros counts. */
+  recordSession?(session: { id: string; cwd: string; startedAt: string }): Promise<void>;
   reminderTimeoutMs?: number;
   /** The user's home folder, for `cd ~` in a command. */
   home?: string;
@@ -103,6 +106,12 @@ export async function handleHook(input: HookInput, deps: HookDeps): Promise<stri
         if (await deps.registry.subscribe(id, topic, 'launch'))
           messages.push(subscribed(topic, 'you were started in its worktree'));
       }
+      // The user's sessions count in the cadence of retros, not those run by a program (`claude -p`).
+      if (deps.recordSession && !(commandLine !== null && isPrintMode(commandLine)))
+        await inTime(
+          deps.recordSession({ id, cwd, startedAt: deps.now().toISOString() }).catch(() => undefined),
+          deps.reminderTimeoutMs,
+        );
       // A new conversation (not a resumed or compacted one): remind of a retro when one is due.
       if (input.source !== 'resume' && input.source !== 'compact') {
         const reminder = await retroReminder(cwd, deps);
@@ -150,21 +159,30 @@ export async function handleHook(input: HookInput, deps: HookDeps): Promise<stri
   return undefined;
 }
 
+/** A promise's result, or `null` when it takes longer than `ms` (3 s by default): a hook must not hold Claude up. */
+async function inTime<T>(work: Promise<T>, ms = 3000): Promise<T | null> {
+  let timer: NodeJS.Timeout | undefined;
+  const late = new Promise<null>((done) => {
+    timer = setTimeout(() => done(null), ms);
+  });
+  const result = await Promise.race([work, late]);
+  clearTimeout(timer);
+  return result;
+}
+
 /** The reminder of a due retro, for Claude to pass on once; nothing when none is due or it takes too long. */
 async function retroReminder(cwd: string, deps: HookDeps): Promise<string | undefined> {
   if (!deps.retroCadence) return undefined;
-  let timer: NodeJS.Timeout | undefined;
-  const late = new Promise<null>((done) => {
-    timer = setTimeout(() => done(null), deps.reminderTimeoutMs ?? 3000);
-  });
-  const cadence = await Promise.race([deps.retroCadence(cwd).catch(() => null), late]);
-  clearTimeout(timer);
+  const cadence = await inTime(
+    deps.retroCadence(cwd).catch(() => null),
+    deps.reminderTimeoutMs,
+  );
   if (!cadence?.due) return undefined;
   return (
     `Local Review: a retro is due for this project (${cadence.root}): ${cadenceSummary(cadence)};` +
     ` ${dueReasons(cadence).join('; ')}.` +
     ' In your first reply of this session, tell the user so in one short sentence and suggest `/local-review:retro`' +
-    ' (a retro looks back at their review feedback, to improve your setup with them).' +
+    ' (a retro looks back at their review feedback and their sessions with you, to improve your setup with them).' +
     ' Say it once only, and do not start the retro unless they ask.'
   );
 }

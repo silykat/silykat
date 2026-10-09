@@ -148,6 +148,7 @@ describe('the retro reminder at the start of a session', () => {
     days: 8,
     threads: 45,
     bytes: 1_200_000,
+    sessions: 0,
     thresholds: DEFAULT_CADENCE,
     due: true,
     reasons: ['days', 'size'],
@@ -160,10 +161,10 @@ describe('the retro reminder at the start of a session', () => {
     deps.retroCadence = async (cwd) => (asked.push(cwd), due);
     const message = await startAs('startup');
     expect(message).toBe(
-      'Local Review: a retro is due for this project (/work): 8 days and 1.2 MB of review threads (45) since the last retro (2026-09-18);' +
+      'Local Review: a retro is due for this project (/work): 8 days, 1.2 MB of review threads (45) and 0 agent sessions since the last retro (2026-09-18);' +
         ' 8 days since the last retro (reminder at 7); 1.2 MB of threads to look back at (reminder at 1.0 MB).' +
         ' In your first reply of this session, tell the user so in one short sentence and suggest `/local-review:retro`' +
-        ' (a retro looks back at their review feedback, to improve your setup with them).' +
+        ' (a retro looks back at their review feedback and their sessions with you, to improve your setup with them).' +
         ' Say it once only, and do not start the retro unless they ask.',
     );
     expect(await startAs(undefined)).toContain('a retro is due');

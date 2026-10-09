@@ -265,7 +265,10 @@ var DEFAULT_CONFIG = {
   retroReminderDays: 7,
   retroReminderSizeKB: 1e3,
   retroReminderMaxDays: 25,
-  retroSessions: "reports"
+  retroSessions: "reports",
+  retroSourceReviews: "ask",
+  retroSourceSessions: "ask",
+  retroSourceAudit: "ask"
 };
 var writing = Promise.resolve();
 
@@ -424,6 +427,12 @@ var import_node_path2 = require("node:path");
 // src/channelFlag.ts
 var CHANNEL = "plugin:local-review@local-review";
 var LAUNCH_WITH_CHANNEL = `claude --dangerously-load-development-channels ${CHANNEL}`;
+
+// src/retroAudit.ts
+var AUDIT_TIMEOUT_MS = 15 * 6e4;
+
+// src/retroInsights.ts
+var INSIGHTS_TIMEOUT_MS = 15 * 6e4;
 
 // src/hook.ts
 function run(cmd, args, cwd) {

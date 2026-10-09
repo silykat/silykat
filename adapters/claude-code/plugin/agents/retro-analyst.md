@@ -13,7 +13,7 @@ The prompt gives you the retro id and the project folder. Pass `--root <project>
 
 ## 1. Read the findings, and the setup
 
-1. `lr retro input <retro-id> --root <project> --for analysis`: it writes a file and prints its path. It holds the user's **retro preferences** (apply them), the **previous retros** (decisions, excluded subjects, subjects to watch), the **check of the changes adopted at the last retro** (done by the reading of the threads), **statistics**, the **findings of each source** (with what the usage says of the tools the audit flags), the **overview of the sessions**, and the **files of the sources**, to go back to.
+1. `lr retro input <retro-id> --root <project> --for analysis`: it writes a file and prints its path. It holds the user's **retro preferences** (apply them), the **previous retros** (decisions, excluded subjects, subjects to watch), the **check of the changes adopted at the last retro** (done by the reading of the threads and of the sessions), **statistics**, the **findings of each source** (with what the usage says of the tools the audit flags), the **overview of the sessions**, and the **files of the sources**, to go back to.
 2. `lr-retro setup <retro-id> --root <project>`: the **setup** of Claude Code for this project (rules files, skills, commands, sub-agents, hooks): the existing text of a rule, word for word, and where a change goes.
 
 Read both entirely (with offset and limit for a long file).
@@ -28,7 +28,8 @@ If the input holds **the threads themselves** instead of findings (no source was
 - **Decide** what deserves a proposal, what is **to watch** (a lead on a single thread or session, not confirmed elsewhere: `watch`), and what is left aside. Be selective: a short list of well-supported proposals beats a long one.
 - Cite the evidence **as the findings give it**: thread ids and excerpts, sessions with their excerpts and moments, the audit's place and finding. They are checked again by program.
 - **A tool of the setup the audit flags but nobody used** (the usage says "never used"): make the proposal from the audit's finding as usual (`audit`, `rule`, `change` the fix). The program turns it into a question for the developer: remove the tool, or keep it and fix it.
-- **The check of the last retro's changes** and **the overview of the sessions** are already in the findings: leave `verify` and `overview` out of your JSON to keep them, or give them to change them. A change that did not reduce the feedback, with 2 threads or more, needs a proposal that revises it (`"revisits": "<ref>"`).
+- **The check of the last retro's changes** (by the reading of the threads and of the sessions, each on itself) and **the overview of the sessions** are already in the findings: leave `verify` and `overview` out of your JSON to keep them, or give them to change them. A change that did not reduce the feedback, with 2 threads or sessions or more, needs a proposal that revises it (`"revisits": "<ref>"`). A change none of whose sources has data in this period is "not measured": no verdict, nothing to revise.
+- **The retro may not read every source** (the user chose them): a source marked "Not read" has no findings; never guess what it would have shown. Without the review threads, every proposal rests on the sessions or the audit.
 - Apply the developer's **retro preferences** throughout.
 
 ## 3. The proposals
@@ -66,7 +67,7 @@ Choose the target from the threads only. When nothing in them tells where it bel
 - **one cause** per proposal (`causes` has exactly one item);
 - the target is asked when `targetEvidence` is empty for a new rule;
 - a subject the developer **excluded** in an earlier retro is dropped, unless at least 2 new threads raise it again (then set `reopens` to `<retro>/<proposal>`, as listed in the input).
-- every change adopted at the last retro is checked in `verify`; one that did not reduce the feedback, with 2 threads or more, is revised by a proposal (`revisits`).
+- every change adopted at the last retro is checked in `verify`, on the sources it can be measured on; one that did not reduce the feedback, with 2 threads or sessions or more, is revised by a proposal (`revisits`).
 
 **Findings of the audit**: turn each one worth acting on into a proposal in **remove** (or **improve** for a rewrite), with an `audit` field: `{ "location": "CLAUDE.md:2-3", "finding": "what is wrong there" }`, and the existing text in `rule`. It needs no thread; cite the threads that relate to it, if any. When a finding of the audit is the same subject as a proposal drawn from the threads or the sessions, put the `audit` field on that proposal instead of writing two.
 
@@ -107,7 +108,7 @@ Write the proposals as JSON, in the developer's language for the texts, with its
     }
   ],
   "watch": [{ "subject": "…", "why": "…", "evidence": [{ "thread": "t_…", "excerpt": "…" }] }],
-  "verify": [{ "change": "rt_…/p1", "threads": ["t_…"], "note": "what you saw, in a sentence" }],
+  "verify": [{ "change": "rt_…/p1", "threads": ["t_…"], "sessions": ["<id>"], "note": "what you saw, in a sentence" }],
   "overview": {
     "summary": "…",
     "items": [{ "kind": "ritual", "title": "…", "description": "…", "sessions": ["…"], "idea": "…" }]
@@ -116,7 +117,7 @@ Write the proposals as JSON, in the developer's language for the texts, with its
 ```
 
 - `kind`: rule, hook, skill, command, agent, doc, setting or other. `file`: the file of the existing rule, or where the change goes. `rule`: the existing rule word for word (required for keep and remove; `null` for a new one). `change`: the exact text to add or the exact edit (empty for keep). `targetEvidence`: the threads that show where it belongs (e.g. "the whole team does it"), empty when nothing tells. `recommendation`: accepted, modified or excluded, your advice. `audit`: `null`, or the audit finding it comes from.
-- `verify`: one item per change adopted at the last retro (`change` is its reference, as listed in the input); leave it out to keep the check of the reading of the threads. `revisits`, on a proposal: the reference of the change it revises (its `target` may then be left out: it stays where that change was made).
+- `verify`: one item per change adopted at the last retro (`change` is its reference, as listed in the input), with the threads and the sessions of this period on the same subject, on the sources it is checked on; leave it out to keep the check of the reading of each source. `revisits`, on a proposal: the reference of the change it revises (its `target` may then be left out: it stays where that change was made).
 - Cite thread and session ids exactly as written in the input, with a short excerpt that shows the point. `sessions` is optional; `moments` only for a session with a report.
 
 Write this JSON with the Write tool in the file `lr retro input` named (`…/proposals.json`), then check it with the command it printed:

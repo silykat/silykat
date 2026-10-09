@@ -1,7 +1,7 @@
 import { appendFile, mkdir, readdir, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { isStoreRoot } from './agentView';
-import type { SessionsMode } from './config';
+import { RETRO_SOURCES, type RetroSource, type SessionsMode } from './config';
 import { ulid } from './ids';
 import type { RetroSessionRef, SessionEvidence } from './retroSessions';
 import type { SetupUsage, ToolKind } from './retroUsage';
@@ -143,11 +143,15 @@ export interface AuditFinding {
 }
 
 /**
- * Did a change adopted at the last retro help? The feedback on its subject `stopped` (no thread in
- * the new period), `decreased` (a smaller share of the threads than in the last period), or
- * `not-decreased`: then the retro proposes to revise it.
+ * Did a change adopted at the last retro help? The feedback on its subject `stopped` (nothing in the
+ * new period), `decreased` (a smaller share than in the last period), or `not-decreased`: then the
+ * retro proposes to revise it. `not-measured`: none of the sources it rested on has data in the new
+ * period (not read, or empty), or it rested on the audit alone: no verdict.
  */
-export type Verdict = 'stopped' | 'decreased' | 'not-decreased';
+export type Verdict = 'stopped' | 'decreased' | 'not-decreased' | 'not-measured';
+
+/** The sources a change is measured on: the review threads, the agent's sessions. */
+export type MeasuredSource = 'threads' | 'sessions';
 
 /** A change the user adopted at a retro (accepted, modified or retargeted; "keep" changes nothing). */
 export interface AdoptedChange {
@@ -166,13 +170,24 @@ export interface AdoptedChange {
   files: string[];
   /** In that retro's period: the threads on its subject, out of all the threads read. */
   before: { threads: number; total: number };
+  /** In that retro's period: the agent's sessions on its subject, out of all those read (when it read some). */
+  beforeSessions?: { sessions: number; total: number };
   evidence: Evidence[];
+  /** The agent's sessions it rested on, when there were some. */
+  sessions?: SessionEvidence[];
 }
 
 /** The check of an adopted change at the next retro: its numbers are computed by program. */
 export interface Verification extends AdoptedChange {
   /** In this retro's period: the threads on the same subject (named by the analysis), out of all. */
   after: { threads: number; total: number; ids: string[] };
+  /** In this retro's period: the agent's sessions on the same subject, out of all those read. */
+  afterSessions?: { sessions: number; total: number; ids: string[] };
+  /**
+   * The sources it was measured on: those it rested on that have data in this period (missing in
+   * older records: the threads). Empty: not measured.
+   */
+  measured?: MeasuredSource[];
   verdict: Verdict;
   /** What the analysis saw, in a sentence. */
   note?: string;
@@ -283,6 +298,8 @@ export type RetroEvent = BaseRetroEvent &
         preferences: Preference[];
         /** How it reads the agent's sessions (the `retro-sessions` setting when it started); missing in older retros. */
         sessionsMode?: SessionsMode;
+        /** The sources it reads, chosen when it started; missing in older retros, which read them all. */
+        sources?: RetroSource[];
       }
     /** What the user said about the previous retro. */
     | { type: 'retro.feedback'; body: string }
@@ -383,6 +400,8 @@ export interface RetroState {
    * retro started before the setting (it read whatever was recorded).
    */
   sessionsMode: SessionsMode | null;
+  /** The sources it reads (all of them for a retro started before they could be chosen). */
+  sources: RetroSource[];
   feedback: string[];
   classification: { by: string[]; labels: Record<string, ThreadLabel> } | null;
   proposals: Proposal[];
@@ -474,6 +493,9 @@ export function foldRetro(events: readonly RetroEvent[], warnings: string[] = []
     bytes: first.bytes,
     preferences: first.preferences ?? [],
     sessionsMode: first.sessionsMode ?? null,
+    sources: Array.isArray(first.sources)
+      ? RETRO_SOURCES.filter((x) => first.sources!.includes(x))
+      : [...RETRO_SOURCES],
     feedback: [],
     classification: null,
     proposals: [],
@@ -725,6 +747,7 @@ export class RetroBook {
     threads: string[];
     bytes: number;
     sessionsMode?: SessionsMode;
+    sources?: RetroSource[];
   }): Promise<RetroState> {
     const retroId = newRetroId();
     const preferences = await this.preferences();
