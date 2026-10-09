@@ -342,9 +342,20 @@ export async function allTranscripts(claudeDir: string): Promise<ProjectTranscri
 }
 
 /**
+ * How Claude Code names a session run by a program (`claude -p`): not one of the user's sessions. The
+ * retro runs some itself (the audit, `/insights`): reading them would make it look back at itself.
+ */
+export const PROGRAM_ENTRYPOINT = 'sdk-cli';
+
+/** The sessions run by a program (`claude -p`) that Claude Code keeps in `claudeDir`. */
+export async function programSessions(claudeDir: string): Promise<Set<string>> {
+  return new Set((await allTranscripts(claudeDir)).filter((t) => t.entrypoint === PROGRAM_ENTRYPOINT).map((t) => t.id));
+}
+
+/**
  * The Claude Code sessions of a project in a period, from Claude Code's own conversations (one file
- * per session in `projects/<folder>/`, sub-agents apart): exact even before `/insights` runs. Oldest
- * first.
+ * per session in `projects/<folder>/`, sub-agents apart): exact even before `/insights` runs. Those run
+ * by a program (`claude -p`: the retro's own audit and `/insights`, scripts) are left out. Oldest first.
  */
 export async function projectTranscripts(
   claudeDir: string,
@@ -354,7 +365,12 @@ export async function projectTranscripts(
 ): Promise<ProjectTranscript[]> {
   const folders = await projectFolders(root, env);
   return (await allTranscripts(claudeDir))
-    .filter((t) => inFolders(t.cwd, folders) && inPeriod(t.start, period.since, period.until))
+    .filter(
+      (t) =>
+        t.entrypoint !== PROGRAM_ENTRYPOINT &&
+        inFolders(t.cwd, folders) &&
+        inPeriod(t.start, period.since, period.until),
+    )
     .sort((a, b) => a.start.localeCompare(b.start));
 }
 

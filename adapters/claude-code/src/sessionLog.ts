@@ -1,8 +1,5 @@
 import { readAgentSessions, recordAgentSessions, type AgentSessionEntry } from '@local-review/core';
-import { allTranscripts } from './retroInsights';
-
-/** How Claude Code names a session run by a program (`claude -p`): not one of the user's sessions. */
-export const PROGRAM_ENTRYPOINT = 'sdk-cli';
+import { allTranscripts, PROGRAM_ENTRYPOINT } from './retroInsights';
 
 /** Whether Claude Code was launched by a program (`claude -p`, `--print`), from its command line. */
 export const isPrintMode = (commandLine: string): boolean =>

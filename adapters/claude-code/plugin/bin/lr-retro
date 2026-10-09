@@ -2409,9 +2409,15 @@ async function allTranscripts(claudeDir) {
   }
   return out;
 }
+var PROGRAM_ENTRYPOINT = "sdk-cli";
+async function programSessions(claudeDir) {
+  return new Set((await allTranscripts(claudeDir)).filter((t) => t.entrypoint === PROGRAM_ENTRYPOINT).map((t) => t.id));
+}
 async function projectTranscripts(claudeDir, root, period, env) {
   const folders = await projectFolders(root, env);
-  return (await allTranscripts(claudeDir)).filter((t) => inFolders(t.cwd, folders) && inPeriod(t.start, period.since, period.until)).sort((a, b) => a.start.localeCompare(b.start));
+  return (await allTranscripts(claudeDir)).filter(
+    (t) => t.entrypoint !== PROGRAM_ENTRYPOINT && inFolders(t.cwd, folders) && inPeriod(t.start, period.since, period.until)
+  ).sort((a, b) => a.start.localeCompare(b.start));
 }
 
 // src/sessionReports.ts
@@ -4121,7 +4127,7 @@ ${files.length} setup files (${files.filter((f) => f.kind === "rules").length} r
         retro,
         io.env,
         io.run,
-        new Set(own ? [own] : [])
+        /* @__PURE__ */ new Set([...own ? [own] : [], ...await programSessions(claudeDir)])
       );
       if (files > 0 && read === 0) {
         io.err(

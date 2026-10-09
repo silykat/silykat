@@ -6,6 +6,7 @@ import { readAgentSessions, RetroBook, SessionRegistry, type RetroSource } from 
 import { handleHook, type HookDeps } from '../src/hook';
 import type { Runner } from '../src/retroAudit';
 import { runRetroCli } from '../src/retroCli';
+import { projectTranscripts } from '../src/retroInsights';
 import { isPrintMode, recordClaudeSession } from '../src/sessionLog';
 
 let base: string;
@@ -128,5 +129,44 @@ describe('lr-retro, on the sources of the retro', () => {
     const jev = await run(['jev', other.id, '--root', other.root]);
     expect(jev.code).toBe(1);
     expect(jev.err).toContain('does not read the review threads: nothing to classify');
+  });
+});
+
+describe('the sessions a retro looks back at', () => {
+  it('leave out those run by a program, such as the audit and /insights of the retro', async () => {
+    const claude = join(base, 'claude');
+    const root = join(base, 'work');
+    await mkdir(root, { recursive: true });
+    await transcript(claude, 'mine', root, 'cli', '2026-10-01T10:00:00.000Z');
+    await transcript(claude, 'audit', root, 'sdk-cli', '2026-10-01T11:00:00.000Z');
+    const period = { since: null, until: '2026-10-09T00:00:00.000Z' };
+    expect((await projectTranscripts(claude, root, period, env())).map((t) => t.id)).toEqual(['mine']);
+
+    // Through /insights too: its facts do not say how a session was run, its conversation does.
+    for (const id of ['mine', 'audit']) {
+      await mkdir(join(claude, 'usage-data', 'session-meta'), { recursive: true });
+      await writeFile(
+        join(claude, 'usage-data', 'session-meta', `${id}.json`),
+        JSON.stringify({ session_id: id, project_path: root, start_time: '2026-10-01T10:00:00.000Z' }),
+      );
+    }
+    const r = await new RetroBook(root).start({
+      ...period,
+      root,
+      stores: [],
+      threads: [],
+      bytes: 0,
+      sessionsMode: 'insights',
+    });
+    const run = await runRetroCli(['insights', r.id, '--root', root], {
+      cwd: base,
+      env: { ...env(), CLAUDE_CONFIG_DIR: claude },
+      out: () => undefined,
+      err: () => undefined,
+      run: async () => ({ stdout: JSON.stringify({ result: 'ok' }), stderr: '', code: 0, timedOut: false }),
+      session: async () => undefined,
+    });
+    expect(run).toBe(0);
+    expect((await new RetroBook(root).get(r.id)).sessions?.list.map((x) => x.id)).toEqual(['mine']);
   });
 });

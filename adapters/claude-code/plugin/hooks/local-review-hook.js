@@ -2051,9 +2051,9 @@ async function allTranscripts(claudeDir) {
   }
   return out;
 }
+var PROGRAM_ENTRYPOINT = "sdk-cli";
 
 // src/sessionLog.ts
-var PROGRAM_ENTRYPOINT = "sdk-cli";
 var isPrintMode = (commandLine2) => commandLine2.trim().split(/\s+/).some((a) => a === "-p" || a === "--print");
 async function recordClaudeSession(session, claudeDir, env = process.env) {
   const log = await readAgentSessions(env);

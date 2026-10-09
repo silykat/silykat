@@ -17,7 +17,7 @@ import {
   writeRetroFile,
 } from '@local-review/core';
 import { AUDIT_COMMAND, runAudit, type Runner } from './retroAudit';
-import { INSIGHTS_SOURCE, projectSessions, projectTranscripts, runInsights } from './retroInsights';
+import { INSIGHTS_SOURCE, programSessions, projectSessions, projectTranscripts, runInsights } from './retroInsights';
 import {
   currentSession,
   estimateReports,
@@ -339,7 +339,8 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
     }
     if (action === 'insights') {
       const ran = await runInsights(retro.root, io.env, io.run);
-      // The retro's own session is not one of the sessions it looks back at.
+      // The retro's own session is not one of the sessions it looks back at, nor those run by a
+      // program (`claude -p`: its own audit and /insights).
       const own = await (io.session ?? currentSession)(io.env);
       const { sessions, files, read } = await projectSessions(
         join(claudeDir, 'usage-data'),
@@ -347,7 +348,7 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
         retro,
         io.env,
         io.run,
-        new Set(own ? [own] : []),
+        new Set([...(own ? [own] : []), ...(await programSessions(claudeDir))]),
       );
       if (files > 0 && read === 0) {
         io.err(
