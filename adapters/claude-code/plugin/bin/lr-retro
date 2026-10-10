@@ -1833,6 +1833,11 @@ var DEFAULT_CADENCE = thresholdsOf(DEFAULT_CONFIG);
 function thresholdsOf(c) {
   return { days: c.retroReminderDays, bytes: c.retroReminderSizeKB * 1e3, maxDays: c.retroReminderMaxDays };
 }
+function formatBytes(n) {
+  if (n < 1e3) return `${n} B`;
+  if (n < 1e6) return `${(n / 1e3).toFixed(1)} KB`;
+  return `${(n / 1e6).toFixed(1)} MB`;
+}
 
 // ../../packages/core/src/archive.ts
 function parseDateArg(value, now = Date.now()) {
@@ -1862,6 +1867,54 @@ async function recordRetroSessions(book, retroId, source, sessions, run = { cost
     }
   ]);
   return file;
+}
+
+// ../../packages/core/src/sessionReports.ts
+var import_promises11 = require("node:fs/promises");
+var import_node_path12 = require("node:path");
+var SESSION_REPORT_VERSION = 1;
+var SESSION_REPORTS_DIR = "sessions";
+var reportRead = (ref) => ref.status === "analysed" || ref.status === "reused";
+var reportsDir = (book) => (0, import_node_path12.join)(book.dir, SESSION_REPORTS_DIR);
+var SESSION_ID2 = /^[A-Za-z0-9._-]{1,128}$/;
+var reportFile = (book, id) => {
+  if (!SESSION_ID2.test(id) || id.startsWith(".")) throw new Error(`Invalid session id: ${id}`);
+  return (0, import_node_path12.join)(reportsDir(book), `${id}.json`);
+};
+async function writeSessionReport(book, report) {
+  const file = reportFile(book, report.session);
+  await (0, import_promises11.mkdir)(reportsDir(book), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  await (0, import_promises11.writeFile)(tmp, JSON.stringify(report, null, 1) + "\n");
+  await (0, import_promises11.rename)(tmp, file);
+  return file;
+}
+var isRecord2 = (x) => typeof x === "object" && x !== null && !Array.isArray(x);
+async function readSessionReport(book, id) {
+  let raw;
+  try {
+    raw = JSON.parse(await (0, import_promises11.readFile)(reportFile(book, id), "utf8"));
+  } catch {
+    return null;
+  }
+  if (!isRecord2(raw) || typeof raw.v !== "number" || raw.session !== id) return null;
+  if (!isRecord2(raw.analysis) || !isRecord2(raw.analytics)) return null;
+  return raw;
+}
+async function sessionReportIds(book) {
+  const names = await (0, import_promises11.readdir)(reportsDir(book)).catch(() => []);
+  return names.filter((n) => n.endsWith(".json")).map((n) => n.slice(0, -".json".length)).sort();
+}
+function citedMoments(node, out = /* @__PURE__ */ new Set()) {
+  if (Array.isArray(node)) for (const x of node) citedMoments(x, out);
+  else if (isRecord2(node))
+    for (const [k, v] of Object.entries(node)) {
+      if (k === "uuid" && typeof v === "string") out.add(v);
+      else if (k === "evidence" && Array.isArray(v)) {
+        for (const x of v) if (typeof x === "string") out.add(x);
+      } else citedMoments(v, out);
+    }
+  return out;
 }
 
 // ../../packages/core/src/retroGuards.ts
@@ -1897,7 +1950,7 @@ function sessionsRead(r) {
   const ids = /* @__PURE__ */ new Set();
   if (r.sessionsMode !== "reports") for (const x of r.sessions?.list ?? []) ids.add(x.id);
   if (r.sessionsMode !== "insights") {
-    for (const x of r.reports?.list ?? []) if (x.status !== "failed") ids.add(x.id);
+    for (const x of r.reports?.list ?? []) if (reportRead(x)) ids.add(x.id);
   }
   return ids.size;
 }
@@ -1906,16 +1959,16 @@ var STOPWORDS = new Set(
 );
 
 // ../../packages/core/src/retroKey.ts
-var import_promises11 = require("node:fs/promises");
+var import_promises12 = require("node:fs/promises");
 var import_node_os2 = require("node:os");
-var import_node_path12 = require("node:path");
+var import_node_path13 = require("node:path");
 function jevKeyFile(env = process.env) {
-  return (0, import_node_path12.join)(env.HOME?.trim() || (0, import_node_os2.homedir)(), ".config", "local-review", "jev-key");
+  return (0, import_node_path13.join)(env.HOME?.trim() || (0, import_node_os2.homedir)(), ".config", "local-review", "jev-key");
 }
 async function jevKeyStatus(env = process.env) {
   const path = jevKeyFile(env);
   const fromEnv = (env.JEV_API_KEY ?? "").trim() !== "";
-  const st = await (0, import_promises11.stat)(path).catch(() => null);
+  const st = await (0, import_promises12.stat)(path).catch(() => null);
   const exists2 = st?.isFile() === true;
   const status = {
     source: fromEnv ? "env" : exists2 ? "file" : "none",
@@ -1931,7 +1984,7 @@ async function jevKeyStatus(env = process.env) {
   status.mode = (st.mode & 511).toString(8);
   const mine = typeof process.getuid !== "function" || st.uid === process.getuid();
   status.private = (st.mode & 63) === 0 && mine;
-  status.inRepo = await worktreeTopOf((0, import_node_path12.dirname)(path));
+  status.inRepo = await worktreeTopOf((0, import_node_path13.dirname)(path));
   if (!status.private) status.fixes.push(`chmod 600 "${path}"`);
   if (status.inRepo)
     status.fixes.push(`move it out of the repository ${status.inRepo} (e.g. to the default place, ${jevKeyFile(env)})`);
@@ -1945,53 +1998,6 @@ var import_node_path14 = require("node:path");
 
 // ../../packages/core/src/retroFindings.ts
 var AUDIT_FILE = "audit.md";
-
-// ../../packages/core/src/sessionReports.ts
-var import_promises12 = require("node:fs/promises");
-var import_node_path13 = require("node:path");
-var SESSION_REPORT_VERSION = 1;
-var SESSION_REPORTS_DIR = "sessions";
-var reportsDir = (book) => (0, import_node_path13.join)(book.dir, SESSION_REPORTS_DIR);
-var SESSION_ID2 = /^[A-Za-z0-9._-]{1,128}$/;
-var reportFile = (book, id) => {
-  if (!SESSION_ID2.test(id) || id.startsWith(".")) throw new Error(`Invalid session id: ${id}`);
-  return (0, import_node_path13.join)(reportsDir(book), `${id}.json`);
-};
-async function writeSessionReport(book, report) {
-  const file = reportFile(book, report.session);
-  await (0, import_promises12.mkdir)(reportsDir(book), { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
-  await (0, import_promises12.writeFile)(tmp, JSON.stringify(report, null, 1) + "\n");
-  await (0, import_promises12.rename)(tmp, file);
-  return file;
-}
-var isRecord2 = (x) => typeof x === "object" && x !== null && !Array.isArray(x);
-async function readSessionReport(book, id) {
-  let raw;
-  try {
-    raw = JSON.parse(await (0, import_promises12.readFile)(reportFile(book, id), "utf8"));
-  } catch {
-    return null;
-  }
-  if (!isRecord2(raw) || typeof raw.v !== "number" || raw.session !== id) return null;
-  if (!isRecord2(raw.analysis) || !isRecord2(raw.analytics)) return null;
-  return raw;
-}
-async function sessionReportIds(book) {
-  const names = await (0, import_promises12.readdir)(reportsDir(book)).catch(() => []);
-  return names.filter((n) => n.endsWith(".json")).map((n) => n.slice(0, -".json".length)).sort();
-}
-function citedMoments(node, out = /* @__PURE__ */ new Set()) {
-  if (Array.isArray(node)) for (const x of node) citedMoments(x, out);
-  else if (isRecord2(node))
-    for (const [k, v] of Object.entries(node)) {
-      if (k === "uuid" && typeof v === "string") out.add(v);
-      else if (k === "evidence" && Array.isArray(v)) {
-        for (const x of v) if (typeof x === "string") out.add(x);
-      } else citedMoments(v, out);
-    }
-  return out;
-}
 
 // ../../packages/core/src/retroScope.ts
 var DAY = 864e5;
@@ -3099,7 +3105,8 @@ async function currentSession(env) {
   return sessionOfProcess(sessions, await processAncestors())?.id;
 }
 async function planReports(book, transcripts, opts = {}) {
-  const plan = { candidates: [], noPrompt: 0, current: 0 };
+  const plan = { candidates: [], noPrompt: 0, current: 0, oversized: [] };
+  const scale = await reportScale(book);
   for (const t of transcripts) {
     if (opts.exclude?.has(t.id) || opts.retroId && await mentions(t.file, opts.retroId)) {
       plan.current++;
@@ -3113,9 +3120,45 @@ async function planReports(book, transcripts, opts = {}) {
     }
     const existing = await readSessionReport(book, t.id);
     const upToDate = existing !== null && (existing.v > SESSION_REPORT_VERSION || existing.covered.lines >= analytics.counts.lines);
-    plan.candidates.push({ transcript: t, analytics, action: upToDate ? "keep" : "write" });
+    const estimateMs = expected(analytics.counts.typed_prompts).ms * scale.time;
+    if (!upToDate && estimateMs > REPORT_TIMEOUT_MS) {
+      (plan.oversized ??= []).push(await oversized(t, analytics, estimateMs, existing !== null));
+      if (existing) plan.candidates.push({ transcript: t, analytics, action: "keep", stale: true, estimateMs });
+      continue;
+    }
+    plan.candidates.push({ transcript: t, analytics, action: upToDate ? "keep" : "write", estimateMs });
   }
   return plan;
+}
+async function oversized(t, a, estimateMs, report) {
+  const tokens = Object.values(a.cost.tokens_by_model).flatMap((byKind) => Object.values(byKind)).reduce((n, x) => n + x, 0);
+  const compactions = (a.signals.workflow?.context_pressure ?? []).filter((o) => o.kind === "compaction").length;
+  return {
+    id: t.id,
+    start: a.start ?? t.start,
+    end: a.end ?? t.start,
+    prompts: a.counts.typed_prompts,
+    estimateMs,
+    tokens,
+    bytes: await sizeOf(t.file),
+    compactions,
+    report
+  };
+}
+var fileSize = (path) => (0, import_promises16.stat)(path).then(
+  (x) => x.size,
+  () => 0
+);
+async function sizeOf(file) {
+  const below = async (dir) => {
+    let n = 0;
+    for (const e of await (0, import_promises16.readdir)(dir, { withFileTypes: true }).catch(() => [])) {
+      const path = (0, import_node_path18.join)(dir, e.name);
+      n += e.isDirectory() ? await below(path) : await fileSize(path);
+    }
+    return n;
+  };
+  return await fileSize(file) + await below((0, import_node_path18.join)((0, import_node_path18.dirname)(file), (0, import_node_path18.basename)(file, ".jsonl")));
 }
 var mentions = async (file, text) => (await (0, import_promises16.readFile)(file, "utf8").catch(() => "")).includes(text);
 var expected = (prompts) => ({
@@ -3147,7 +3190,7 @@ async function estimateReports(book, prompts) {
   const scale = await reportScale(book);
   const workers = Array.from({ length: REPORT_CONCURRENCY }, () => 0);
   let costUsd = 0;
-  for (const p of prompts) {
+  for (const p of [...prompts].sort((a, b) => b - a)) {
     const e = expected(p);
     costUsd += e.costUsd * scale.cost;
     const free = workers.indexOf(Math.min(...workers));
@@ -3271,15 +3314,21 @@ async function writeReport(c, env, run = runProcess, timeoutMs = REPORT_TIMEOUT_
   }
 }
 var fail = (reason, spent) => ({ kind: "failed", reason, costUsd: spent.costUsd, durationMs: spent.ms, tokens: spent.tokens });
+var OVERSIZED_REASON = "too long to analyse: its report would take more than the 20 minutes a report may take";
 async function writeReports(book, plan, env, run = runProcess, concurrency = REPORT_CONCURRENCY) {
   const started = Date.now();
   const refs = /* @__PURE__ */ new Map();
   let costUsd = null;
   let tokens = null;
-  const queue = plan.candidates.filter((c) => c.action === "write");
+  const queue = plan.candidates.filter((c) => c.action === "write").sort((a, b) => (b.estimateMs ?? 0) - (a.estimateMs ?? 0));
   for (const c of plan.candidates)
     if (c.action === "keep")
-      refs.set(c.transcript.id, { id: c.transcript.id, start: c.transcript.start, status: "reused" });
+      refs.set(c.transcript.id, {
+        id: c.transcript.id,
+        start: c.transcript.start,
+        status: "reused",
+        ...c.stale ? { reason: "too long to analyse again: its earlier report is read" } : {}
+      });
   const worker = async () => {
     for (let c = queue.shift(); c; c = queue.shift()) {
       const outcome = await writeReport(c, env, run).catch(
@@ -3302,6 +3351,8 @@ async function writeReports(book, plan, env, run = runProcess, concurrency = REP
   };
   await Promise.all(Array.from({ length: Math.max(1, concurrency) }, worker));
   const ordered = plan.candidates.map((c) => refs.get(c.transcript.id)).filter((x) => !!x);
+  for (const o of plan.oversized ?? [])
+    if (!o.report) ordered.push({ id: o.id, start: o.start, status: "excluded", reason: OVERSIZED_REASON });
   return { refs: ordered, costUsd, durationMs: Date.now() - started, tokens };
 }
 
@@ -3936,6 +3987,11 @@ var SOURCE_WORDS = {
   sessions: "the Claude Code sessions",
   audit: "the audit of the setup"
 };
+function oversizedLine(o) {
+  const tokens = o.tokens >= 1e6 ? `${(o.tokens / 1e6).toFixed(1)}M` : `${Math.round(o.tokens / 1e3)}k`;
+  const span = localDay(o.start) === localDay(o.end) ? localDay(o.start) : `${localDay(o.start)} to ${localDay(o.end)}`;
+  return `- ${o.id.slice(0, 8)}, ${span}: ${o.prompts} prompts, processing time about ${minutes(o.estimateMs)}, ${tokens} tokens, ${formatBytes(o.bytes)}, ${o.compactions} compaction${o.compactions === 1 ? "" : "s"} \u2192 ` + (o.report ? "read through its earlier report (written while it was shorter)" : "left out");
+}
 var minutes = (ms) => `${Math.max(1, Math.round(ms / 6e4))} min`;
 var RULES_CAP = 8e3;
 async function runRetroCli(args, io) {
@@ -3974,14 +4030,18 @@ async function runRetroCli(args, io) {
           book2,
           writing2.map((c) => c.analytics.counts.typed_prompts)
         );
+        const oversized2 = plan.oversized ?? [];
         return {
           sessions: transcripts.length,
           plan,
           toWrite: writing2.length,
           kept: plan.candidates.length - writing2.length,
-          est
+          est,
+          oversized: oversized2,
+          leftOut: oversized2.filter((o) => !o.report).length
         };
       };
+      const tooLong = /* @__PURE__ */ new Map();
       const mode = (await readConfig(io.env)).retroSessions;
       if (mode === "insights") {
         const count = async (from) => (await projectTranscripts(claudeDir, scope.root, { since: from, until: scope.until }, io.env)).filter(
@@ -4009,19 +4069,32 @@ async function runRetroCli(args, io) {
         [
           `${p.sessions} Claude Code session${p.sessions === 1 ? "" : "s"} in this project ` + (scope.since ? `since ${localDay(scope.since)}` : "over the whole history") + ".",
           `Reports on them: ${p.toWrite} to write` + (p.toWrite ? ` (about ${minutes(p.est.ms)} with ${REPORT_CONCURRENCY} at once, and about $${p.est.costUsd.toFixed(2)} at the API list price: on a subscription, tokens counted against the usage limits, not a bill)` : "") + `, ${p.kept} already written` + (p.plan.noPrompt ? `, ${p.plan.noPrompt} without any prompt typed by the user (not analysed)` : "") + (p.plan.current ? ", and this session (not analysed)" : "") + ".",
+          ...p.leftOut ? [
+            `\u26A0\uFE0F ${p.leftOut} session${p.leftOut === 1 ? "" : "s"} too long to analyse (a report would take more than ${minutes(REPORT_TIMEOUT_MS)}): left out of the retro.`
+          ] : [],
           MODE_LINE.reports
         ].join("\n")
       );
+      for (const o of p.oversized) tooLong.set(o.id, o);
       if (scope.options.length > 0) {
         const lines = ["", "Periods to choose from (as lr retro scope lists them):"];
         for (const o of scope.options) {
           const x = o.since === scope.since ? p : await period(o.since);
+          for (const s of x.oversized) tooLong.set(s.id, s);
           lines.push(
-            `- ${o.label} (${o.flag || "the default"}${o.proposed ? ", proposed" : ""}): ${x.sessions} session${x.sessions === 1 ? "" : "s"}, ${x.toWrite} report${x.toWrite === 1 ? "" : "s"} to write` + (x.toWrite ? ` (about ${minutes(x.est.ms)}, about $${x.est.costUsd.toFixed(2)})` : "") + `, ${x.kept} already written`
+            `- ${o.label} (${o.flag || "the default"}${o.proposed ? ", proposed" : ""}): ${x.sessions} session${x.sessions === 1 ? "" : "s"}, ${x.toWrite} report${x.toWrite === 1 ? "" : "s"} to write` + (x.toWrite ? ` (about ${minutes(x.est.ms)}, about $${x.est.costUsd.toFixed(2)})` : "") + `, ${x.kept} already written` + (x.leftOut ? `, \u26A0\uFE0F ${x.leftOut} left out (too long to analyse)` : "")
           );
         }
         io.out(lines.join("\n"));
       }
+      if (tooLong.size > 0)
+        io.out(
+          [
+            "",
+            `\u26A0\uFE0F Sessions too long to analyse (a report would take more than ${minutes(REPORT_TIMEOUT_MS)}, and be cut before its end):`,
+            ...[...tooLong.values()].sort((a, b) => a.start.localeCompare(b.start)).map(oversizedLine)
+          ].join("\n")
+        );
       return 0;
     }
     if (!id) throw new Error("missing <retro-id>");
@@ -4110,13 +4183,14 @@ ${files.length} setup files (${files.filter((f) => f.kind === "rules").length} r
         }
       ]);
       const failed = done.refs.filter((r) => r.status === "failed");
+      const leftOut = done.refs.filter((r) => r.status === "excluded");
       io.out(
         [
-          `Reports on the ${done.refs.length} Claude Code session${done.refs.length === 1 ? "" : "s"} of this project in the period: ${written} written, ${kept} kept from before` + (failed.length ? `, ${failed.length} could not be written` : "") + (written ? `, in ${minutes(done.durationMs)}` : "") + (done.costUsd !== null ? ` (about $${done.costUsd.toFixed(2)} at the API list price)` : "") + ". lr retro input --for analysis includes them.",
+          `Reports on the ${done.refs.length} Claude Code session${done.refs.length === 1 ? "" : "s"} of this project in the period: ${written} written, ${kept} kept from before` + (failed.length ? `, ${failed.length} could not be written` : "") + (leftOut.length ? `, ${leftOut.length} left out (too long to analyse)` : "") + (written ? `, in ${minutes(done.durationMs)}` : "") + (done.costUsd !== null ? ` (about $${done.costUsd.toFixed(2)} at the API list price)` : "") + ". lr retro input --for analysis includes them.",
           ...failed.map((r) => `- ${r.id}: ${r.reason ?? "failed"}`)
         ].join("\n")
       );
-      return written + kept > 0 || done.refs.length === 0 ? 0 : 1;
+      return written + kept > 0 || done.refs.length === leftOut.length ? 0 : 1;
     }
     if (action === "insights") {
       const ran = await runInsights(retro.root, io.env, io.run);

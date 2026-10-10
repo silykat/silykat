@@ -14,6 +14,7 @@ import {
   type SourceFiles,
   readRetroSessions,
   readSessionReport,
+  reportRead,
   reportMoments,
   reportsDir,
   reportText,
@@ -677,7 +678,7 @@ const andList = (xs: readonly string[]) =>
 /** The reports on the agent's sessions the retro reads: those its journal lists as written (none in `insights` mode). */
 async function retroReports(b: RetroBook, r: RetroState): Promise<SessionReport[]> {
   if (r.sessionsMode === 'insights' || !r.sources.includes('sessions')) return [];
-  const ids = (r.reports?.list ?? []).filter((x) => x.status !== 'failed').map((x) => x.id);
+  const ids = (r.reports?.list ?? []).filter(reportRead).map((x) => x.id);
   const found = await Promise.all(ids.map((id) => readSessionReport(b, id)));
   return found.filter((x): x is SessionReport => x !== null);
 }
@@ -1165,6 +1166,7 @@ function reportsLine(r: RetroState): string {
   return (
     `Reports on the agent's sessions: ${ok} (${n('analysed')} written for this retro, ${n('reused')} kept from before)` +
     (n('failed') ? `, ${n('failed')} could not be written` : '') +
+    (n('excluded') ? `, ${n('excluded')} left out (too long to analyse)` : '') +
     (r.proposals.length
       ? `; ${fromReports} proposal${fromReports === 1 ? '' : 's'} point${fromReports === 1 ? 's' : ''} at moments of them.`
       : '.')

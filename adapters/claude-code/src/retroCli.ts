@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import {
   AUDIT_FILE,
+  formatBytes,
   parseDateArg,
   readConfig,
   type RetroSource,
@@ -23,7 +24,9 @@ import {
   estimateReports,
   planReports,
   REPORT_CONCURRENCY,
+  REPORT_TIMEOUT_MS,
   REPORTS_SOURCE,
+  type OversizedSession,
   writeReports,
 } from './sessionReports';
 import { classifyWithJev, readJevKey, type JevDeps } from './retroJev';
@@ -110,6 +113,17 @@ const SOURCE_WORDS: Record<RetroSource, string> = {
   audit: 'the audit of the setup',
 };
 
+/** A session too long to analyse, as the user recognises it. */
+function oversizedLine(o: OversizedSession): string {
+  const tokens = o.tokens >= 1_000_000 ? `${(o.tokens / 1_000_000).toFixed(1)}M` : `${Math.round(o.tokens / 1000)}k`;
+  const span = localDay(o.start) === localDay(o.end) ? localDay(o.start) : `${localDay(o.start)} to ${localDay(o.end)}`;
+  return (
+    `- ${o.id.slice(0, 8)}, ${span}: ${o.prompts} prompts, processing time about ${minutes(o.estimateMs)}, ` +
+    `${tokens} tokens, ${formatBytes(o.bytes)}, ${o.compactions} compaction${o.compactions === 1 ? '' : 's'} → ` +
+    (o.report ? 'read through its earlier report (written while it was shorter)' : 'left out')
+  );
+}
+
 /** A duration, in minutes. */
 const minutes = (ms: number) => `${Math.max(1, Math.round(ms / 60_000))} min`;
 
@@ -154,14 +168,19 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
           book,
           writing.map((c) => c.analytics.counts.typed_prompts),
         );
+        const oversized = plan.oversized ?? [];
         return {
           sessions: transcripts.length,
           plan,
           toWrite: writing.length,
           kept: plan.candidates.length - writing.length,
           est,
+          oversized,
+          leftOut: oversized.filter((o) => !o.report).length,
         };
       };
+      /** Sessions too long to analyse, across the periods shown: each once. */
+      const tooLong = new Map<string, OversizedSession>();
       const mode = (await readConfig(io.env)).retroSessions;
       if (mode === 'insights') {
         // The agent's own summaries: /insights reads the sessions in about a minute, no report is written.
@@ -203,23 +222,39 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
             (p.plan.noPrompt ? `, ${p.plan.noPrompt} without any prompt typed by the user (not analysed)` : '') +
             (p.plan.current ? ', and this session (not analysed)' : '') +
             '.',
+          ...(p.leftOut
+            ? [
+                `⚠️ ${p.leftOut} session${p.leftOut === 1 ? '' : 's'} too long to analyse (a report would take more than ${minutes(REPORT_TIMEOUT_MS)}): left out of the retro.`,
+              ]
+            : []),
           MODE_LINE.reports,
         ].join('\n'),
       );
+      for (const o of p.oversized) tooLong.set(o.id, o);
       // The periods to choose from, as lr retro scope lists them: what each one would cost.
       if (scope.options.length > 0) {
         const lines = ['', 'Periods to choose from (as lr retro scope lists them):'];
         for (const o of scope.options) {
           const x = o.since === scope.since ? p : await period(o.since);
+          for (const s of x.oversized) tooLong.set(s.id, s);
           lines.push(
             `- ${o.label} (${o.flag || 'the default'}${o.proposed ? ', proposed' : ''}): ${x.sessions} session${x.sessions === 1 ? '' : 's'}, ` +
               `${x.toWrite} report${x.toWrite === 1 ? '' : 's'} to write` +
               (x.toWrite ? ` (about ${minutes(x.est.ms)}, about $${x.est.costUsd.toFixed(2)})` : '') +
-              `, ${x.kept} already written`,
+              `, ${x.kept} already written` +
+              (x.leftOut ? `, ⚠️ ${x.leftOut} left out (too long to analyse)` : ''),
           );
         }
         io.out(lines.join('\n'));
       }
+      if (tooLong.size > 0)
+        io.out(
+          [
+            '',
+            `⚠️ Sessions too long to analyse (a report would take more than ${minutes(REPORT_TIMEOUT_MS)}, and be cut before its end):`,
+            ...[...tooLong.values()].sort((a, b) => a.start.localeCompare(b.start)).map(oversizedLine),
+          ].join('\n'),
+        );
       return 0;
     }
     if (!id) throw new Error('missing <retro-id>');
@@ -324,18 +359,20 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
         },
       ]);
       const failed = done.refs.filter((r) => r.status === 'failed');
+      const leftOut = done.refs.filter((r) => r.status === 'excluded');
       io.out(
         [
           `Reports on the ${done.refs.length} Claude Code session${done.refs.length === 1 ? '' : 's'} of this project in the period: ` +
             `${written} written, ${kept} kept from before` +
             (failed.length ? `, ${failed.length} could not be written` : '') +
+            (leftOut.length ? `, ${leftOut.length} left out (too long to analyse)` : '') +
             (written ? `, in ${minutes(done.durationMs)}` : '') +
             (done.costUsd !== null ? ` (about $${done.costUsd.toFixed(2)} at the API list price)` : '') +
             '. lr retro input --for analysis includes them.',
           ...failed.map((r) => `- ${r.id}: ${r.reason ?? 'failed'}`),
         ].join('\n'),
       );
-      return written + kept > 0 || done.refs.length === 0 ? 0 : 1;
+      return written + kept > 0 || done.refs.length === leftOut.length ? 0 : 1;
     }
     if (action === 'insights') {
       const ran = await runInsights(retro.root, io.env, io.run);

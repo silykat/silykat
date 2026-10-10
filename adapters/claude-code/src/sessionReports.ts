@@ -1,6 +1,6 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import {
   citedMoments,
   localReviewHome,
@@ -32,6 +32,11 @@ import { renderSession } from './sessionTranscript';
  * A report is kept (`retros/sessions/` of the project) and not written again, unless the session went
  * on since. Every moment it cites is checked against the session's records: one that does not exist
  * is removed.
+ *
+ * A session whose report would take longer than a report may (`REPORT_TIMEOUT_MS`, estimated before
+ * anything is spent) is left out of the retro: its report would be cut before its end. When it has a
+ * report already (written while it was shorter), that report is read instead. The longest reports
+ * are written first, so that the last one written does not hold the whole retro up.
  */
 export const REPORTS_SOURCE = 'Claude Code session records';
 export const REPORT_MODEL = 'opus';
@@ -51,8 +56,29 @@ type Env = Record<string, string | undefined>;
 export interface ReportCandidate {
   transcript: ProjectTranscript;
   analytics: SessionAnalytics;
-  /** `write`: no report yet, or the session went on since; `keep`: its report is up to date. */
+  /**
+   * `write`: no report yet, or the session went on since; `keep`: its report is up to date, or it is
+   * too long to analyse again and its earlier report is read (`stale`).
+   */
   action: 'write' | 'keep';
+  stale?: boolean;
+  /** How long writing its report would take, by the estimate (the longest are written first). */
+  estimateMs?: number;
+}
+
+/** A session too long to analyse: what the user is shown to recognise it. */
+export interface OversizedSession {
+  id: string;
+  start: string;
+  end: string;
+  prompts: number;
+  estimateMs: number;
+  /** Tokens its conversations used, and the size of its records (the session and its sub-agents). */
+  tokens: number;
+  bytes: number;
+  compactions: number;
+  /** It has a report already, written while it was shorter: that one is read. */
+  report: boolean;
 }
 
 export interface ReportPlan {
@@ -60,6 +86,8 @@ export interface ReportPlan {
   /** Sessions left out: no prompt typed by the user, or the session of this retro. */
   noPrompt: number;
   current: number;
+  /** Sessions too long to analyse: left out, or read through their earlier report. */
+  oversized?: OversizedSession[];
 }
 
 /** The session this command runs in, when Local Review knows it (the retro's own session). */
@@ -78,7 +106,8 @@ export async function planReports(
   transcripts: readonly ProjectTranscript[],
   opts: { exclude?: ReadonlySet<string>; retroId?: string } = {},
 ): Promise<ReportPlan> {
-  const plan: ReportPlan = { candidates: [], noPrompt: 0, current: 0 };
+  const plan: ReportPlan = { candidates: [], noPrompt: 0, current: 0, oversized: [] };
+  const scale = await reportScale(book);
   for (const t of transcripts) {
     if (opts.exclude?.has(t.id) || (opts.retroId && (await mentions(t.file, opts.retroId)))) {
       plan.current++;
@@ -94,9 +123,58 @@ export async function planReports(
     const existing = await readSessionReport(book, t.id);
     const upToDate =
       existing !== null && (existing.v > SESSION_REPORT_VERSION || existing.covered.lines >= analytics.counts.lines);
-    plan.candidates.push({ transcript: t, analytics, action: upToDate ? 'keep' : 'write' });
+    const estimateMs = expected(analytics.counts.typed_prompts).ms * scale.time;
+    if (!upToDate && estimateMs > REPORT_TIMEOUT_MS) {
+      (plan.oversized ??= []).push(await oversized(t, analytics, estimateMs, existing !== null));
+      if (existing) plan.candidates.push({ transcript: t, analytics, action: 'keep', stale: true, estimateMs });
+      continue;
+    }
+    plan.candidates.push({ transcript: t, analytics, action: upToDate ? 'keep' : 'write', estimateMs });
   }
   return plan;
+}
+
+/** What tells a session too long to analyse. */
+async function oversized(
+  t: ProjectTranscript,
+  a: SessionAnalytics,
+  estimateMs: number,
+  report: boolean,
+): Promise<OversizedSession> {
+  const tokens = Object.values(a.cost.tokens_by_model)
+    .flatMap((byKind) => Object.values(byKind))
+    .reduce((n, x) => n + x, 0);
+  const compactions = (a.signals.workflow?.context_pressure ?? []).filter((o) => o.kind === 'compaction').length;
+  return {
+    id: t.id,
+    start: a.start ?? t.start,
+    end: a.end ?? t.start,
+    prompts: a.counts.typed_prompts,
+    estimateMs,
+    tokens,
+    bytes: await sizeOf(t.file),
+    compactions,
+    report,
+  };
+}
+
+const fileSize = (path: string) =>
+  stat(path).then(
+    (x) => x.size,
+    () => 0,
+  );
+
+/** The size of a session's records: its conversation, and its sub-agents' (`<session>/`). */
+async function sizeOf(file: string): Promise<number> {
+  const below = async (dir: string): Promise<number> => {
+    let n = 0;
+    for (const e of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+      const path = join(dir, e.name);
+      n += e.isDirectory() ? await below(path) : await fileSize(path);
+    }
+    return n;
+  };
+  return (await fileSize(file)) + (await below(join(dirname(file), basename(file, '.jsonl'))));
 }
 
 const mentions = async (file: string, text: string) => (await readFile(file, 'utf8').catch(() => '')).includes(text);
@@ -144,7 +222,8 @@ export async function estimateReports(
   const scale = await reportScale(book);
   const workers: number[] = Array.from({ length: REPORT_CONCURRENCY }, () => 0);
   let costUsd = 0;
-  for (const p of prompts) {
+  // In the order they are written: the longest first.
+  for (const p of [...prompts].sort((a, b) => b - a)) {
     const e = expected(p);
     costUsd += e.costUsd * scale.cost;
     const free = workers.indexOf(Math.min(...workers));
@@ -303,6 +382,9 @@ const fail = (
   spent: { costUsd: number | null; ms: number | null; tokens: number | null },
 ): ReportOutcome => ({ kind: 'failed', reason, costUsd: spent.costUsd, durationMs: spent.ms, tokens: spent.tokens });
 
+/** Why a session is left out of a retro. */
+export const OVERSIZED_REASON = 'too long to analyse: its report would take more than the 20 minutes a report may take';
+
 export interface ReportsRun {
   refs: SessionReportRef[];
   costUsd: number | null;
@@ -322,10 +404,18 @@ export async function writeReports(
   const refs = new Map<string, SessionReportRef>();
   let costUsd: number | null = null;
   let tokens: number | null = null;
-  const queue = plan.candidates.filter((c) => c.action === 'write');
+  // The longest first: the last report written does not hold the whole retro up.
+  const queue = plan.candidates
+    .filter((c) => c.action === 'write')
+    .sort((a, b) => (b.estimateMs ?? 0) - (a.estimateMs ?? 0));
   for (const c of plan.candidates)
     if (c.action === 'keep')
-      refs.set(c.transcript.id, { id: c.transcript.id, start: c.transcript.start, status: 'reused' });
+      refs.set(c.transcript.id, {
+        id: c.transcript.id,
+        start: c.transcript.start,
+        status: 'reused',
+        ...(c.stale ? { reason: 'too long to analyse again: its earlier report is read' } : {}),
+      });
   const worker = async () => {
     for (let c = queue.shift(); c; c = queue.shift()) {
       const outcome = await writeReport(c, env, run).catch((err: unknown): ReportOutcome =>
@@ -348,7 +438,10 @@ export async function writeReports(
     }
   };
   await Promise.all(Array.from({ length: Math.max(1, concurrency) }, worker));
-  // In the order of the sessions.
+  // In the order of the sessions, whatever the order they were written in: what the analysis reads
+  // does not depend on it. Then those left out, too long to analyse.
   const ordered = plan.candidates.map((c) => refs.get(c.transcript.id)).filter((x): x is SessionReportRef => !!x);
+  for (const o of plan.oversized ?? [])
+    if (!o.report) ordered.push({ id: o.id, start: o.start, status: 'excluded', reason: OVERSIZED_REASON });
   return { refs: ordered, costUsd, durationMs: Date.now() - started, tokens };
 }
