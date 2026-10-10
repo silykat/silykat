@@ -3131,7 +3131,7 @@ async function planReports(book, transcripts, opts = {}) {
   return plan;
 }
 async function oversized(t, a, estimateMs, report) {
-  const tokens = Object.values(a.cost.tokens_by_model).flatMap((byKind) => Object.values(byKind)).reduce((n, x) => n + x, 0);
+  const tokens = Object.values(a.cost.tokens_by_model).flatMap((byKind) => Object.entries(byKind)).filter(([kind]) => !kind.startsWith("cache_read")).reduce((n, [, x]) => n + x, 0);
   const compactions = (a.signals.workflow?.context_pressure ?? []).filter((o) => o.kind === "compaction").length;
   return {
     id: t.id,

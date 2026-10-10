@@ -73,7 +73,7 @@ export interface OversizedSession {
   end: string;
   prompts: number;
   estimateMs: number;
-  /** Tokens its conversations used, and the size of its records (the session and its sub-agents). */
+  /** Tokens its conversations used (cache reads apart), and the size of its records (the session and its sub-agents). */
   tokens: number;
   bytes: number;
   compactions: number;
@@ -141,9 +141,11 @@ async function oversized(
   estimateMs: number,
   report: boolean,
 ): Promise<OversizedSession> {
+  // Cache reads left out: the same context read again at each answer would count many times.
   const tokens = Object.values(a.cost.tokens_by_model)
-    .flatMap((byKind) => Object.values(byKind))
-    .reduce((n, x) => n + x, 0);
+    .flatMap((byKind) => Object.entries(byKind))
+    .filter(([kind]) => !kind.startsWith('cache_read'))
+    .reduce((n, [, x]) => n + x, 0);
   const compactions = (a.signals.workflow?.context_pressure ?? []).filter((o) => o.kind === 'compaction').length;
   return {
     id: t.id,

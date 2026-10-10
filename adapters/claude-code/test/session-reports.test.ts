@@ -870,6 +870,15 @@ describe('sessions too long to analyse', () => {
       [
         ...many(200),
         toolUse('t1', 'Bash', { command: 'npm test' }),
+        // Cache reads are not counted: the same context, read again at each answer.
+        line('assistant', {
+          message: {
+            id: 'm-cache',
+            model: 'claude-opus',
+            content: [],
+            usage: { input_tokens: 5, cache_read_input_tokens: 1000 },
+          },
+        }),
         line('system', { subtype: 'compact_boundary', compactMetadata: { trigger: 'manual' } }),
       ],
       { 'agent-a1': { lines: [prompt('Help')] } },
@@ -889,7 +898,7 @@ describe('sessions too long to analyse', () => {
       ['s-mid', 'write', false],
     ]);
     expect(plan.oversized).toMatchObject([
-      { id: 's-big', prompts: 200, compactions: 1, report: false, tokens: 10 },
+      { id: 's-big', prompts: 200, compactions: 1, report: false, tokens: 15 },
       { id: 's-old', prompts: 190, compactions: 0, report: true },
     ]);
     expect(plan.oversized![0]!.estimateMs).toBeGreaterThan(REPORT_TIMEOUT_MS);
