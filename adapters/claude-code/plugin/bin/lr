@@ -2625,18 +2625,95 @@ function renderSessions(sessions2) {
   ];
 }
 
+// ../core/src/sessionReports.ts
+var import_promises14 = require("node:fs/promises");
+var import_node_path15 = require("node:path");
+var SESSION_REPORTS_DIR = "sessions";
+var reportRead = (ref) => ref.status === "analysed" || ref.status === "reused";
+var reportsDir = (book2) => (0, import_node_path15.join)(book2.dir, SESSION_REPORTS_DIR);
+var SESSION_ID2 = /^[A-Za-z0-9._-]{1,128}$/;
+var reportFile = (book2, id) => {
+  if (!SESSION_ID2.test(id) || id.startsWith(".")) throw new Error(`Invalid session id: ${id}`);
+  return (0, import_node_path15.join)(reportsDir(book2), `${id}.json`);
+};
+var isRecord2 = (x) => typeof x === "object" && x !== null && !Array.isArray(x);
+async function readSessionReport(book2, id) {
+  let raw;
+  try {
+    raw = JSON.parse(await (0, import_promises14.readFile)(reportFile(book2, id), "utf8"));
+  } catch {
+    return null;
+  }
+  if (!isRecord2(raw) || typeof raw.v !== "number" || raw.session !== id) return null;
+  if (!isRecord2(raw.analysis) || !isRecord2(raw.analytics)) return null;
+  return raw;
+}
+function strings(x, out2 = []) {
+  if (typeof x === "string") out2.push(x);
+  else if (Array.isArray(x)) for (const y of x) strings(y, out2);
+  else if (isRecord2(x)) for (const y of Object.values(x)) strings(y, out2);
+  return out2;
+}
+var reportText = (r) => strings(r.analysis).join("\n");
+function citedMoments(node, out2 = /* @__PURE__ */ new Set()) {
+  if (Array.isArray(node)) for (const x of node) citedMoments(x, out2);
+  else if (isRecord2(node))
+    for (const [k, v] of Object.entries(node)) {
+      if (k === "uuid" && typeof v === "string") out2.add(v);
+      else if (k === "evidence" && Array.isArray(v)) {
+        for (const x of v) if (typeof x === "string") out2.add(x);
+      } else citedMoments(v, out2);
+    }
+  return out2;
+}
+var reportMoments = (r) => citedMoments(r.analytics.signals, citedMoments(r.analysis));
+function analysisForRetro(a) {
+  const signals = isRecord2(a.signals) ? a.signals : {};
+  const relevant = {};
+  for (const [family, names] of Object.entries(signals)) {
+    if (!isRecord2(names)) continue;
+    for (const [name, s] of Object.entries(names)) {
+      if (!isRecord2(s) || !Array.isArray(s.relevant) || s.relevant.length === 0) continue;
+      relevant[`${family}.${name}`] = { occurrences: s.occurrences, relevant: s.relevant, note: s.note };
+    }
+  }
+  const { signals: _signals, session_id: _id, ...rest } = a;
+  return { ...rest, relevant_signals: relevant };
+}
+function renderSessionReports(reports, dir) {
+  if (reports.length === 0) return [];
+  return [
+    `## Reports on the agent's sessions (${reports.length})`,
+    "",
+    `One report per session of the period, written by a model from the session's records: what was done, the signals judged relevant (each pointing at a moment of the conversation by its "uuid"), patterns that recur, observations on the setup, leads. The signals judged not relevant are left out; the whole report is in its file (${dir}/<session>.json), with the signals computed without a model ("analytics"): read it when a moment needs more context. Cite a report with "sessions": [{"session": "<id>", "excerpt": "<words copied from the report>", "moments": ["<uuid>", \u2026]}].`,
+    "",
+    ...reports.flatMap((r) => [
+      `### Session ${r.session} \xB7 ${r.start} to ${r.end} \xB7 ${r.folder}`,
+      `${typedPrompts(r)} prompts typed by the user \xB7 ${r.analytics.agents?.length ?? 1} agent(s), the session and its sub-agents`,
+      "```json",
+      JSON.stringify(analysisForRetro(r.analysis), null, 1),
+      "```",
+      ""
+    ])
+  ];
+}
+var typedPrompts = (r) => {
+  const counts = r.analytics.counts;
+  return isRecord2(counts) && typeof counts.typed_prompts === "number" ? counts.typed_prompts : 0;
+};
+
 // ../core/src/retroUsage.ts
 var import_node_os2 = require("node:os");
-var import_node_path15 = require("node:path");
+var import_node_path16 = require("node:path");
 var usesOf = (t) => t.byUser + t.byAgent;
 function resolvePath(path, root, home) {
   const p = path.trim().replace(/:\d+(-\d+)?$/, "");
-  if (p === "~" || p.startsWith("~/")) return (0, import_node_path15.resolve)(home, p.slice(2));
-  return (0, import_node_path15.isAbsolute)(p) ? (0, import_node_path15.resolve)(p) : (0, import_node_path15.resolve)(root, p);
+  if (p === "~" || p.startsWith("~/")) return (0, import_node_path16.resolve)(home, p.slice(2));
+  return (0, import_node_path16.isAbsolute)(p) ? (0, import_node_path16.resolve)(p) : (0, import_node_path16.resolve)(root, p);
 }
 var within = (path, dir) => {
-  const rel = (0, import_node_path15.relative)(dir, path);
-  return rel === "" || !rel.startsWith("..") && !(0, import_node_path15.isAbsolute)(rel);
+  const rel = (0, import_node_path16.relative)(dir, path);
+  return rel === "" || !rel.startsWith("..") && !(0, import_node_path16.isAbsolute)(rel);
 };
 function toolOfFile(file, tools, root, home = (0, import_node_os2.homedir)()) {
   const path = resolvePath(file, root, home);
@@ -2754,7 +2831,7 @@ function sessionsRead(r) {
   const ids = /* @__PURE__ */ new Set();
   if (r.sessionsMode !== "reports") for (const x of r.sessions?.list ?? []) ids.add(x.id);
   if (r.sessionsMode !== "insights") {
-    for (const x of r.reports?.list ?? []) if (x.status !== "failed") ids.add(x.id);
+    for (const x of r.reports?.list ?? []) if (reportRead(x)) ids.add(x.id);
   }
   return ids.size;
 }
@@ -3156,16 +3233,16 @@ function verifyChanges(input2, ctx, result, only) {
 }
 
 // ../core/src/retroKey.ts
-var import_promises14 = require("node:fs/promises");
+var import_promises15 = require("node:fs/promises");
 var import_node_os3 = require("node:os");
-var import_node_path16 = require("node:path");
+var import_node_path17 = require("node:path");
 function jevKeyFile(env = process.env) {
-  return (0, import_node_path16.join)(env.HOME?.trim() || (0, import_node_os3.homedir)(), ".config", "local-review", "jev-key");
+  return (0, import_node_path17.join)(env.HOME?.trim() || (0, import_node_os3.homedir)(), ".config", "local-review", "jev-key");
 }
 async function jevKeyStatus(env = process.env) {
   const path = jevKeyFile(env);
   const fromEnv = (env.JEV_API_KEY ?? "").trim() !== "";
-  const st = await (0, import_promises14.stat)(path).catch(() => null);
+  const st = await (0, import_promises15.stat)(path).catch(() => null);
   const exists = st?.isFile() === true;
   const status2 = {
     source: fromEnv ? "env" : exists ? "file" : "none",
@@ -3181,7 +3258,7 @@ async function jevKeyStatus(env = process.env) {
   status2.mode = (st.mode & 511).toString(8);
   const mine = typeof process.getuid !== "function" || st.uid === process.getuid();
   status2.private = (st.mode & 63) === 0 && mine;
-  status2.inRepo = await worktreeTopOf((0, import_node_path16.dirname)(path));
+  status2.inRepo = await worktreeTopOf((0, import_node_path17.dirname)(path));
   if (!status2.private) status2.fixes.push(`chmod 600 "${path}"`);
   if (status2.inRepo)
     status2.fixes.push(`move it out of the repository ${status2.inRepo} (e.g. to the default place, ${jevKeyFile(env)})`);
@@ -3322,82 +3399,6 @@ function findingsFormat(source) {
     "- Write in the language of the user (the threads and their prompts), with its accents."
   ];
 }
-
-// ../core/src/sessionReports.ts
-var import_promises15 = require("node:fs/promises");
-var import_node_path17 = require("node:path");
-var SESSION_REPORTS_DIR = "sessions";
-var reportsDir = (book2) => (0, import_node_path17.join)(book2.dir, SESSION_REPORTS_DIR);
-var SESSION_ID2 = /^[A-Za-z0-9._-]{1,128}$/;
-var reportFile = (book2, id) => {
-  if (!SESSION_ID2.test(id) || id.startsWith(".")) throw new Error(`Invalid session id: ${id}`);
-  return (0, import_node_path17.join)(reportsDir(book2), `${id}.json`);
-};
-var isRecord2 = (x) => typeof x === "object" && x !== null && !Array.isArray(x);
-async function readSessionReport(book2, id) {
-  let raw;
-  try {
-    raw = JSON.parse(await (0, import_promises15.readFile)(reportFile(book2, id), "utf8"));
-  } catch {
-    return null;
-  }
-  if (!isRecord2(raw) || typeof raw.v !== "number" || raw.session !== id) return null;
-  if (!isRecord2(raw.analysis) || !isRecord2(raw.analytics)) return null;
-  return raw;
-}
-function strings(x, out2 = []) {
-  if (typeof x === "string") out2.push(x);
-  else if (Array.isArray(x)) for (const y of x) strings(y, out2);
-  else if (isRecord2(x)) for (const y of Object.values(x)) strings(y, out2);
-  return out2;
-}
-var reportText = (r) => strings(r.analysis).join("\n");
-function citedMoments(node, out2 = /* @__PURE__ */ new Set()) {
-  if (Array.isArray(node)) for (const x of node) citedMoments(x, out2);
-  else if (isRecord2(node))
-    for (const [k, v] of Object.entries(node)) {
-      if (k === "uuid" && typeof v === "string") out2.add(v);
-      else if (k === "evidence" && Array.isArray(v)) {
-        for (const x of v) if (typeof x === "string") out2.add(x);
-      } else citedMoments(v, out2);
-    }
-  return out2;
-}
-var reportMoments = (r) => citedMoments(r.analytics.signals, citedMoments(r.analysis));
-function analysisForRetro(a) {
-  const signals = isRecord2(a.signals) ? a.signals : {};
-  const relevant = {};
-  for (const [family, names] of Object.entries(signals)) {
-    if (!isRecord2(names)) continue;
-    for (const [name, s] of Object.entries(names)) {
-      if (!isRecord2(s) || !Array.isArray(s.relevant) || s.relevant.length === 0) continue;
-      relevant[`${family}.${name}`] = { occurrences: s.occurrences, relevant: s.relevant, note: s.note };
-    }
-  }
-  const { signals: _signals, session_id: _id, ...rest } = a;
-  return { ...rest, relevant_signals: relevant };
-}
-function renderSessionReports(reports, dir) {
-  if (reports.length === 0) return [];
-  return [
-    `## Reports on the agent's sessions (${reports.length})`,
-    "",
-    `One report per session of the period, written by a model from the session's records: what was done, the signals judged relevant (each pointing at a moment of the conversation by its "uuid"), patterns that recur, observations on the setup, leads. The signals judged not relevant are left out; the whole report is in its file (${dir}/<session>.json), with the signals computed without a model ("analytics"): read it when a moment needs more context. Cite a report with "sessions": [{"session": "<id>", "excerpt": "<words copied from the report>", "moments": ["<uuid>", \u2026]}].`,
-    "",
-    ...reports.flatMap((r) => [
-      `### Session ${r.session} \xB7 ${r.start} to ${r.end} \xB7 ${r.folder}`,
-      `${typedPrompts(r)} prompts typed by the user \xB7 ${r.analytics.agents?.length ?? 1} agent(s), the session and its sub-agents`,
-      "```json",
-      JSON.stringify(analysisForRetro(r.analysis), null, 1),
-      "```",
-      ""
-    ])
-  ];
-}
-var typedPrompts = (r) => {
-  const counts = r.analytics.counts;
-  return isRecord2(counts) && typeof counts.typed_prompts === "number" ? counts.typed_prompts : 0;
-};
 
 // ../core/src/retroScope.ts
 var DAY2 = 864e5;
@@ -4682,7 +4683,7 @@ async function retroSessions(b, r) {
 var andList = (xs) => xs.length <= 1 ? xs[0] ?? "" : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}`;
 async function retroReports(b, r) {
   if (r.sessionsMode === "insights" || !r.sources.includes("sessions")) return [];
-  const ids = (r.reports?.list ?? []).filter((x) => x.status !== "failed").map((x) => x.id);
+  const ids = (r.reports?.list ?? []).filter(reportRead).map((x) => x.id);
   const found = await Promise.all(ids.map((id) => readSessionReport(b, id)));
   return found.filter((x) => x !== null);
 }
@@ -5061,7 +5062,7 @@ function reportsLine(r) {
   const n = (status2) => list3.filter((x) => x.status === status2).length;
   const ok = n("analysed") + n("reused");
   const fromReports = r.proposals.filter((p) => p.sessions?.some((s) => s.moments?.length)).length;
-  return `Reports on the agent's sessions: ${ok} (${n("analysed")} written for this retro, ${n("reused")} kept from before)` + (n("failed") ? `, ${n("failed")} could not be written` : "") + (r.proposals.length ? `; ${fromReports} proposal${fromReports === 1 ? "" : "s"} point${fromReports === 1 ? "s" : ""} at moments of them.` : ".");
+  return `Reports on the agent's sessions: ${ok} (${n("analysed")} written for this retro, ${n("reused")} kept from before)` + (n("failed") ? `, ${n("failed")} could not be written` : "") + (n("excluded") ? `, ${n("excluded")} left out (too long to analyse)` : "") + (r.proposals.length ? `; ${fromReports} proposal${fromReports === 1 ? "" : "s"} point${fromReports === 1 ? "s" : ""} at moments of them.` : ".");
 }
 var OVERVIEW_TITLE = { pattern: "Pattern", friction: "Friction", ritual: "Ritual" };
 function renderOverview(o) {

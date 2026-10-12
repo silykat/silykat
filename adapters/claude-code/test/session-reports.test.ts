@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -13,6 +13,7 @@ import {
   jsonOfAnswer,
   planReports,
   REPORT_COST,
+  REPORT_TIMEOUT_MS,
   reportArgs,
   writeReport,
   writeReports,
@@ -510,9 +511,9 @@ describe('the reports of a retro', () => {
     ]);
 
     // Written several at once; a session whose new report fails keeps its older one.
-    let n = 0;
     const runner: Runner = async (...args) => {
-      if (++n === 2) return { stdout: '', stderr: 'boom', code: 1, timedOut: false };
+      if (args[1].join(' ').includes('The session: s-grown,'))
+        return { stdout: '', stderr: 'boom', code: 1, timedOut: false };
       return fakeReporter(() => ({ summary: 'New', signals: {} })).runner(...args);
     };
     const done = await writeReports(book, plan, env(), runner, 1);
@@ -834,5 +835,126 @@ describe('the reports, in edge cases', () => {
     await writeSessionReport(book, report('s2', { run: { costUsd: 1, durationMs: 1000, tokens: 1 } }));
     const est = await estimateReports(book, [0]);
     expect(est.costUsd).toBeCloseTo(1); // scaled on the report s2 alone (no prompt count known: the base)
+  });
+});
+
+describe('sessions too long to analyse', () => {
+  const many = (n: number) => Array.from({ length: n }, (_, i) => prompt(`Prompt ${i}`));
+  const t = (id: string, file: string) => ({ id, file, cwd: root, start: at(20) });
+  const answer: Runner = async () => ({
+    stdout: JSON.stringify({ result: JSON.stringify({ summary: 'x', signals: {} }) }),
+    stderr: '',
+    code: 0,
+    timedOut: false,
+  });
+  const earlier = (id: string): SessionReport => ({
+    v: 1,
+    session: id,
+    agent: 'Claude Code',
+    folder: root,
+    start: at(20),
+    end: at(20),
+    covered: { lines: 1 },
+    generatedAt: at(21),
+    model: 'opus',
+    run: { costUsd: null, durationMs: null, tokens: null },
+    checks: { citedMoments: 0, unknownMoments: [] },
+    analysis: { summary: 'Written while it was shorter' },
+    analytics: {},
+  });
+
+  it('are left out, or read through their earlier report, and the longest reports are written first', async () => {
+    clock = 0;
+    const big = await session(
+      's-big',
+      [
+        ...many(200),
+        toolUse('t1', 'Bash', { command: 'npm test' }),
+        // Cache reads are not counted: the same context, read again at each answer.
+        line('assistant', {
+          message: {
+            id: 'm-cache',
+            model: 'claude-opus',
+            content: [],
+            usage: { input_tokens: 5, cache_read_input_tokens: 1000 },
+          },
+        }),
+        line('system', { subtype: 'compact_boundary', compactMetadata: { trigger: 'manual' } }),
+      ],
+      { 'agent-a1': { lines: [prompt('Help')] } },
+    );
+    // A file that cannot be read counts for nothing.
+    await symlink(join(base, 'gone'), join(projects, 's-big', 'subagents', 'broken.jsonl'));
+    const old = await session('s-old', many(190));
+    const small = await session('s-small', many(2));
+    const mid = await session('s-mid', many(30));
+    const book = new RetroBook(root);
+    await writeSessionReport(book, earlier('s-old'));
+
+    const plan = await planReports(book, [t('s-big', big), t('s-old', old), t('s-small', small), t('s-mid', mid)]);
+    expect(plan.candidates.map((c) => [c.transcript.id, c.action, c.stale ?? false])).toEqual([
+      ['s-old', 'keep', true],
+      ['s-small', 'write', false],
+      ['s-mid', 'write', false],
+    ]);
+    expect(plan.oversized).toMatchObject([
+      { id: 's-big', prompts: 200, compactions: 1, report: false, tokens: 15 },
+      { id: 's-old', prompts: 190, compactions: 0, report: true },
+    ]);
+    expect(plan.oversized![0]!.estimateMs).toBeGreaterThan(REPORT_TIMEOUT_MS);
+    expect(plan.oversized![0]!.bytes).toBeGreaterThan(0);
+
+    const order: string[] = [];
+    const runner: Runner = async (cmd, args, opts) => {
+      order.push(/The session: ([\w-]+),/.exec(args.join(' '))![1]!);
+      return answer(cmd, args, opts);
+    };
+    const done = await writeReports(book, plan, env(), runner, 1);
+    // The longest first; what the retro reads stays in the order of the sessions, those left out last.
+    expect(order).toEqual(['s-mid', 's-small']);
+    expect(done.refs.map((r) => [r.id, r.status])).toEqual([
+      ['s-old', 'reused'],
+      ['s-small', 'analysed'],
+      ['s-mid', 'analysed'],
+      ['s-big', 'excluded'],
+    ]);
+    expect(done.refs[0]!.reason).toBe('too long to analyse again: its earlier report is read');
+    // The estimate follows the same order: the longest first, 4 at a time.
+    expect((await estimateReports(book, [2, 2, 2, 2, 30])).ms).toBe((await estimateReports(book, [30, 2, 2, 2, 2])).ms);
+  });
+
+  it('are announced with a warning by lr-retro sessions, and left out by lr-retro reports', async () => {
+    clock = 0;
+    await session('s-big', many(200));
+    await session('s-big2', many(220));
+    await session('s1', many(2));
+    let out = '';
+    const run = (args: string[]) =>
+      runRetroCli(args, {
+        cwd: base,
+        env: env(),
+        out: (x) => (out += x + '\n'),
+        err: (x) => (out += x + '\n'),
+        run: answer,
+        session: async () => undefined,
+      });
+    expect(await run(['sessions', '--root', root, '--since', '2026-09-10'])).toBe(0);
+    expect(out).toContain(
+      '⚠️ 2 sessions too long to analyse (a report would take more than 20 min): left out of the retro.',
+    );
+    expect(out).toMatch(
+      /⚠️ Sessions too long to analyse \(a report would take more than 20 min, and be cut before its end\):\n- s-big, 2026-09-20: 200 prompts, processing time about \d+ min, 0k tokens, [\d.]+ KB, 0 compactions → left out/,
+    );
+
+    const book = new RetroBook(root);
+    const r = await book.start({ root, since: at(10), until: at(30), stores: [], threads: [], bytes: 0 });
+    out = '';
+    expect(await run(['reports', r.id, '--root', root])).toBe(0);
+    expect(out).toContain('1 written, 0 kept from before, 2 left out (too long to analyse)');
+    expect((await book.get(r.id)).reports!.list.map((x) => [x.id, x.status])).toEqual([
+      ['s1', 'analysed'],
+      ['s-big', 'excluded'],
+      ['s-big2', 'excluded'],
+    ]);
   });
 });

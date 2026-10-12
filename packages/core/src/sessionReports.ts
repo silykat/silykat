@@ -19,6 +19,9 @@ import type { RetroBook } from './retro';
 export const SESSION_REPORT_VERSION = 1;
 export const SESSION_REPORTS_DIR = 'sessions';
 
+/** Whether a retro reads the report of a session it lists: written for it, or kept from before. */
+export const reportRead = (ref: { status: string }): boolean => ref.status === 'analysed' || ref.status === 'reused';
+
 export interface SessionReport {
   v: number;
   session: string;
@@ -46,8 +49,11 @@ export interface SessionReport {
 export interface SessionReportRef {
   id: string;
   start: string;
-  /** `analysed` for this retro, `reused` (already up to date), or `failed` (the retro goes on without it). */
-  status: 'analysed' | 'reused' | 'failed';
+  /**
+   * `analysed` for this retro, `reused` (already up to date, or too long to analyse again), `failed`
+   * (the retro goes on without it), or `excluded` (too long to analyse, and no earlier report: left out).
+   */
+  status: 'analysed' | 'reused' | 'failed' | 'excluded';
   /** Why it failed, or why an older report was kept. */
   reason?: string;
 }

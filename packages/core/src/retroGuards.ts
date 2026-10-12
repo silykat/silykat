@@ -27,6 +27,7 @@ import {
   type SessionsOverview,
 } from './retro';
 import { defaultExcerpt, excerptOf, summaryText, type SessionEvidence } from './retroSessions';
+import { reportRead } from './sessionReports';
 import { TOOL_TITLE, toolOfFile, usesOf, type SetupUsage, type ToolUsage } from './retroUsage';
 
 /** Statistics of a period, computed without a model. */
@@ -183,7 +184,7 @@ export function sessionsRead(r: RetroState): number {
   if (!r.sources.includes('sessions')) return 0;
   const ids = new Set<string>();
   if (r.sessionsMode !== 'reports') for (const x of r.sessions?.list ?? []) ids.add(x.id);
-  if (r.sessionsMode !== 'insights') for (const x of r.reports?.list ?? []) if (x.status !== 'failed') ids.add(x.id);
+  if (r.sessionsMode !== 'insights') for (const x of r.reports?.list ?? []) if (reportRead(x)) ids.add(x.id);
   return ids.size;
 }
 
