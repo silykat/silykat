@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.10.0](https://github.com/lbenamer/local-review/compare/v0.9.0...v0.10.0) (2026-10-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* archive, export and clean up review threads, from VS Code and with lr
+* **claude-code:** the comment store format goes to version 2; update Local Review everywhere you use it, as an older version shows archived threads read-only
+
+### Features
+
+* archive, export and clean up review threads, from VS Code and with lr ([3637cd5](https://github.com/lbenamer/local-review/commit/3637cd5d3fc99bf77a874f10281eb3c6862b49a8))
+* check whether the last retro's changes helped, and get reminded when a retro is due ([3637cd5](https://github.com/lbenamer/local-review/commit/3637cd5d3fc99bf77a874f10281eb3c6862b49a8))
+* choose whether to keep deleted threads with the keep history setting ([3637cd5](https://github.com/lbenamer/local-review/commit/3637cd5d3fc99bf77a874f10281eb3c6862b49a8))
+* **claude-code:** choose the sources of a retro: review threads, agent sessions and an audit of the setup ([3637cd5](https://github.com/lbenamer/local-review/commit/3637cd5d3fc99bf77a874f10281eb3c6862b49a8))
+* **claude-code:** leave out of a retro the sessions too long to analyse, and write session reports longest first ([3637cd5](https://github.com/lbenamer/local-review/commit/3637cd5d3fc99bf77a874f10281eb3c6862b49a8))
+* **claude-code:** read the agent's sessions of the project in retros, with a report on each session or through /insights ([3637cd5](https://github.com/lbenamer/local-review/commit/3637cd5d3fc99bf77a874f10281eb3c6862b49a8))
+* **claude-code:** run a retro with your agent to decide what to keep, remove or improve in its setup, and let it apply what you accept ([3637cd5](https://github.com/lbenamer/local-review/commit/3637cd5d3fc99bf77a874f10281eb3c6862b49a8))
+* **cli:** read the whole comment history of a project, worktrees included, with lr history ([3637cd5](https://github.com/lbenamer/local-review/commit/3637cd5d3fc99bf77a874f10281eb3c6862b49a8))
+* keep every thread, with why it was deleted, and link each agent reply to its conversation ([3637cd5](https://github.com/lbenamer/local-review/commit/3637cd5d3fc99bf77a874f10281eb3c6862b49a8))
+
 ## [0.9.0](https://github.com/lbenamer/local-review/compare/v0.8.2...v0.9.0) (2026-09-30)
 
 
