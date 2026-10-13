@@ -52,12 +52,12 @@ export interface LoadResult {
 
 type Reviews = ReadonlyMap<string, ReviewState>;
 
-/** File-based store rooted at `<root>/.local-review/`. All writes are appends of whole events. */
+/** File-based store rooted at `<root>/.silykat/`. All writes are appends of whole events. */
 export class Store {
   readonly dir: string;
 
   /**
-   * A store of the files under `root`, kept in `<root>/.local-review/` by default. `dir` puts it
+   * A store of the files under `root`, kept in `<root>/.silykat/` by default. `dir` puts it
    * elsewhere (e.g. the machine store of the files outside any open folder).
    */
   constructor(
@@ -438,7 +438,7 @@ export class Store {
       throw new Error(`Thread ${threadId} is archived: unarchive it first`);
     if (state.readOnly)
       throw new Error(
-        `Thread ${threadId} was written by a newer version of Local Review, so it is read-only: update Local Review to change it`,
+        `Thread ${threadId} was written by a newer version of silykat, so it is read-only: update silykat to change it`,
       );
     return state;
   }

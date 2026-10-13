@@ -1,6 +1,6 @@
-import { isIndexRef } from '@local-review/core';
+import { isIndexRef } from '@silykat/core';
 
-export { isIndexRef, versionTag } from '@local-review/core';
+export { isIndexRef, versionTag } from '@silykat/core';
 
 // Pure helpers for the `git:` URIs of VS Code's built-in git extension (no `vscode` import).
 // Their query is JSON: {"path": "<absolute fsPath>", "ref": "<ref>"}. The URI path itself may be

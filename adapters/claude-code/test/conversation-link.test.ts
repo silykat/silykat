@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buildAnchorContext, RetroBook, SessionRegistry, Store, type Anchor } from '@local-review/core';
+import { buildAnchorContext, RetroBook, SessionRegistry, Store, type Anchor } from '@silykat/core';
 import { handleHook, replyCall, type HookDeps } from '../src/hook';
 import { runRetroCli } from '../src/retroCli';
 import {
@@ -18,7 +18,7 @@ let base: string;
 let claudeDir: string;
 
 beforeEach(async () => {
-  base = await realpath(await mkdtemp(join(tmpdir(), 'lr-conversation-')));
+  base = await realpath(await mkdtemp(join(tmpdir(), 'slk-conversation-')));
   claudeDir = join(base, 'claude');
 });
 afterEach(async () => {
@@ -57,7 +57,7 @@ const call = (
 ): TranscriptEntry => ({
   type: 'assistant',
   timestamp: at,
-  attributionSkill: 'local-review:review',
+  attributionSkill: 'silykat:review',
   message: {
     id: msg,
     role: 'assistant',
@@ -75,7 +75,7 @@ function transcript(threadId: string): TranscriptEntry[] {
   return [
     { type: 'queue-operation', timestamp: '2026-10-03T10:00:00.000Z' },
     prompt(
-      `<channel source="local-review" threads="${threadId}">The user published comments</channel>`,
+      `<channel source="silykat" threads="${threadId}">The user published comments</channel>`,
       '2026-10-03T10:00:00.000Z',
     ),
     {
@@ -90,7 +90,7 @@ function transcript(threadId: string): TranscriptEntry[] {
       message: { id: 'msg_1', content: [{ type: 'thinking' }] },
     },
     said('I read the thread first.', '2026-10-03T10:00:01.500Z'),
-    call('toolu_show', 'Bash', { command: `lr show ${threadId}` }, '2026-10-03T10:00:02.000Z'),
+    call('toolu_show', 'Bash', { command: `slk review show ${threadId}` }, '2026-10-03T10:00:02.000Z'),
     result('toolu_show', 'Use integer cents, not floats.', '2026-10-03T10:00:03.000Z'),
     call('toolu_read', 'Read', { file_path: '/work/api/src/money.ts' }, '2026-10-03T10:00:04.000Z', 'msg_3'),
     result('toolu_read', [{ type: 'text', text: 'export const total = 1.5;' }], '2026-10-03T10:00:05.000Z'),
@@ -99,7 +99,7 @@ function transcript(threadId: string): TranscriptEntry[] {
     call(
       'toolu_reply',
       'Bash',
-      { command: `lr reply ${threadId} --agent Claude --body "Done"` },
+      { command: `slk review reply ${threadId} --agent Claude --body "Done"` },
       '2026-10-03T10:00:08.000Z',
       'msg_5',
     ),
@@ -112,22 +112,22 @@ function transcript(threadId: string): TranscriptEntry[] {
 
 const jsonl = (entries: TranscriptEntry[]) => entries.map((e) => JSON.stringify(e)).join('\n') + '\n';
 
-describe('noting the tool call that runs lr reply', () => {
-  it('recognises lr reply in the usual shapes of a command, and nothing else', () => {
+describe('noting the tool call that runs slk review reply', () => {
+  it('recognises slk review reply in the usual shapes of a command, and nothing else', () => {
     const at = (command: string, id = 'toolu_1') => replyCall({ tool_use_id: id, tool_input: { command } });
-    expect(at('lr reply t_1 --agent Claude --body -')).toEqual({
+    expect(at('slk review reply t_1 --agent Claude --body -')).toEqual({
       message: 'toolu_1',
-      command: 'lr reply t_1 --agent Claude --body -',
+      command: 'slk review reply t_1 --agent Claude --body -',
     });
-    expect(at("cd /work && LR_AGENT=Claude lr reply t_1 --body 'x'")).not.toBeNull();
-    expect(at('/plugin/bin/lr reply t_1 --body-file /tmp/a.md')).not.toBeNull();
-    expect(at('lr show t_1')).toBeNull();
-    expect(at('echo "lr reply t_1"')).toBeNull();
-    expect(at('lr reply t_1', '../escape')).toBeNull();
+    expect(at("cd /work && SLK_AGENT=Claude slk review reply t_1 --body 'x'")).not.toBeNull();
+    expect(at('/plugin/bin/slk review reply t_1 --body-file /tmp/a.md')).not.toBeNull();
+    expect(at('slk review show t_1')).toBeNull();
+    expect(at('echo "slk review reply t_1"')).toBeNull();
+    expect(at('slk review reply t_1', '../escape')).toBeNull();
     expect(replyCall({ tool_use_id: 'toolu_1', tool_input: {} })).toBeNull();
   });
 
-  it('keeps the call while lr runs (PreToolUse), and forgets it after (PostToolUse)', async () => {
+  it('keeps the call while slk runs (PreToolUse), and forgets it after (PostToolUse)', async () => {
     const home = join(base, 'machine');
     const registry = new SessionRegistry(home, () => true);
     const deps: HookDeps = {
@@ -145,11 +145,15 @@ describe('noting the tool call that runs lr reply', () => {
       cwd: base,
       tool_name: 'Bash',
       tool_use_id: 'toolu_42',
-      tool_input: { command: 'lr reply t_1 --agent Claude --body Done' },
+      tool_input: { command: 'slk review reply t_1 --agent Claude --body Done' },
     };
     await handleHook({ ...input, hook_event_name: 'PreToolUse' }, deps);
     expect(await registry.calls('s1')).toEqual([
-      { message: 'toolu_42', command: 'lr reply t_1 --agent Claude --body Done', at: '2026-10-03T10:00:00.000Z' },
+      {
+        message: 'toolu_42',
+        command: 'slk review reply t_1 --agent Claude --body Done',
+        at: '2026-10-03T10:00:00.000Z',
+      },
     ]);
     await handleHook({ ...input, hook_event_name: 'PostToolUse' }, deps);
     expect(await registry.calls('s1')).toEqual([]);
@@ -176,7 +180,7 @@ describe('noting the tool call that runs lr reply', () => {
       cwd: base,
       tool_name: 'Bash',
       tool_use_id: 'toolu_refused',
-      tool_input: { command: 'lr reply t_1 --body Done' },
+      tool_input: { command: 'slk review reply t_1 --body Done' },
     };
     await handleHook({ ...input, hook_event_name: 'PreToolUse' }, deps);
     expect(await registry.calls('s1')).toHaveLength(1);
@@ -205,12 +209,12 @@ describe("reading back Claude Code's conversation", () => {
     expect(await transcriptsOf(join(base, 'none'), SESSION)).toEqual([]);
   });
 
-  it('locates a reply by its tool call, else by the latest lr command naming the thread before it', () => {
+  it('locates a reply by its tool call, else by the latest slk command naming the thread before it', () => {
     const entries = transcript('t_1');
     expect(
       findReply(entries, { session: SESSION, message: 'toolu_reply', at: '2026-10-03T10:00:09.000Z' }, 't_1'),
     ).toBe(11);
-    // Without the message (or one not in this file): the lr command naming the thread.
+    // Without the message (or one not in this file): the slk command naming the thread.
     expect(findReply(entries, { session: SESSION, at: '2026-10-03T10:00:09.000Z' }, 't_1')).toBe(11);
     expect(findReply(entries, { session: SESSION, message: 'toolu_gone', at: '2026-10-03T09:59:03.000Z' }, 't_1')).toBe(
       5,
@@ -221,18 +225,18 @@ describe("reading back Claude Code's conversation", () => {
 
   it('shows the prompt of the turn, the steps up to the reply and right after it, the skill and the tokens', () => {
     const text = excerpt(transcript('t_1'), 11);
-    expect(text).toContain('- **Prompt** (10:00:00): <channel source="local-review" threads="t_1">');
+    expect(text).toContain('- **Prompt** (10:00:00): <channel source="silykat" threads="t_1">');
     expect(text).not.toContain('Base directory for this skill');
     expect(text).toContain('- **Claude** (10:00:01): I read the thread first.');
-    expect(text).toContain('- → Bash: lr show t_1');
+    expect(text).toContain('- → Bash: slk review show t_1');
     expect(text).toContain('  - result: Use integer cents, not floats.');
     expect(text).toContain('- → Read: /work/api/src/money.ts');
     expect(text).toContain('  - result: export const total = 1.5;');
     expect(text).toContain('  - error: oops');
-    expect(text).toContain('- **This call wrote the reply** → Bash: lr reply t_1 --agent Claude --body "Done"');
+    expect(text).toContain('- **This call wrote the reply** → Bash: slk review reply t_1 --agent Claude --body "Done"');
     expect(text).toContain('- **Claude** (10:00:10): I switched the amounts to cents.');
     expect(text).not.toContain('Something else entirely');
-    expect(text).toContain('- Skill in use: local-review:review');
+    expect(text).toContain('- Skill in use: silykat:review');
     // 6 model calls (msg_1 to msg_6), each counted once although split in several lines.
     expect(text).toContain(
       '- This turn up to there: 6 model call(s), 10040 tokens in (10000 read from the cache), 180 out',
@@ -251,7 +255,7 @@ describe("reading back Claude Code's conversation", () => {
     const long = excerpt(
       [
         prompt('x'.repeat(5000), '2026-10-03T10:00:00.000Z'),
-        call('t', 'Bash', { command: 'lr reply t_1' }, '2026-10-03T10:00:01.000Z'),
+        call('t', 'Bash', { command: 'slk review reply t_1' }, '2026-10-03T10:00:01.000Z'),
       ],
       1,
     );
@@ -313,7 +317,7 @@ const anchor = (): Anchor => ({
   ...buildAnchorContext(CODE, { startLine: 1, endLine: 1 }),
 });
 
-describe('lr-retro conversation', () => {
+describe('slk-retro conversation', () => {
   async function retro() {
     const root = join(base, 'work');
     const store = new Store(join(root, 'api'));
@@ -352,7 +356,7 @@ describe('lr-retro conversation', () => {
     let err = '';
     const code = await runRetroCli(args, {
       cwd: base,
-      env: { HOME: join(base, 'home'), LOCAL_REVIEW_HOME: join(base, 'machine'), CLAUDE_CONFIG_DIR: claudeDir },
+      env: { HOME: join(base, 'home'), SILYKAT_HOME: join(base, 'machine'), CLAUDE_CONFIG_DIR: claudeDir },
       out: (t) => (out += t + '\n'),
       err: (t) => (err += t + '\n'),
     });
@@ -367,7 +371,7 @@ describe('lr-retro conversation', () => {
     expect(r.out).toContain(`# The agent's conversation for thread ${linked}`);
     expect(r.out).toContain('1 agent reply linked to a conversation, 1 still available.');
     expect(r.out).toContain(`session ${SESSION}`);
-    expect(r.out).toContain('**This call wrote the reply** → Bash: lr reply');
+    expect(r.out).toContain('**This call wrote the reply** → Bash: slk review reply');
     expect((await book.get(id)).conversations[linked]).toMatchObject({ sessions: [SESSION], available: true });
   });
 
@@ -442,7 +446,9 @@ describe('lr-retro conversation', () => {
       const t = (s: number) => new Date(Date.now() + round * 3_600_000 + s * 1000).toISOString();
       entries.push(prompt(long(round), t(0)));
       for (let i = 0; i < 6; i++) entries.push(said(long(i), t(1), `msg_${round}_${i}`));
-      entries.push(call(`toolu_r${round}`, 'Bash', { command: `lr reply ${linked} --body x` }, t(2), `msg_${round}_c`));
+      entries.push(
+        call(`toolu_r${round}`, 'Bash', { command: `slk review reply ${linked} --body x` }, t(2), `msg_${round}_c`),
+      );
       await store.addComment(linked, {
         author: 'agent',
         agent: 'Claude',

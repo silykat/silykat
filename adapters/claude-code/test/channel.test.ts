@@ -2,8 +2,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { SessionRegistry, type Delivery, type SessionRecord } from '@local-review/core';
-import { BATCH_MS, describe as describeDeliveries, LocalReviewChannel, type RpcMessage } from '../src/channel';
+import { SessionRegistry, type Delivery, type SessionRecord } from '@silykat/core';
+import { BATCH_MS, describe as describeDeliveries, SilykatChannel, type RpcMessage } from '../src/channel';
 import { hasChannel, LAUNCH_WITH_CHANNEL } from '../src/channelFlag';
 
 let home: string;
@@ -30,8 +30,8 @@ const delivery = (over: Partial<Delivery> = {}): Delivery => ({
   ...over,
 });
 
-function channel(claudePid: number | null = 4242): LocalReviewChannel {
-  const c = new LocalReviewChannel({
+function channel(claudePid: number | null = 4242): SilykatChannel {
+  const c = new SilykatChannel({
     registry,
     claudePid,
     send: (m) => sent.push(m),
@@ -46,7 +46,7 @@ function channel(claudePid: number | null = 4242): LocalReviewChannel {
 const pushed = () => sent.filter((m) => m.method === 'notifications/claude/channel').map((m) => m.params);
 
 beforeEach(async () => {
-  home = await mkdtemp(join(tmpdir(), 'lr-channel-'));
+  home = await mkdtemp(join(tmpdir(), 'slk-channel-'));
   registry = new SessionRegistry(home, () => true);
   sent = [];
   now = 1_000_000;
@@ -57,7 +57,7 @@ afterEach(async () => {
 
 describe('The channel server', () => {
   it('declares itself a Claude Code channel, with instructions for Claude', () => {
-    const c = new LocalReviewChannel({
+    const c = new SilykatChannel({
       registry,
       claudePid: 1,
       send: (m) => sent.push(m),
@@ -72,7 +72,7 @@ describe('The channel server', () => {
       result: {
         protocolVersion: '2025-03-26',
         capabilities: { experimental: { 'claude/channel': {} } },
-        serverInfo: { name: 'local-review', version: '1.2.3' },
+        serverInfo: { name: 'silykat', version: '1.2.3' },
       },
     });
     expect((sent[0]!.result as { instructions: string }).instructions).toContain('--root <folder>');
@@ -97,9 +97,9 @@ describe('The channel server', () => {
     expect(pushed()).toEqual([
       {
         content:
-          'The user published a review and 1 new comment in Local Review (3 threads), in /repo. ' +
-          'Process them now with the local-review review skill, running every lr command with --root "/repo", ' +
-          `and listing only these threads: lr list --root "/repo" --thread ${first.threadIds[0]} --thread t_a --thread t_b`,
+          'The user published a review and 1 new comment in silykat (3 threads), in /repo. ' +
+          'Process them now with the silykat review skill, running every slk command with --root "/repo", ' +
+          `and listing only these threads: slk review list --root "/repo" --thread ${first.threadIds[0]} --thread t_a --thread t_b`,
         meta: { store: '/repo', threads: `${first.threadIds[0]} t_a t_b`, recipients: '' },
       },
     ]);
@@ -122,7 +122,7 @@ describe('The channel server', () => {
   it('pushes nothing before Claude Code is ready, then what arrived meanwhile', async () => {
     await registry.register(session());
     await registry.deliver('s1', delivery());
-    const c = new LocalReviewChannel({
+    const c = new SilykatChannel({
       registry,
       claudePid: 4242,
       send: (m) => sent.push(m),
@@ -180,7 +180,7 @@ describe('describe', () => {
 
   it('says what was published', () => {
     expect(describeDeliveries('/r', [delivery({ threadIds: ['t_x'] })])).toMatch(
-      /^The user published 1 new comment in Local Review \(1 thread\), in \/r\./,
+      /^The user published 1 new comment in silykat \(1 thread\), in \/r\./,
     );
     expect(describeDeliveries('/r', [delivery({ kind: 'reply' }), delivery({ kind: 'reply' })])).toMatch(
       /published 2 replies .*\(2 threads\)/,
@@ -189,16 +189,14 @@ describe('describe', () => {
 });
 
 describe('hasChannel', () => {
-  it('tells whether Claude Code was launched with the Local Review channel', () => {
+  it('tells whether Claude Code was launched with the silykat channel', () => {
     expect(hasChannel(LAUNCH_WITH_CHANNEL)).toBe(true);
-    expect(hasChannel('/opt/claude --dangerously-load-development-channels=plugin:local-review@local-review')).toBe(
+    expect(hasChannel('/opt/claude --dangerously-load-development-channels=plugin:silykat@silykat')).toBe(true);
+    expect(hasChannel('claude --channels plugin:telegram@claude-plugins-official plugin:silykat@mine --resume')).toBe(
       true,
     );
-    expect(
-      hasChannel('claude --channels plugin:telegram@claude-plugins-official plugin:local-review@mine --resume'),
-    ).toBe(true);
     expect(hasChannel('claude')).toBe(false);
     expect(hasChannel('claude --dangerously-load-development-channels server:webhook')).toBe(false);
-    expect(hasChannel('claude --resume plugin:local-review@local-review')).toBe(false);
+    expect(hasChannel('claude --resume plugin:silykat@silykat')).toBe(false);
   });
 });

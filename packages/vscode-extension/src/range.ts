@@ -1,4 +1,4 @@
-import type { LineRange } from '@local-review/core';
+import type { LineRange } from '@silykat/core';
 
 // Pure conversions between VS Code's 0-based positions and the stored 1-based inclusive lines.
 // Kept free of `vscode` imports so it can be unit-tested.

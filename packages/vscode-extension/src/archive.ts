@@ -17,7 +17,7 @@ import {
   unarchiveThreads,
   type BatchResult,
   type ProjectThread,
-} from '@local-review/core';
+} from '@silykat/core';
 import { archiveConfirmation, dayOf, keptText, plural, purgeConfirmation, threadItemText } from './archiveText';
 import type { ReviewController } from './controller';
 import type { Log } from './log';
@@ -35,8 +35,8 @@ export interface ThreadItem extends vscode.QuickPickItem {
 
 /**
  * Managing the threads of the open folders: archive the resolved ones, bring archived ones back,
- * export everything, delete old threads for good. The same core functions as `lr archive`,
- * `lr unarchive`, `lr history --out` and `lr purge`, on the projects of the open folders (each
+ * export everything, delete old threads for good. The same core functions as `slk review archive`,
+ * `slk review unarchive`, `slk review history --out` and `slk review purge`, on the projects of the open folders (each
  * folder, its subfolders and its worktrees) and on the files outside them.
  */
 export class ArchiveUi implements vscode.Disposable {
@@ -62,13 +62,11 @@ export class ArchiveUi implements vscode.Disposable {
     private readonly log: Log,
   ) {
     this.disposables = [
-      vscode.commands.registerCommand('localReview.archiveThread', (t: vscode.CommentThread) =>
-        review.archiveThread(t),
-      ),
-      vscode.commands.registerCommand('localReview.archiveResolvedThreads', () => this.archiveResolved()),
-      vscode.commands.registerCommand('localReview.showArchivedThreads', () => this.showArchived()),
-      vscode.commands.registerCommand('localReview.exportThreads', () => this.exportThreads()),
-      vscode.commands.registerCommand('localReview.deleteOldThreads', () => this.deleteOld()),
+      vscode.commands.registerCommand('silykat.archiveThread', (t: vscode.CommentThread) => review.archiveThread(t)),
+      vscode.commands.registerCommand('silykat.archiveResolvedThreads', () => this.archiveResolved()),
+      vscode.commands.registerCommand('silykat.showArchivedThreads', () => this.showArchived()),
+      vscode.commands.registerCommand('silykat.exportThreads', () => this.exportThreads()),
+      vscode.commands.registerCommand('silykat.deleteOldThreads', () => this.deleteOld()),
     ];
   }
 
@@ -87,20 +85,20 @@ export class ArchiveUi implements vscode.Disposable {
     const selected = resolvedBefore(await this.threads(), date);
     const day = dateArgLabel(text, date);
     if (selected.length === 0) {
-      this.inform(`Local Review: no resolved thread to archive before ${day}.`);
+      this.inform(`silykat: no resolved thread to archive before ${day}.`);
       return undefined;
     }
     const c = archiveConfirmation(selected.length, day);
     const ok = await this.review.confirm(c.message, c.detail, c.action);
     if (!ok) return undefined;
-    return this.run('archive', selected, archiveThreads, (k) => `Local Review: ${plural(k, 'thread')} archived.`);
+    return this.run('archive', selected, archiveThreads, (k) => `silykat: ${plural(k, 'thread')} archived.`);
   }
 
   /** Lists the archived threads; the ones picked come back to VS Code. */
   async showArchived(): Promise<BatchResult | undefined> {
     const archived = archivedThreads(await this.threads());
     if (archived.length === 0) {
-      this.inform('Local Review: no archived thread.');
+      this.inform('silykat: no archived thread.');
       return undefined;
     }
     const picked = await this.pickThreads(
@@ -112,18 +110,18 @@ export class ArchiveUi implements vscode.Disposable {
       'unarchive',
       picked.map((p) => p.thread),
       unarchiveThreads,
-      (k) => `Local Review: ${plural(k, 'thread')} unarchived.`,
+      (k) => `silykat: ${plural(k, 'thread')} unarchived.`,
     );
   }
 
   /**
    * Writes every thread of the open folders' projects, whatever their state, to a JSON file: one
-   * history per project, as `lr history --format json` gives it.
+   * history per project, as `slk review history --format json` gives it.
    */
   async exportThreads(): Promise<vscode.Uri | undefined> {
     const roots = this.review.rootPaths();
     const folder = roots.find((r) => r !== LOOSE_ROOT);
-    const defaultUri = vscode.Uri.file(join(folder ?? process.cwd(), `local-review-threads-${dayOf(new Date())}.json`));
+    const defaultUri = vscode.Uri.file(join(folder ?? process.cwd(), `silykat-threads-${dayOf(new Date())}.json`));
     const target = await this.askSaveLocation(defaultUri);
     if (!target) return undefined;
     try {
@@ -134,11 +132,11 @@ export class ArchiveUi implements vscode.Disposable {
         target.fsPath,
         JSON.stringify({ exportedAt: new Date().toISOString(), threads: n, projects }, null, 2) + '\n',
       );
-      this.inform(`Local Review: ${plural(n, 'thread')} exported to ${target.fsPath}.`);
+      this.inform(`silykat: ${plural(n, 'thread')} exported to ${target.fsPath}.`);
       return target;
     } catch (err) {
       this.log.error('Failed to export the threads', err);
-      void vscode.window.showErrorMessage(`Local Review: the threads could not be exported (${String(err)}).`);
+      void vscode.window.showErrorMessage(`silykat: the threads could not be exported (${String(err)}).`);
       return undefined;
     }
   }
@@ -155,9 +153,7 @@ export class ArchiveUi implements vscode.Disposable {
     const plan = purgePlan(await this.threads(), date, await retroReading(folders));
     const since = dateArgLabel(text, date);
     if (plan.threads.length === 0) {
-      this.inform(
-        `Local Review: no finished thread without activity since ${since}: nothing to delete.${keptText(plan)}`,
-      );
+      this.inform(`silykat: no finished thread without activity since ${since}: nothing to delete.${keptText(plan)}`);
       return undefined;
     }
     const c = purgeConfirmation(plan, since);
@@ -167,7 +163,7 @@ export class ArchiveUi implements vscode.Disposable {
       'delete',
       plan.threads,
       purgeThreads,
-      (k) => `Local Review: ${plural(k, 'thread')} deleted permanently.`,
+      (k) => `silykat: ${plural(k, 'thread')} deleted permanently.`,
     );
   }
 
@@ -183,12 +179,12 @@ export class ArchiveUi implements vscode.Disposable {
       for (const f of result.failed) this.log.warn(`Could not ${what} ${f.id}: ${f.error}`);
       this.inform(
         done(result.done.length) +
-          (result.failed.length > 0 ? ` ${result.failed.length} failed (see the Local Review output).` : ''),
+          (result.failed.length > 0 ? ` ${result.failed.length} failed (see the silykat output).` : ''),
       );
       return result;
     } catch (err) {
       this.log.error(`Failed to ${what} threads`, err);
-      void vscode.window.showErrorMessage(`Local Review: could not ${what} the threads (${String(err)}).`);
+      void vscode.window.showErrorMessage(`silykat: could not ${what} the threads (${String(err)}).`);
       return undefined;
     }
   }

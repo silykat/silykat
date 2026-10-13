@@ -1,4 +1,4 @@
-import { readAgentSessions, recordAgentSessions, type AgentSessionEntry } from '@local-review/core';
+import { readAgentSessions, recordAgentSessions, type AgentSessionEntry } from '@silykat/core';
 import { allTranscripts, PROGRAM_ENTRYPOINT } from './retroInsights';
 
 /** Whether Claude Code was launched by a program (`claude -p`, `--print`), from its command line. */
@@ -9,7 +9,7 @@ export const isPrintMode = (commandLine: string): boolean =>
     .some((a) => a === '-p' || a === '--print');
 
 /**
- * Records a session of Claude Code in Local Review's log of agent sessions, for the cadence of
+ * Records a session of Claude Code in silykat's log of agent sessions, for the cadence of
  * retros; the first time for this Claude Code folder, every session it still keeps too (those run
  * by a program left out).
  */

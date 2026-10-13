@@ -9,7 +9,7 @@ import { worktreeTopOf } from './topics';
  * accepted too, for those who prefer an environment variable.
  */
 export function jevKeyFile(env: Record<string, string | undefined> = process.env): string {
-  return join(env.HOME?.trim() || homedir(), '.config', 'local-review', 'jev-key');
+  return join(env.HOME?.trim() || homedir(), '.config', 'silykat', 'jev-key');
 }
 
 export interface KeyStatus {
@@ -62,7 +62,7 @@ export async function jevKeyStatus(env: Record<string, string | undefined> = pro
  * through the conversation). It asks for the key without showing it, and saves it in a file only
  * they can read.
  */
-export function jevKeySetupCommand(path = '$HOME/.config/local-review/jev-key'): string {
+export function jevKeySetupCommand(path = '$HOME/.config/silykat/jev-key'): string {
   const dir = path.replace(/\/[^/]+$/, '');
   return (
     `sh -c 'umask 077 && mkdir -p "${dir}" && trap "stty echo; echo; exit 130" INT TERM && ` +

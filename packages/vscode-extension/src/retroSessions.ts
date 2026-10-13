@@ -6,10 +6,10 @@ import {
   SOURCE_SETTINGS,
   writeConfig,
   type MachineConfig,
-} from '@local-review/core';
+} from '@silykat/core';
 import type { Log } from './log';
 
-const SECTION = 'localReview';
+const SECTION = 'silykat';
 
 /** The retro settings of VS Code mirrored in the machine settings, with their valid values. */
 const MIRRORED: readonly { setting: string; key: keyof MachineConfig; values: readonly string[] }[] = [
@@ -22,8 +22,8 @@ const MIRRORED: readonly { setting: string; key: keyof MachineConfig; values: re
 /**
  * The retro settings of VS Code ("Retro Sessions": how a retro reads the agent's sessions; "Retro
  * Sources": whether it reads each source): mirrored in the machine settings, which the retro reads
- * through `lr`, outside VS Code. Written at start when set, and on every change (back to the default
- * when reset). A project's own settings (`lr config --project`) still come first.
+ * through `slk`, outside VS Code. Written at start when set, and on every change (back to the default
+ * when reset). A project's own settings (`slk config --project`) still come first.
  */
 export class RetroSessionsSetting implements vscode.Disposable {
   private readonly disposables: vscode.Disposable[] = [];

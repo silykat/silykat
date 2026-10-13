@@ -4,10 +4,10 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import type { LocalReviewApi } from '../../src/extension';
+import type { SilykatApi } from '../../src/extension';
 import { WAIT_MS } from './timing';
 
-const EXTENSION_ID = 'local.local-review';
+const EXTENSION_ID = 'silykat.silykat';
 
 async function waitFor(what: string, probe: () => boolean, timeoutMs = WAIT_MS): Promise<void> {
   const start = Date.now();
@@ -18,24 +18,24 @@ async function waitFor(what: string, probe: () => boolean, timeoutMs = WAIT_MS):
 }
 
 describe('Archive and clean up threads', () => {
-  let api: LocalReviewApi;
+  let api: SilykatApi;
   let ws: string;
   let uri: vscode.Uri;
   let informed: string[];
   let confirmed: { message: string; detail: string; action: string }[];
   let answer: boolean;
-  let lrScript: string;
+  let slkScript: string;
 
-  /** Runs the real, bundled `lr` in its own process, as an agent asked by the user does. */
-  const lr = (...args: string[]) =>
+  /** Runs the real, bundled `slk` in its own process, as an agent asked by the user does. */
+  const slk = (...args: string[]) =>
     new Promise<{ code: number | null; stdout: string }>((done) => {
-      const child = fork(lrScript, args, { cwd: ws, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
+      const child = fork(slkScript, args, { cwd: ws, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
       let stdout = '';
       child.stdout!.on('data', (c: Buffer) => (stdout += c.toString()));
       child.on('exit', (code) => done({ code, stdout }));
     });
 
-  const journal = (id: string) => join(ws, '.local-review', 'threads', `${id}.jsonl`);
+  const journal = (id: string) => join(ws, '.silykat', 'threads', `${id}.jsonl`);
   const events = (id: string) =>
     readFileSync(journal(id), 'utf8')
       .trimEnd()
@@ -50,17 +50,17 @@ describe('Archive and clean up threads', () => {
 
   async function newThread(line: number, text = 'Rename this variable'): Promise<string> {
     const thread = api.controller.createCommentThread(uri, new vscode.Range(line, 0, line, 0), []);
-    await vscode.commands.executeCommand('localReview.submitComment', { thread, text });
+    await vscode.commands.executeCommand('silykat.submitComment', { thread, text });
     return api.listThreads().find((t) => t.thread === thread)!.id;
   }
-  const resolve = (id: string) => vscode.commands.executeCommand('localReview.resolveThread', managed(id).thread);
+  const resolve = (id: string) => vscode.commands.executeCommand('silykat.resolveThread', managed(id).thread);
 
   before(async () => {
-    const ext = vscode.extensions.getExtension<LocalReviewApi>(EXTENSION_ID)!;
+    const ext = vscode.extensions.getExtension<SilykatApi>(EXTENSION_ID)!;
     api = await ext.activate();
     ws = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
     uri = vscode.Uri.file(join(ws, 'sample.ts'));
-    lrScript = join(ext.extensionPath, '..', 'cli', 'dist', 'lr.js');
+    slkScript = join(ext.extensionPath, '..', 'cli', 'dist', 'slk.js');
     await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri));
   });
 
@@ -68,7 +68,7 @@ describe('Archive and clean up threads', () => {
     informed = [];
     confirmed = [];
     answer = true;
-    rmSync(join(ws, '.local-review'), { recursive: true, force: true });
+    rmSync(join(ws, '.silykat'), { recursive: true, force: true });
     await api.reload();
     api.setConfirmHandler(async (message, detail, action) => {
       confirmed.push({ message, detail, action });
@@ -80,14 +80,14 @@ describe('Archive and clean up threads', () => {
   after(async () => {
     api.setConfirmHandler(undefined);
     api.setArchivePrompts(undefined);
-    rmSync(join(ws, '.local-review'), { recursive: true, force: true });
+    rmSync(join(ws, '.silykat'), { recursive: true, force: true });
     await api.reload();
   });
 
   it('archives a thread from its header: gone from VS Code, kept in the journal (format 2)', async () => {
     const id = await newThread(2);
     const other = await newThread(4);
-    await vscode.commands.executeCommand('localReview.archiveThread', managed(id).thread);
+    await vscode.commands.executeCommand('silykat.archiveThread', managed(id).thread);
 
     assert.deepEqual(shown(), [other]);
     assert.deepEqual(
@@ -98,7 +98,7 @@ describe('Archive and clean up threads', () => {
         ['thread.archived', 2, 'user'],
       ],
     );
-    assert.equal(readFileSync(join(ws, '.local-review', 'schema-version'), 'utf8'), '2\n');
+    assert.equal(readFileSync(join(ws, '.silykat', 'schema-version'), 'utf8'), '2\n');
     // Still gone after a reload: archived is recorded, not just hidden.
     await api.reload();
     assert.deepEqual(shown(), [other]);
@@ -112,14 +112,14 @@ describe('Archive and clean up threads', () => {
     await resolve(b);
 
     answer = false;
-    await vscode.commands.executeCommand('localReview.archiveResolvedThreads');
+    await vscode.commands.executeCommand('silykat.archiveResolvedThreads');
     assert.equal(confirmed[0]?.message, 'Archive 2 resolved threads?');
     assert.deepEqual(shown().sort(), [a, b, open].sort()); // cancelled: nothing archived
 
     answer = true;
-    await vscode.commands.executeCommand('localReview.archiveResolvedThreads');
+    await vscode.commands.executeCommand('silykat.archiveResolvedThreads');
     assert.deepEqual(shown(), [open]);
-    assert.ok(informed.includes('Local Review: 2 threads archived.'), informed.join('\n'));
+    assert.ok(informed.includes('silykat: 2 threads archived.'), informed.join('\n'));
 
     let offered: string[] = [];
     api.setArchivePrompts({
@@ -130,29 +130,29 @@ describe('Archive and clean up threads', () => {
         return items.filter((i) => i.thread.thread.id === a);
       },
     });
-    await vscode.commands.executeCommand('localReview.showArchivedThreads');
+    await vscode.commands.executeCommand('silykat.showArchivedThreads');
     assert.deepEqual(offered.sort(), ['sample.ts:3 · First', 'sample.ts:5 · Second']);
     assert.deepEqual(shown().sort(), [a, open].sort());
     assert.equal(managed(a).state.status, 'resolved');
-    assert.ok(informed.includes('Local Review: 1 thread unarchived.'));
+    assert.ok(informed.includes('silykat: 1 thread unarchived.'));
   });
 
   it('says when there is nothing to archive or bring back', async () => {
     await newThread(2);
-    await vscode.commands.executeCommand('localReview.archiveResolvedThreads');
-    await vscode.commands.executeCommand('localReview.showArchivedThreads');
+    await vscode.commands.executeCommand('silykat.archiveResolvedThreads');
+    await vscode.commands.executeCommand('silykat.showArchivedThreads');
     assert.equal(confirmed.length, 0);
     assert.deepEqual(informed, [
-      `Local Review: no resolved thread to archive before ${tomorrow()}.`,
-      'Local Review: no archived thread.',
+      `silykat: no resolved thread to archive before ${tomorrow()}.`,
+      'silykat: no archived thread.',
     ]);
   });
 
   it('exports every thread, archived ones included, to a JSON file', async () => {
     const a = await newThread(2);
     const b = await newThread(4);
-    await vscode.commands.executeCommand('localReview.archiveThread', managed(a).thread);
-    const file = join(mkdtempSync(join(tmpdir(), 'lr-export-')), 'threads.json');
+    await vscode.commands.executeCommand('silykat.archiveThread', managed(a).thread);
+    const file = join(mkdtempSync(join(tmpdir(), 'slk-export-')), 'threads.json');
     let proposed = '';
     api.setArchivePrompts({
       inform: (m) => informed.push(m),
@@ -161,9 +161,9 @@ describe('Archive and clean up threads', () => {
         return vscode.Uri.file(file);
       },
     });
-    await vscode.commands.executeCommand('localReview.exportThreads');
+    await vscode.commands.executeCommand('silykat.exportThreads');
 
-    assert.match(proposed, /local-review-threads-\d{4}-\d{2}-\d{2}\.json$/);
+    assert.match(proposed, /silykat-threads-\d{4}-\d{2}-\d{2}\.json$/);
     const exported = JSON.parse(readFileSync(file, 'utf8')) as {
       threads: number;
       projects: { threads: { id: string; archivedAt: string | null }[] }[];
@@ -172,7 +172,7 @@ describe('Archive and clean up threads', () => {
     assert.deepEqual(threads.map((t) => t.id).sort(), [a, b].sort());
     assert.ok(threads.find((t) => t.id === a)!.archivedAt);
     assert.equal(threads.find((t) => t.id === b)!.archivedAt, null);
-    assert.ok(informed.includes(`Local Review: 2 threads exported to ${file}.`));
+    assert.ok(informed.includes(`silykat: 2 threads exported to ${file}.`));
     rmSync(join(file, '..'), { recursive: true, force: true });
   });
 
@@ -181,32 +181,32 @@ describe('Archive and clean up threads', () => {
     const archived = await newThread(4);
     const open = await newThread(6);
     await resolve(resolved);
-    await vscode.commands.executeCommand('localReview.archiveThread', managed(archived).thread);
+    await vscode.commands.executeCommand('silykat.archiveThread', managed(archived).thread);
 
     answer = false;
-    await vscode.commands.executeCommand('localReview.deleteOldThreads');
+    await vscode.commands.executeCommand('silykat.deleteOldThreads');
     assert.equal(confirmed[0]?.message, 'Delete 2 threads permanently?');
     assert.match(confirmed[0]!.detail, /1 older thread still in progress is kept/);
     assert.ok(existsSync(journal(resolved)) && existsSync(journal(archived)));
 
     answer = true;
-    await vscode.commands.executeCommand('localReview.deleteOldThreads');
+    await vscode.commands.executeCommand('silykat.deleteOldThreads');
     assert.equal(confirmed[1]?.action, 'Delete 2 Threads');
-    assert.ok(informed.includes('Local Review: 2 threads deleted permanently.'), informed.join('\n'));
+    assert.ok(informed.includes('silykat: 2 threads deleted permanently.'), informed.join('\n'));
     assert.equal(existsSync(journal(resolved)), false);
     assert.equal(existsSync(journal(archived)), false);
     assert.deepEqual(shown(), [open]);
   });
 
-  it('follows lr archive and lr unarchive run outside VS Code', async () => {
+  it('follows slk review archive and slk review unarchive run outside VS Code', async () => {
     const id = await newThread(2);
     const other = await newThread(4);
-    const archived = await lr('archive', id);
+    const archived = await slk('review', 'archive', id);
     assert.equal(archived.code, 0, archived.stdout);
     await waitFor('the archived thread to leave VS Code', () => !shown().includes(id));
     assert.deepEqual(shown(), [other]);
 
-    const back = await lr('unarchive', id);
+    const back = await slk('review', 'unarchive', id);
     assert.equal(back.code, 0, back.stdout);
     await waitFor('the unarchived thread to come back', () => shown().includes(id));
   });

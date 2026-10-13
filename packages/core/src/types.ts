@@ -1,9 +1,9 @@
 /**
- * The newest format this version reads and writes (`.local-review/schema-version`). Each event says
+ * The newest format this version reads and writes (`.silykat/schema-version`). Each event says
  * which format it needs in its own `v` (see `eventVersion`): version 2 added archiving.
  */
 export const SCHEMA_VERSION = 2;
-export const STORE_DIR = '.local-review';
+export const STORE_DIR = '.silykat';
 
 /** Who wrote an event. `agent` is any AI coding agent (Claude, Codex…), named by the event's `agent` field. */
 export type Author = 'user' | 'agent';
@@ -19,7 +19,7 @@ export const DELETE_REASONS: readonly DeleteReason[] = ['user', 'branch-gone'];
 /**
  * The agent's conversation a comment was written in: its session (the agent's own id), and when the
  * agent's integration knows it, the message that wrote the comment (for Claude Code: the id of the
- * tool call that ran `lr reply`). Lets a retro read the conversation back while the agent keeps it.
+ * tool call that ran `slk review reply`). Lets a retro read the conversation back while the agent keeps it.
  */
 export interface AgentSessionRef {
   id: string;

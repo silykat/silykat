@@ -83,7 +83,7 @@ export async function runAudit(
   run: Runner = runProcess,
   timeoutMs = AUDIT_TIMEOUT_MS,
 ): Promise<AuditOutcome> {
-  const claude = env.LR_CLAUDE_BIN?.trim() || 'claude';
+  const claude = env.SLK_CLAUDE_BIN?.trim() || 'claude';
   const v = await run(claude, ['--version'], { cwd: root, env, timeoutMs: 30_000 });
   const version = v.code === 0 ? parseVersion(v.stdout) : null;
   if (!version) return { kind: 'skipped', reason: 'Claude Code was not found' };

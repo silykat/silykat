@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { readAgentSessions, RetroBook, SessionRegistry, type RetroSource } from '@local-review/core';
+import { readAgentSessions, RetroBook, SessionRegistry, type RetroSource } from '@silykat/core';
 import { handleHook, type HookDeps } from '../src/hook';
 import type { Runner } from '../src/retroAudit';
 import { runRetroCli } from '../src/retroCli';
@@ -10,10 +10,10 @@ import { projectTranscripts } from '../src/retroInsights';
 import { isPrintMode, recordClaudeSession } from '../src/sessionLog';
 
 let base: string;
-const env = () => ({ HOME: join(base, 'home'), LOCAL_REVIEW_HOME: join(base, 'machine') });
+const env = () => ({ HOME: join(base, 'home'), SILYKAT_HOME: join(base, 'machine') });
 
 beforeEach(async () => {
-  base = await realpath(await mkdtemp(join(tmpdir(), 'lr-retro-sources-claude-')));
+  base = await realpath(await mkdtemp(join(tmpdir(), 'slk-retro-sources-claude-')));
 });
 afterEach(async () => {
   await rm(base, { recursive: true, force: true });
@@ -80,7 +80,7 @@ describe('the log of Claude Code sessions, for the cadence of retros', () => {
   });
 });
 
-describe('lr-retro, on the sources of the retro', () => {
+describe('slk-retro, on the sources of the retro', () => {
   async function retro(sources: RetroSource[]) {
     const root = join(base, 'work');
     const book = new RetroBook(root);

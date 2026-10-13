@@ -5,7 +5,7 @@ import { Store } from './store';
 import { topicKey, type Topic } from './topics';
 
 /**
- * A running agent session known to Local Review. Written by the agent's adapter (e.g. the Claude
+ * A running agent session known to silykat. Written by the agent's adapter (e.g. the Claude
  * Code plugin's hooks), read by the VS Code extension to know where to send the comments.
  */
 export interface SessionRecord {
@@ -22,7 +22,7 @@ export interface SessionRecord {
   startedAt: string;
   /**
    * Whether deliveries reach the agent on their own, even while it waits for the user (for Claude
-   * Code: the session was launched with the Local Review channel). `null` when unknown.
+   * Code: the session was launched with the silykat channel). `null` when unknown.
    */
   push?: boolean | null;
   /** When `push` is not true: the command that launches the agent with push on, shown to the user. */
@@ -47,7 +47,7 @@ const CURSOR_HEAD_BYTES = 256;
 export interface Delivery {
   id: string;
   at: string;
-  /** Folder holding the `.local-review/` store of the threads. */
+  /** Folder holding the `.silykat/` store of the threads. */
   root: string;
   /**
    * A new thread, a reply outside a review, a submitted review, or a change to published comments:
@@ -70,7 +70,7 @@ export interface AgentCall {
 
 const CALL_NOTE = 'call-';
 
-/** A call older than this is not the one running `lr` now (its end was missed, e.g. interrupted). */
+/** A call older than this is not the one running `slk` now (its end was missed, e.g. interrupted). */
 const CALL_MAX_AGE_MS = 15 * 60_000;
 
 /**
@@ -106,17 +106,17 @@ export const LOOSE_ROOT = '/';
 
 /** The machine store of the files outside any open folder (`<home>/files/`). */
 export function looseStore(env: Record<string, string | undefined> = process.env): Store {
-  return new Store(LOOSE_ROOT, join(localReviewHome(env), 'files'));
+  return new Store(LOOSE_ROOT, join(silykatHome(env), 'files'));
 }
 
-/** The store of a root: `<root>/.local-review/`, or the machine store for `LOOSE_ROOT`. */
+/** The store of a root: `<root>/.silykat/`, or the machine store for `LOOSE_ROOT`. */
 export function storeAt(root: string, env: Record<string, string | undefined> = process.env): Store {
   return root === LOOSE_ROOT ? looseStore(env) : new Store(root);
 }
 
-/** Local Review's per-machine folder: `$LOCAL_REVIEW_HOME`, or `~/.local-review`. */
-export function localReviewHome(env: Record<string, string | undefined> = process.env): string {
-  return env.LOCAL_REVIEW_HOME?.trim() || join(homedir(), '.local-review');
+/** silykat's per-machine folder: `$SILYKAT_HOME`, or `~/.silykat`. */
+export function silykatHome(env: Record<string, string | undefined> = process.env): string {
+  return env.SILYKAT_HOME?.trim() || join(homedir(), '.silykat');
 }
 
 const SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -137,7 +137,7 @@ export class SessionRegistry {
   readonly dir: string;
 
   constructor(
-    home: string = localReviewHome(),
+    home: string = silykatHome(),
     private readonly isAlive: (pid: number) => boolean = isProcessAlive,
   ) {
     this.dir = join(home, 'sessions');
@@ -189,7 +189,7 @@ export class SessionRegistry {
   }
 
   /**
-   * Notes a command an agent starts (e.g. `lr reply …`), written by its adapter before it runs: `lr`
+   * Notes a command an agent starts (e.g. `slk review reply …`), written by its adapter before it runs: `slk`
    * then knows which message of the agent's conversation runs it. Removed by `endCall`, or with the
    * session.
    */
@@ -411,7 +411,7 @@ export async function processAncestors(pid: number = process.ppid, max = 12): Pr
 
 /**
  * The session a command runs in: the registered session whose process is one of its ancestors
- * (an agent runs `lr` through its shell).
+ * (an agent runs `slk` through its shell).
  */
 export function sessionOfProcess(sessions: readonly Session[], ancestors: readonly number[]): Session | undefined {
   for (const pid of ancestors) {

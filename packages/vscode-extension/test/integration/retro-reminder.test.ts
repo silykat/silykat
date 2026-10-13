@@ -2,20 +2,20 @@ import * as assert from 'node:assert/strict';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import { buildAnchorContext, readConfig, Store } from '@local-review/core';
-import type { LocalReviewApi } from '../../src/extension';
+import { buildAnchorContext, readConfig, Store } from '@silykat/core';
+import type { SilykatApi } from '../../src/extension';
 import { WAIT_MS } from './timing';
 
-const EXTENSION_ID = 'local.local-review';
+const EXTENSION_ID = 'silykat.silykat';
 const DAY = 86_400_000;
 
 describe('Retro reminder', () => {
-  let api: LocalReviewApi;
+  let api: SilykatApi;
   let root: string;
   let shown: { message: string; actions: string[] }[];
   let answer: string | undefined;
   let threadId: string;
-  const settings = () => vscode.workspace.getConfiguration('localReview.retroReminder');
+  const settings = () => vscode.workspace.getConfiguration('silykat.retroReminder');
 
   let retros = 0;
   /**
@@ -64,7 +64,7 @@ describe('Retro reminder', () => {
       { type: 'retro.conversation', thread: 't_1', sessions: [], available: false },
       { type: 'retro.finished' },
     ];
-    const dir = join(root, '.local-review', 'retros');
+    const dir = join(root, '.silykat', 'retros');
     mkdirSync(dir, { recursive: true });
     writeFileSync(
       join(dir, `${id}.jsonl`),
@@ -80,7 +80,7 @@ describe('Retro reminder', () => {
   };
 
   before(async () => {
-    api = await vscode.extensions.getExtension<LocalReviewApi>(EXTENSION_ID)!.activate();
+    api = await vscode.extensions.getExtension<SilykatApi>(EXTENSION_ID)!.activate();
     root = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
     api.setRetroReminderPrompt(async (message, actions) => {
       shown.push({ message, actions });
@@ -107,7 +107,7 @@ describe('Retro reminder', () => {
   });
 
   afterEach(async () => {
-    rmSync(join(root, '.local-review', 'retros'), { recursive: true, force: true });
+    rmSync(join(root, '.silykat', 'retros'), { recursive: true, force: true });
     for (const key of ['days', 'sizeKB', 'maxDays', 'statusBar', 'agentMessage'])
       await settings().update(key, undefined, vscode.ConfigurationTarget.Global);
   });
@@ -170,25 +170,22 @@ describe('Retro reminder', () => {
 
   it('explains how to run the retro on a click', async () => {
     retroEnded(8);
-    answer = 'Copy /local-review:retro';
-    const message = (await vscode.commands.executeCommand('localReview.showRetroReminder')) as string;
+    answer = 'Copy /silykat:retro';
+    const message = (await vscode.commands.executeCommand('silykat.showRetroReminder')) as string;
     assert.equal(shown.length, 1);
     assert.equal(shown[0]!.message, message);
-    assert.match(
-      message,
-      /^Local Review: a retro is due for [^:]+: 8 days, .* and 0 agent sessions since the last retro/,
-    );
-    assert.ok(message.includes('To run it with Claude Code: /local-review:retro'), message);
-    assert.deepEqual(shown[0]!.actions, ['Copy /local-review:retro', 'Reminder Settings']);
-    assert.equal(await vscode.env.clipboard.readText(), '/local-review:retro');
+    assert.match(message, /^silykat: a retro is due for [^:]+: 8 days, .* and 0 agent sessions since the last retro/);
+    assert.ok(message.includes('To run it with Claude Code: /silykat:retro'), message);
+    assert.deepEqual(shown[0]!.actions, ['Copy /silykat:retro', 'Reminder Settings']);
+    assert.equal(await vscode.env.clipboard.readText(), '/silykat:retro');
 
     answer = undefined;
     await settings().update('days', 30, vscode.ConfigurationTarget.Global);
-    const notYet = (await vscode.commands.executeCommand('localReview.showRetroReminder')) as string;
+    const notYet = (await vscode.commands.executeCommand('silykat.showRetroReminder')) as string;
     assert.match(notYet, /no retro due yet .* Reminder at 25 days, or sooner at 1\.0 MB of threads\./);
 
     retroEnded(-1);
-    const nothing = (await vscode.commands.executeCommand('localReview.showRetroReminder')) as string;
+    const nothing = (await vscode.commands.executeCommand('silykat.showRetroReminder')) as string;
     assert.match(nothing, /nothing to look back at since the last retro/);
     assert.deepEqual(shown.at(-1)!.actions, ['Reminder Settings']);
   });

@@ -2,10 +2,10 @@ import * as assert from 'node:assert/strict';
 import { existsSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import type { LocalReviewApi } from '../../src/extension';
+import type { SilykatApi } from '../../src/extension';
 import { WAIT_MS } from './timing';
 
-const EXTENSION_ID = 'local.local-review';
+const EXTENSION_ID = 'silykat.silykat';
 const CODE = [
   'export function find(id: string) {',
   '  const user = db.get(id);',
@@ -28,14 +28,14 @@ async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs = 
 }
 
 describe('A comment becomes outdated when its code disappears', () => {
-  let api: LocalReviewApi;
+  let api: SilykatApi;
   let ws: string;
   let n = 0;
 
   const managed = (id: string) => api.listThreads().find((t) => t.id === id)!;
   const text = (c: vscode.Comment) => (typeof c.body === 'string' ? c.body : c.body.value);
   const anchorUpdates = (id: string) => {
-    const f = join(ws, '.local-review', 'threads', `${id}.jsonl`);
+    const f = join(ws, '.silykat', 'threads', `${id}.jsonl`);
     return existsSync(f)
       ? readFileSync(f, 'utf8')
           .trimEnd()
@@ -53,7 +53,7 @@ describe('A comment becomes outdated when its code disappears', () => {
     const doc = await vscode.workspace.openTextDocument(uri);
     await vscode.window.showTextDocument(doc);
     const thread = api.controller.createCommentThread(uri, new vscode.Range(12, 0, 14, 5), []);
-    await vscode.commands.executeCommand('localReview.submitComment', {
+    await vscode.commands.executeCommand('silykat.submitComment', {
       thread,
       text: 'Throw instead of returning null',
     });
@@ -69,13 +69,13 @@ describe('A comment becomes outdated when its code disappears', () => {
   }
 
   before(async () => {
-    const ext = vscode.extensions.getExtension<LocalReviewApi>(EXTENSION_ID)!;
+    const ext = vscode.extensions.getExtension<SilykatApi>(EXTENSION_ID)!;
     api = await ext.activate();
     ws = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
   });
 
   beforeEach(async () => {
-    rmSync(join(ws, '.local-review'), { recursive: true, force: true });
+    rmSync(join(ws, '.silykat'), { recursive: true, force: true });
     await api.reload();
   });
 
@@ -113,13 +113,13 @@ describe('A comment becomes outdated when its code disappears', () => {
   it('can still be replied to, resolved and deleted', async () => {
     const { id, path, doc } = await threadOnIfBlock();
     await rewriteOutside(path, doc, ['// gone']);
-    await vscode.commands.executeCommand('localReview.reply', { thread: managed(id).thread, text: 'Never mind' });
+    await vscode.commands.executeCommand('silykat.reply', { thread: managed(id).thread, text: 'Never mind' });
     assert.equal(managed(id).state.comments.length, 2);
     assert.equal(managed(id).outdated, true);
-    await vscode.commands.executeCommand('localReview.resolveThread', managed(id).thread);
+    await vscode.commands.executeCommand('silykat.resolveThread', managed(id).thread);
     assert.equal(managed(id).thread.label, '⚠️ Outdated');
     api.setConfirmHandler(async () => true);
-    await vscode.commands.executeCommand('localReview.deleteThread', managed(id).thread);
+    await vscode.commands.executeCommand('silykat.deleteThread', managed(id).thread);
     api.setConfirmHandler(undefined);
     assert.equal(managed(id), undefined);
   });
@@ -128,9 +128,9 @@ describe('A comment becomes outdated when its code disappears', () => {
     const { id, path, doc } = await threadOnIfBlock();
     await rewriteOutside(path, doc, ['// gone']);
     const c = managed(id).thread.comments[0]!;
-    await vscode.commands.executeCommand('localReview.editComment', c);
+    await vscode.commands.executeCommand('silykat.editComment', c);
     assert.equal(text(managed(id).thread.comments[0]!), 'Throw instead of returning null');
-    await vscode.commands.executeCommand('localReview.cancelEdit', c);
+    await vscode.commands.executeCommand('silykat.cancelEdit', c);
     assert.ok(text(managed(id).thread.comments[0]!).startsWith('*This code is no longer in the file:*'));
   });
 
@@ -163,7 +163,7 @@ describe('A comment becomes outdated when its code disappears', () => {
     const doc = await vscode.workspace.openTextDocument(uri);
     await vscode.window.showTextDocument(doc);
     const created = api.controller.createCommentThread(uri, new vscode.Range(13, 0, 13, 5), []); // "return null;"
-    await vscode.commands.executeCommand('localReview.submitComment', { thread: created, text: 'Throw here' });
+    await vscode.commands.executeCommand('silykat.submitComment', { thread: created, text: 'Throw here' });
     const id = api.listThreads().find((t) => t.thread === created)!.id;
 
     const e = new vscode.WorkspaceEdit();

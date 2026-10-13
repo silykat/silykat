@@ -1,5 +1,5 @@
 import { dirname } from 'node:path';
-import { branchKey, gitWorktreeOf, worktreeTopOf, type BranchRef } from '@local-review/core';
+import { branchKey, gitWorktreeOf, worktreeTopOf, type BranchRef } from '@silykat/core';
 
 /**
  * Which branch is checked out where: the git worktree of each folder seen (cached, it does not

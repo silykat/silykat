@@ -7,7 +7,7 @@ import type { RetroBook } from './retro';
  * for the next ones (a session already reported is not analysed again, unless it went on since):
  *
  * ```text
- * .local-review/retros/sessions/<session-id>.json   one report per session (rewritten when it grows)
+ * .silykat/retros/sessions/<session-id>.json   one report per session (rewritten when it grows)
  * ```
  *
  * A report holds what was computed without a model from the agent's records (`analytics`: signals

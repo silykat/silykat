@@ -1,10 +1,10 @@
 import * as assert from 'node:assert/strict';
 import * as vscode from 'vscode';
-import { readConfig } from '@local-review/core';
-import type { LocalReviewApi } from '../../src/extension';
+import { readConfig } from '@silykat/core';
+import type { SilykatApi } from '../../src/extension';
 import { WAIT_MS } from './timing';
 
-const EXTENSION_ID = 'local.local-review';
+const EXTENSION_ID = 'silykat.silykat';
 
 async function until(what: string, probe: () => Promise<boolean> | boolean, timeoutMs = WAIT_MS): Promise<void> {
   const start = Date.now();
@@ -15,10 +15,10 @@ async function until(what: string, probe: () => Promise<boolean> | boolean, time
 }
 
 describe('How a retro reads the agent sessions', () => {
-  const settings = () => vscode.workspace.getConfiguration('localReview');
+  const settings = () => vscode.workspace.getConfiguration('silykat');
 
   before(async () => {
-    await vscode.extensions.getExtension<LocalReviewApi>(EXTENSION_ID)!.activate();
+    await vscode.extensions.getExtension<SilykatApi>(EXTENSION_ID)!.activate();
   });
 
   after(async () => {

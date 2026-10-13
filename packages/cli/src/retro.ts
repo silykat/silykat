@@ -71,52 +71,55 @@ import {
   type ThreadLabel,
   type Verdict,
   type Verification,
-} from '@local-review/core';
+} from '@silykat/core';
 import { parse, str, UsageError, type Values } from './args';
 import type { Io } from './cli';
 
 export const RETRO_USAGE = `Retros (look back at the feedback of a period with your agent, and improve its setup):
-  lr retro scope [--since <date> | --all]  What a retro would cover: period (since the last retro),
+  slk retro scope [--since <date> | --all]
+                                          What a retro would cover: period (since the last retro),
                                           stores, threads, size, time; its sources and their
                                           settings; the last retro, preferences
-  lr retro sources [--set <source>=yes|no|ask]…
+  slk retro sources [--set <source>=yes|no|ask]…
                                           The settings of the sources of a retro (reviews, sessions,
                                           audit): those of the project, else of the machine; --set
-                                          writes the project's (in its .local-review/config.json)
-  lr retro start [--since <date> | --all] [--sources reviews,sessions,audit]
+                                          writes the project's (in its .silykat/config.json)
+  slk retro start [--since <date> | --all] [--sources reviews,sessions,audit]
                                           Start a retro on that period, reading those sources (at
                                           least one; default: all three): prints its id
-  lr retro feedback <retro> --body -       What the user said about the previous retro
-  lr retro input <retro> --for classify|threads|sessions|audit|analysis
+  slk retro feedback <retro> --body -     What the user said about the previous retro
+  slk retro input <retro> --for classify|threads|sessions|audit|analysis
                                           Write what a step of the retro reads, in a file of the
                                           retro: prints its path. threads, sessions, audit: one
                                           source, for its own agent; analysis: the findings of every
                                           source (or every source, when none was read on its own)
-  lr retro findings <retro> --source threads|sessions|audit --body -
+  slk retro findings <retro> --source threads|sessions|audit --body -
                                           Record what one source shows: {"findings":[{"subject",
                                           "cause","evidence"|"sessions"|"audit","confidence",…}]}
                                           (refused while some are rejected)
-  lr retro classification <retro> --by <name> --body -
+  slk retro classification <retro> --by <name> --body -
                                           Record labels: {"labels":[{"thread","category",
                                           "confidence","missingRule","ignoredRule"}]}
-  lr retro check <retro> --body -          Apply the guard rails to proposals, record nothing
-  lr retro propose <retro> --body -        Record the proposals (refused while some are rejected)
-  lr retro show <retro>                    The retro: proposals with their threads and numbers
-  lr retro show <retro> <proposal> | --next
+  slk retro check <retro> --body -        Apply the guard rails to proposals, record nothing
+  slk retro propose <retro> --body -      Record the proposals (refused while some are rejected)
+  slk retro show <retro>                  The retro: proposals with their threads and numbers
+  slk retro show <retro> <proposal> | --next
                                           One proposal, to present it to the user (--next: the next
                                           one to decide, in the order of the discussion)
-  lr retro decide <retro> <proposal> accepted|modified|excluded|retargeted
+  slk retro decide <retro> <proposal> accepted|modified|excluded|retargeted
            [--target project-shared|project-personal|user] [--note <text>]
-  lr retro applied <retro> <proposal> --file <path>…   Files changed for a proposal
-  lr retro undo <retro> <proposal>         Undo a decision recorded by mistake, with its files
+  slk retro applied <retro> <proposal> --file <path>…
+                                          Files changed for a proposal
+  slk retro undo <retro> <proposal>       Undo a decision recorded by mistake, with its files
                                           (the journal is never edited by hand)
-  lr retro finish <retro>                  Close the retro: prints the files changed
-  lr retro list                            The retros of the project
-  lr retro prefs [add --body <text> | remove <id>]     The user's retro preferences
-  lr retro key                             Is the Jev key set up, and safely? (never read)
-  lr retro cadence                         Is a retro due? Days, size of the threads and agent
+  slk retro finish <retro>                Close the retro: prints the files changed
+  slk retro list                          The retros of the project
+  slk retro prefs [add --body <text> | remove <id>]
+                                          The user's retro preferences
+  slk retro key                           Is the Jev key set up, and safely? (never read)
+  slk retro cadence                       Is a retro due? Days, size of the threads and agent
                                           sessions since the last retro, against the reminder
-                                          settings (lr config)
+                                          settings (slk config)
   The project is --root (default: the current folder). --body - reads stdin, --body-file a file.`;
 
 const RETRO_OPTIONS = {
@@ -199,7 +202,7 @@ const book = async (c: Ctx) => new RetroBook(await retroHome(c.root, c.io.env));
 
 async function retroOf(c: Ctx): Promise<{ book: RetroBook; retro: RetroState }> {
   const id = c.positionals[0];
-  if (!id) throw new UsageError('missing <retro-id> (lr retro list)');
+  if (!id) throw new UsageError('missing <retro-id> (slk retro list)');
   const b = await book(c);
   return { book: b, retro: await b.get(id) };
 }
@@ -248,9 +251,9 @@ export function day(iso: string | null): string {
 /** How a retro reads the agent's sessions, in a line. */
 export const SESSIONS_MODE_LINE: Record<SessionsMode, string> = {
   reports:
-    "through a report on each session, written by a model (finer, costs more; or the agent's own summaries, cheaper: lr config set retro-sessions insights)",
+    "through a report on each session, written by a model (finer, costs more; or the agent's own summaries, cheaper: slk config set retro-sessions insights)",
   insights:
-    "through the agent's own summaries of them (Claude Code's /insights: cheaper; or a report on each session, finer: lr config set retro-sessions reports)",
+    "through the agent's own summaries of them (Claude Code's /insights: cheaper; or a report on each session, finer: slk config set retro-sessions reports)",
 };
 
 /** The sources of a retro, as the user knows them. */
@@ -296,7 +299,7 @@ function renderSources(settings: SourceSettings, s: RetroScope | null, root: str
       ? ['The project has its retro settings: follow them, without asking for them again (even at its first retro).']
       : [
           'This project has no retro settings yet: ask the user the setting of each source (yes, no or ask), then save them for the project:',
-          `lr retro sources --root ${quote(root)} --set reviews=<yes|no|ask> --set sessions=<yes|no|ask> --set audit=<yes|no|ask>`,
+          `slk retro sources --root ${quote(root)} --set reviews=<yes|no|ask> --set sessions=<yes|no|ask> --set audit=<yes|no|ask>`,
         ]),
   );
   return lines;
@@ -332,7 +335,7 @@ function renderScope(
     `- **The agent's sessions**: read ${SESSIONS_MODE_LINE[sessionsMode]}.`,
     `- **Size**: ${formatBytes(h.bytes)} of journals, about ${Math.round(s.estimate.tokens / 1000)}k tokens to read.`,
     `- **Time** (estimate): classification ${minutes(s.estimate.classifyJev)} with Jev or ${minutes(s.estimate.classifyModel)} with a small model, then analysis ${minutes(s.estimate.analysis)}.`,
-    `- **Retro journal**: ${resolve(s.home, '.local-review', 'retros')}`,
+    `- **Retro journal**: ${resolve(s.home, '.silykat', 'retros')}`,
     '',
     ...renderSources(settings, s, s.root),
     '',
@@ -413,7 +416,7 @@ async function scope(c: Ctx): Promise<number> {
   );
 }
 
-/** `lr retro sources`: the settings of the sources; `--set reviews=yes` writes the project's. */
+/** `slk retro sources`: the settings of the sources; `--set reviews=yes` writes the project's. */
 async function sources(c: Ctx): Promise<number> {
   const home = await retroHome(c.root, c.io.env);
   const sets = Array.isArray(c.values.set) ? c.values.set : [];
@@ -578,10 +581,10 @@ async function input(c: Ctx): Promise<number> {
   const root = `--root ${quote(c.root)}`;
   const next =
     kind === 'classify'
-      ? `lr retro classification ${r.id} ${root} --by <your name> --body-file ${quote(answer)}`
+      ? `slk retro classification ${r.id} ${root} --by <your name> --body-file ${quote(answer)}`
       : kind === 'analysis'
-        ? `lr retro check ${r.id} ${root} --body-file ${quote(answer)}, then lr retro propose with the same arguments`
-        : `lr retro findings ${r.id} ${root} --source ${kind} --body-file ${quote(answer)}`;
+        ? `slk retro check ${r.id} ${root} --body-file ${quote(answer)}, then slk retro propose with the same arguments`
+        : `slk retro findings ${r.id} ${root} --source ${kind} --body-file ${quote(answer)}`;
   const shown =
     kind === 'analysis' && bySource
       ? [`the findings of ${andList(FINDING_SOURCES.filter((x) => r.findings[x]).map((x) => SOURCE_TITLE[x]))}`]
@@ -624,7 +627,7 @@ async function input(c: Ctx): Promise<number> {
   );
 }
 
-/** `lr retro findings`: checks the findings of one source and records them (refused while some are rejected). */
+/** `slk retro findings`: checks the findings of one source and records them (refused while some are rejected). */
 async function findings(c: Ctx): Promise<number> {
   const { book: b, retro: r } = await retroOf(c);
   const source = str(c.values.source) as FindingSource;
@@ -1045,7 +1048,7 @@ function presentProposal(
   return lines.join('\n');
 }
 
-/** `lr retro show <retro> <proposal>` or `--next`: one proposal, in the order of the discussion. */
+/** `slk retro show <retro> <proposal>` or `--next`: one proposal, in the order of the discussion. */
 async function showOne(c: Ctx, r: RetroState): Promise<number> {
   // What revises a change of the last retro comes first, then the columns.
   const order = [
@@ -1055,7 +1058,7 @@ async function showOne(c: Ctx, r: RetroState): Promise<number> {
   const wanted = c.positionals[1];
   const p = wanted ? order.find((x) => x.id === wanted) : order.find((x) => !r.decisions[x.id]);
   if (!p) {
-    if (wanted) throw new Error(`Proposal not found: ${wanted} (lr retro show ${r.id})`);
+    if (wanted) throw new Error(`Proposal not found: ${wanted} (slk retro show ${r.id})`);
     c.io.out(order.length ? `All ${order.length} proposals are decided.` : 'No proposal recorded yet.');
     return 0;
   }
@@ -1200,7 +1203,7 @@ async function decide(c: Ctx): Promise<number> {
   const { book: b, retro: r } = await retroOf(c);
   const [, proposal, word] = c.positionals;
   const p = r.proposals.find((x) => x.id === proposal);
-  if (!p) throw new Error(`Proposal not found: ${proposal ?? '(none)'} (lr retro show ${r.id})`);
+  if (!p) throw new Error(`Proposal not found: ${proposal ?? '(none)'} (slk retro show ${r.id})`);
   const decision = (DECISION_ALIASES[word ?? ''] ?? word) as Decision;
   if (!DECISIONS.includes(decision)) throw new UsageError(`the decision must be one of ${DECISIONS.join(', ')}`);
   const target = str(c.values.target) as Target | undefined;
@@ -1219,7 +1222,7 @@ async function undo(c: Ctx): Promise<number> {
   const { book: b, retro: r } = await retroOf(c);
   const proposal = c.positionals[1];
   const p = r.proposals.find((x) => x.id === proposal);
-  if (!p) throw new Error(`Proposal not found: ${proposal ?? '(none)'} (lr retro show ${r.id})`);
+  if (!p) throw new Error(`Proposal not found: ${proposal ?? '(none)'} (slk retro show ${r.id})`);
   if (r.finishedAt) throw new Error(`Retro ${r.id} is finished`);
   const d = r.decisions[p.id];
   if (!d) throw new Error(`${p.id} has no decision to undo`);
@@ -1240,7 +1243,7 @@ async function applied(c: Ctx): Promise<number> {
   const p = r.proposals.find((x) => x.id === proposal);
   if (!p) throw new Error(`Proposal not found: ${proposal ?? '(none)'}`);
   const d = r.decisions[p.id];
-  if (!d || d.decision === 'excluded') throw new Error(`${p.id} was not accepted: decide it first (lr retro decide)`);
+  if (!d || d.decision === 'excluded') throw new Error(`${p.id} was not accepted: decide it first (slk retro decide)`);
   const files = (Array.isArray(c.values.file) ? c.values.file : []).map((f) => resolve(c.io.cwd, f));
   if (files.length === 0) throw new UsageError('say which files changed with --file <path>');
   await b.record(r.id, [{ type: 'retro.applied', proposal: p.id, files }]);
@@ -1377,7 +1380,7 @@ async function cadence(c: Ctx): Promise<number> {
     return [
       cad.due ? `A retro is due: ${cadenceSummary(cad)}.` : `No retro due yet: ${cadenceSummary(cad)}.`,
       ...dueReasons(cad).map((r) => `- ${r}`),
-      `Reminder settings (lr config): ${t.days} days, or ${formatBytes(t.bytes)} of threads, and never more than ${t.maxDays} days.`,
+      `Reminder settings (slk config): ${t.days} days, or ${formatBytes(t.bytes)} of threads, and never more than ${t.maxDays} days.`,
     ].join('\n');
   });
 }

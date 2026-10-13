@@ -1,5 +1,5 @@
 {
-  "name": "local-review-monorepo",
+  "name": "silykat",
   "version": "0.10.0",
   "private": true,
   "workspaces": [
@@ -14,11 +14,11 @@
     "lint": "oxlint --type-aware --deny-warnings .",
     "test": "npm run test --workspaces && node scripts/check-boundaries.mjs && node scripts/check-plugin-bundle.mjs",
     "test:integration": "npm run build -w packages/cli && npm run test:integration -w packages/vscode-extension",
-    "test:linux": "docker build -q -f scripts/linux/Dockerfile -t local-review-linux-tests . && docker run --rm --shm-size=2g -v local-review-linux-vscode:/home/node/repo/packages/vscode-extension/.vscode-test local-review-linux-tests",
+    "test:linux": "docker build -q -f scripts/linux/Dockerfile -t silykat-linux-tests . && docker run --rm --shm-size=2g -v silykat-linux-vscode:/home/node/repo/packages/vscode-extension/.vscode-test silykat-linux-tests",
     "coverage": "vitest run --coverage",
     "coverage:integration": "npm run build -w packages/cli && npm run test:integration:coverage -w packages/vscode-extension && node scripts/check-coverage.mjs",
     "package": "npm run package -w packages/vscode-extension",
-    "install-ext": "npm run package && code --install-extension packages/vscode-extension/dist/local-review.vsix --force",
+    "install-ext": "npm run package && code --install-extension packages/vscode-extension/dist/silykat.vsix --force",
     "build:release": "npm run build:claude-plugin && npm run package",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

@@ -3,10 +3,10 @@ import { fork } from 'node:child_process';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import type { LocalReviewApi } from '../../src/extension';
+import type { SilykatApi } from '../../src/extension';
 import { WAIT_MS } from './timing';
 
-const EXTENSION_ID = 'local.local-review';
+const EXTENSION_ID = 'silykat.silykat';
 
 async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs = WAIT_MS): Promise<T> {
   const start = Date.now();
@@ -20,7 +20,7 @@ async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs = 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe('Know when the agent replied', () => {
-  let api: LocalReviewApi;
+  let api: SilykatApi;
   let ws: string;
   let uri: vscode.Uri;
   let extensionPath: string;
@@ -31,7 +31,7 @@ describe('Know when the agent replied', () => {
 
   async function newThread(line: number): Promise<string> {
     const thread = api.controller.createCommentThread(uri, new vscode.Range(line, 0, line, 0), []);
-    await vscode.commands.executeCommand('localReview.submitComment', { thread, text: 'Why?' });
+    await vscode.commands.executeCommand('silykat.submitComment', { thread, text: 'Why?' });
     return api.listThreads().find((t) => t.thread === thread)!.id;
   }
 
@@ -48,7 +48,7 @@ describe('Know when the agent replied', () => {
     );
 
   before(async () => {
-    const ext = vscode.extensions.getExtension<LocalReviewApi>(EXTENSION_ID)!;
+    const ext = vscode.extensions.getExtension<SilykatApi>(EXTENSION_ID)!;
     api = await ext.activate();
     extensionPath = ext.extensionPath;
     ws = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
@@ -57,7 +57,7 @@ describe('Know when the agent replied', () => {
 
   beforeEach(async () => {
     await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri));
-    rmSync(join(ws, '.local-review'), { recursive: true, force: true });
+    rmSync(join(ws, '.silykat'), { recursive: true, force: true });
     await api.reload();
     notifications = [];
     clickAction = false;
@@ -73,7 +73,7 @@ describe('Know when the agent replied', () => {
     const id = await newThread(11);
     await agentReplies(id);
     await waitFor('the notification', () => (notifications.length === 1 ? true : undefined));
-    assert.deepEqual(notifications, ['Local Review: Claude replied on sample.ts:12']);
+    assert.deepEqual(notifications, ['silykat: Claude replied on sample.ts:12']);
     assert.equal(managed(id).state.lastAuthor, 'agent');
   });
 
@@ -113,9 +113,9 @@ describe('Know when the agent replied', () => {
     await Promise.all([agentReplies(a), agentReplies(b)]);
     await waitFor('two waiting', () => (api.awaitingUser().length === 2 ? true : undefined));
 
-    await vscode.commands.executeCommand('localReview.reply', { thread: managed(a).thread, text: 'Here is why' });
+    await vscode.commands.executeCommand('silykat.reply', { thread: managed(a).thread, text: 'Here is why' });
     assert.equal(api.awaitingStatusText(), '$(comment-unresolved) 1');
-    await vscode.commands.executeCommand('localReview.resolveThread', managed(b).thread);
+    await vscode.commands.executeCommand('silykat.resolveThread', managed(b).thread);
     assert.equal(api.awaitingStatusText(), undefined);
   });
 
@@ -124,11 +124,11 @@ describe('Know when the agent replied', () => {
     await Promise.all(ids.map((id) => agentReplies(id)));
     await waitFor('the notification', () => (notifications.length > 0 ? true : undefined));
     await sleep(800); // no second notification comes
-    assert.deepEqual(notifications, ['Local Review: Claude replied on 3 threads']);
+    assert.deepEqual(notifications, ['silykat: Claude replied on 3 threads']);
   });
 
   it('can be turned off in the settings; the counter stays', async () => {
-    const config = vscode.workspace.getConfiguration('localReview');
+    const config = vscode.workspace.getConfiguration('silykat');
     await config.update('notifyOnAgentReply', false, vscode.ConfigurationTarget.Global);
     try {
       const id = await newThread(8);
@@ -146,7 +146,7 @@ describe('Know when the agent replied', () => {
     const reply = agentReplies(id);
     await reply;
     await waitFor('the agent reply', () => (managed(id).state.lastAuthor === 'agent' ? true : undefined));
-    await vscode.commands.executeCommand('localReview.reply', { thread: managed(id).thread, text: 'Already on it' });
+    await vscode.commands.executeCommand('silykat.reply', { thread: managed(id).thread, text: 'Already on it' });
     await sleep(800);
     assert.deepEqual(notifications, []);
   });

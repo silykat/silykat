@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ThreadState } from '@local-review/core';
+import type { ThreadState } from '@silykat/core';
 import { outdatedQuote, threadLabel } from '../../src/labels';
 
 const WORKTREE = { source: 'worktree', ref: null, sha: null } as ThreadState['anchor'];

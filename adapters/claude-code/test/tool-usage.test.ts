@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promi
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { RetroBook } from '@local-review/core';
+import { RetroBook } from '@silykat/core';
 import { runRetroCli } from '../src/retroCli';
 import { setupTools } from '../src/retroSetup';
 import { keptDays, sessionUses, setupUsage } from '../src/toolUsage';
@@ -11,10 +11,10 @@ let base: string;
 let home: string;
 let root: string;
 let claudeDir: string;
-const env = () => ({ HOME: home, LOCAL_REVIEW_HOME: join(base, 'machine') });
+const env = () => ({ HOME: home, SILYKAT_HOME: join(base, 'machine') });
 
 beforeEach(async () => {
-  base = await realpath(await mkdtemp(join(tmpdir(), 'lr-tool-usage-')));
+  base = await realpath(await mkdtemp(join(tmpdir(), 'slk-tool-usage-')));
   home = join(base, 'home');
   root = join(base, 'work');
   claudeDir = join(home, '.claude');
@@ -135,7 +135,7 @@ describe('the usage of the tools of the setup', () => {
     expect(await keptDays(claudeDir)).toBe(30);
   });
 
-  it('is recorded in the retro by lr-retro usage', async () => {
+  it('is recorded in the retro by slk-retro usage', async () => {
     await setup();
     await session('s1', root, [typed(root, 'specs')]);
     const book = new RetroBook(root);
@@ -158,7 +158,7 @@ describe('the usage of the tools of the setup', () => {
     expect(code).toBe(0);
     expect(out).toContain('Usage of the 5 skills, commands and sub-agents of the setup');
     expect(out).toContain("(the project's: 1 session)");
-    expect(out).toContain(': 4 never used. lr retro input --for audit includes it.');
+    expect(out).toContain(': 4 never used. slk retro input --for audit includes it.');
     expect((await book.get(r.id)).usage?.tools).toHaveLength(5);
   });
 });

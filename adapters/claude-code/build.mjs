@@ -1,5 +1,5 @@
 // Builds the Claude Code plugin. Claude Code installs plugins from git, so these bundles are
-// committed: `lr` and `lr-retro` in plugin/bin/ (on the PATH of Claude's shell), the hooks' script
+// committed: `slk` and `slk-retro` in plugin/bin/ (on the PATH of Claude's shell), the hooks' script
 // and the channel server.
 // `--out <dir>` builds elsewhere, to check that the committed bundles are up to date.
 import { execFileSync } from 'node:child_process';
@@ -15,9 +15,9 @@ const plugin = outArg > 0 ? resolve(process.argv[outArg + 1]) : join(here, 'plug
 
 execFileSync('npm', ['run', 'build', '--silent', '-w', 'packages/cli'], { cwd: repo, stdio: 'inherit' });
 mkdirSync(join(plugin, 'bin'), { recursive: true });
-const lr = join(plugin, 'bin', 'lr');
-copyFileSync(join(repo, 'packages', 'cli', 'dist', 'lr.js'), lr);
-chmodSync(lr, 0o755);
+const slk = join(plugin, 'bin', 'slk');
+copyFileSync(join(repo, 'packages', 'cli', 'dist', 'slk.js'), slk);
+chmodSync(slk, 0o755);
 
 /** A Node script of the plugin, self-contained. */
 async function bundle(entry, outfile) {
@@ -38,7 +38,7 @@ async function bundle(entry, outfile) {
   chmodSync(outfile, 0o755);
 }
 
-await bundle('hookMain.ts', join(plugin, 'hooks', 'local-review-hook.js'));
-await bundle('channelMain.ts', join(plugin, 'channel', 'local-review-channel.js'));
-await bundle('retroMain.ts', join(plugin, 'bin', 'lr-retro'));
+await bundle('hookMain.ts', join(plugin, 'hooks', 'silykat-hook.js'));
+await bundle('channelMain.ts', join(plugin, 'channel', 'silykat-channel.js'));
+await bundle('retroMain.ts', join(plugin, 'bin', 'slk-retro'));
 console.log(`Claude Code plugin built: ${plugin}`);

@@ -105,7 +105,7 @@ function slotOf(storeRoot: string): string {
 
 /**
  * Saves the threads of the git worktree holding `dir` to the store of the repository's main
- * worktree, so that they outlive the worktree (`git worktree remove` deletes its `.local-review/`).
+ * worktree, so that they outlive the worktree (`git worktree remove` deletes its `.silykat/`).
  * Their journals are copied as they are, with where they come from; saving again refreshes the
  * copy. Nothing is removed from the worktree. Throws outside a linked worktree.
  */

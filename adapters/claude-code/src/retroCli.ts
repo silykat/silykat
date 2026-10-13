@@ -16,7 +16,7 @@ import {
   retroThreads,
   threadText,
   writeRetroFile,
-} from '@local-review/core';
+} from '@silykat/core';
 import { AUDIT_COMMAND, runAudit, type Runner } from './retroAudit';
 import { INSIGHTS_SOURCE, programSessions, projectSessions, projectTranscripts, runInsights } from './retroInsights';
 import {
@@ -35,38 +35,42 @@ import { collectSetup, renderSetup, setupTools } from './retroSetup';
 import { setupUsage } from './toolUsage';
 
 /** What is Claude Code's in a retro: its setup files, and the classification by Jev. */
-export const RETRO_CLI_USAGE = `lr-retro — the Claude Code part of Local Review's retros
+export const RETRO_CLI_USAGE = `slk-retro — the Claude Code part of silykat's retros
 
-  lr-retro setup <retro-id> [--root <dir>]   Write Claude Code's setup of the project (rules files,
+  slk-retro setup <retro-id> [--root <dir>]
+                                          Write Claude Code's setup of the project (rules files,
                                              .claude/ and .agents/ of the project and of ~) in a file
                                              of the retro, for its analysis
-  lr-retro jev <retro-id> [--root <dir>]     Classify the retro's threads with Jev (needs a key:
-                                             lr retro key), and record the labels
-  lr-retro audit <retro-id> [--root <dir>]   Audit the setup with /doctor prompt-audit (a separate,
+  slk-retro jev <retro-id> [--root <dir>]
+                                          Classify the retro's threads with Jev (needs a key:
+                                             slk retro key), and record the labels
+  slk-retro audit <retro-id> [--root <dir>]
+                                          Audit the setup with /doctor prompt-audit (a separate,
                                              read-only Claude Code; several minutes), in a file of
                                              the retro, for its analysis
 
-  lr-retro sessions [--root <dir>] [--since <date> | --all]
+  slk-retro sessions [--root <dir>] [--since <date> | --all]
                                              How many Claude Code sessions the project had in the
-                                             period of the next retro (as lr retro scope), how many
+                                             period of the next retro (as slk retro scope), how many
                                              need a report, and what writing them would take
-  lr-retro reports <retro-id> [--root <dir>]
+  slk-retro reports <retro-id> [--root <dir>]
                                              Write a report on each Claude Code session of the
                                              project and of the retro's period (one separate Claude
                                              Code each, with Opus, several at once), or reuse the
                                              one already written, for its analysis
-  lr-retro insights <retro-id> [--root <dir>]
+  slk-retro insights <retro-id> [--root <dir>]
                                              Run Claude Code's /insights (a separate Claude Code,
                                              about a minute), then keep what it knows of the
                                              sessions of the project and of the retro's period, for
                                              its analysis
 
-  lr-retro usage <retro-id> [--root <dir>]   Count how much each skill, command and sub-agent of the
+  slk-retro usage <retro-id> [--root <dir>]
+                                          Count how much each skill, command and sub-agent of the
                                              setup was used, from Claude Code's sessions (the
                                              project's tools on its sessions, the user's on every
                                              project), without a model, for the analysis of the audit
 
-  lr-retro conversation <retro-id> <thread-id> [--root <dir>]
+  slk-retro conversation <retro-id> <thread-id> [--root <dir>]
                                              Read back Claude Code's conversation where the agent
                                              replied in that thread (the steps that led to each
                                              reply), while Claude Code keeps it (30 days by
@@ -90,12 +94,12 @@ const localDay = (iso: string) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
-/** How the next retro reads the sessions, as `lr-retro sessions` says it. */
+/** How the next retro reads the sessions, as `slk-retro sessions` says it. */
 const MODE_LINE: Record<SessionsMode, string> = {
   reports:
-    "The retro reads them through these reports (setting retro-sessions: reports; Claude Code's /insights is cheaper: lr config set retro-sessions insights).",
+    "The retro reads them through these reports (setting retro-sessions: reports; Claude Code's /insights is cheaper: slk config set retro-sessions insights).",
   insights:
-    "The retro reads them through Claude Code's /insights (setting retro-sessions: insights; a report on each session is finer: lr config set retro-sessions reports).",
+    "The retro reads them through Claude Code's /insights (setting retro-sessions: insights; a report on each session is finer: slk config set retro-sessions reports).",
 };
 
 /** The source of a retro each action reads: skipped when the retro does not read it. */
@@ -197,7 +201,7 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
           `${MODE_LINE.insights} No report is written.`,
         ];
         if (scope.options.length > 0) {
-          lines.push('', 'Periods to choose from (as lr retro scope lists them):');
+          lines.push('', 'Periods to choose from (as slk retro scope lists them):');
           for (const o of scope.options) {
             const x = o.since === scope.since ? n : await count(o.since);
             lines.push(
@@ -231,9 +235,9 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
         ].join('\n'),
       );
       for (const o of p.oversized) tooLong.set(o.id, o);
-      // The periods to choose from, as lr retro scope lists them: what each one would cost.
+      // The periods to choose from, as slk retro scope lists them: what each one would cost.
       if (scope.options.length > 0) {
-        const lines = ['', 'Periods to choose from (as lr retro scope lists them):'];
+        const lines = ['', 'Periods to choose from (as slk retro scope lists them):'];
         for (const o of scope.options) {
           const x = o.since === scope.since ? p : await period(o.since);
           for (const s of x.oversized) tooLong.set(s.id, s);
@@ -300,7 +304,7 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
                   `(${w.scope === 'project' ? "the project's" : "every project's, for the user's tools"}: ${w.sessions} session${w.sessions === 1 ? '' : 's'})`,
               )
               .join(' ') +
-            `: ${never.length} never used. lr retro input --for audit includes it.`,
+            `: ${never.length} never used. slk retro input --for audit includes it.`,
         ].join('\n'),
       );
       return 0;
@@ -368,7 +372,7 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
             (leftOut.length ? `, ${leftOut.length} left out (too long to analyse)` : '') +
             (written ? `, in ${minutes(done.durationMs)}` : '') +
             (done.costUsd !== null ? ` (about $${done.costUsd.toFixed(2)} at the API list price)` : '') +
-            '. lr retro input --for analysis includes them.',
+            '. slk retro input --for analysis includes them.',
           ...failed.map((r) => `- ${r.id}: ${r.reason ?? 'failed'}`),
         ].join('\n'),
       );
@@ -389,13 +393,13 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
       );
       if (files > 0 && read === 0) {
         io.err(
-          `lr-retro: /insights has ${files} session file(s), but none could be read: its format changed. ` +
-            'The retro goes on without the sessions; tell the user to report it as a bug of Local Review.',
+          `slk-retro: /insights has ${files} session file(s), but none could be read: its format changed. ` +
+            'The retro goes on without the sessions; tell the user to report it as a bug of silykat.',
         );
         return 1;
       }
       if (files === 0 && ran.kind === 'failed') {
-        io.err(`lr-retro: /insights failed (${ran.reason}): the retro goes on without the sessions.`);
+        io.err(`slk-retro: /insights failed (${ran.reason}): the retro goes on without the sessions.`);
         return 1;
       }
       const file = await recordRetroSessions(
@@ -410,7 +414,7 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
         [
           `Written: ${file}`,
           `${sessions.length} Claude Code session${sessions.length === 1 ? '' : 's'} of this project in the period, ` +
-            `${withSummary} with a summary by /insights: lr retro input --for analysis includes them.`,
+            `${withSummary} with a summary by /insights: slk retro input --for analysis includes them.`,
           ...(ran.kind === 'failed' ? [`(/insights did not run: ${ran.reason}; its last results were used.)`] : []),
         ].join('\n'),
       );
@@ -423,7 +427,7 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
         return 0;
       }
       if (outcome.kind === 'failed') {
-        io.err(`lr-retro: the audit failed: ${outcome.reason}.`);
+        io.err(`slk-retro: the audit failed: ${outcome.reason}.`);
         return 1;
       }
       const file = await writeRetroFile(
@@ -455,7 +459,7 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
     const result = await classifyWithJev(
       [...threads.values()].map(({ thread, store }) => ({ id: thread.id, text: threadText(thread, store) })),
       rules,
-      { fetch: io.fetch ?? (fetch as unknown as JevDeps['fetch']), key, url: io.env.LR_JEV_URL?.trim() || undefined },
+      { fetch: io.fetch ?? (fetch as unknown as JevDeps['fetch']), key, url: io.env.SLK_JEV_URL?.trim() || undefined },
     );
     const n = Object.keys(result.labels).length;
     if (n > 0) await book.record(retro.id, [{ type: 'retro.classified', by: 'jev', labels: result.labels }]);
@@ -469,7 +473,7 @@ export async function runRetroCli(args: string[], io: RetroCliIo): Promise<numbe
     );
     return n > 0 ? 0 : 1;
   } catch (err) {
-    io.err(`lr-retro: ${err instanceof Error ? err.message : String(err)}`);
+    io.err(`slk-retro: ${err instanceof Error ? err.message : String(err)}`);
     return 1;
   }
 }

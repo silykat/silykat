@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_CADENCE, type RetroCadence } from '@local-review/core';
+import { DEFAULT_CADENCE, type RetroCadence } from '@silykat/core';
 import { retroReminderMessage, retroStatusText, retroTooltip, shownCadence, validFor } from '../../src/retroStatus';
 
 const cadence = (over: Partial<RetroCadence> = {}): RetroCadence => ({
@@ -38,7 +38,7 @@ describe('retro reminder in the status bar', () => {
     expect(shownCadence([quiet])).toBeUndefined();
     expect(retroTooltip([near, quiet, due], name)).toBe(
       [
-        '**Local Review: retro**',
+        '**silykat: retro**',
         '$(history) web: 6 days, 640.0 KB of review threads (30) and 0 agent sessions since the last retro (2026-09-27)',
         '$(bell-dot) **due** ops: 1 day, 640.0 KB of review threads (30) and 0 agent sessions since the last retro (2026-09-27)',
         'Click to see how to run a retro.',
@@ -50,16 +50,16 @@ describe('retro reminder in the status bar', () => {
     const due = cadence({ days: 8, due: true, reasons: ['days'] });
     const message = retroReminderMessage(due, DEFAULT_CADENCE, name);
     expect(message).toMatch(
-      /^Local Review: a retro is due for api: 8 days, 640\.0 KB .* \(8 days since the last retro \(reminder at 7\)\)\. A retro looks back/,
+      /^silykat: a retro is due for api: 8 days, 640\.0 KB .* \(8 days since the last retro \(reminder at 7\)\)\. A retro looks back/,
     );
     expect(message).toContain(
-      'To run it with Claude Code: /local-review:retro, in a session started in the project folder.',
+      'To run it with Claude Code: /silykat:retro, in a session started in the project folder.',
     );
     expect(retroReminderMessage(cadence(), DEFAULT_CADENCE, name)).toContain(
       'no retro due yet for api: 6 days, 640.0 KB of review threads (30) and 0 agent sessions since the last retro (2026-09-27). Reminder at 7 days, or sooner at 1.0 MB of threads.',
     );
     expect(retroReminderMessage(undefined, { days: 30, bytes: 2_000_000, maxDays: 25 }, name)).toBe(
-      'Local Review: nothing to look back at since the last retro. Reminder at 25 days, or sooner at 2.0 MB of threads.',
+      'silykat: nothing to look back at since the last retro. Reminder at 25 days, or sooner at 2.0 MB of threads.',
     );
   });
 

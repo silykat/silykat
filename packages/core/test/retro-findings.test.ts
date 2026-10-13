@@ -24,7 +24,7 @@ import {
 
 let base: string;
 beforeEach(async () => {
-  base = await realpath(await mkdtemp(join(tmpdir(), 'lr-retro-findings-')));
+  base = await realpath(await mkdtemp(join(tmpdir(), 'slk-retro-findings-')));
 });
 afterEach(async () => {
   await rm(base, { recursive: true, force: true });

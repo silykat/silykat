@@ -48,7 +48,7 @@ const added: ThreadEvent = {
 };
 
 let base: string;
-const env = () => ({ LOCAL_REVIEW_HOME: join(base, 'home'), HOME: join(base, 'user') });
+const env = () => ({ SILYKAT_HOME: join(base, 'home'), HOME: join(base, 'user') });
 const git = (cwd: string, ...args: string[]) =>
   execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@e', ...args], { cwd, stdio: 'pipe' })
     .toString()
@@ -70,7 +70,7 @@ async function repoWithWorktree(): Promise<{ main: string; wt: string }> {
 }
 
 beforeEach(async () => {
-  base = await realpath(await mkdtemp(join(tmpdir(), 'lr-keep-')));
+  base = await realpath(await mkdtemp(join(tmpdir(), 'slk-keep-')));
 });
 
 afterEach(async () => {
@@ -181,7 +181,7 @@ describe('machine settings', () => {
     });
     // A failed write does not stop the next ones.
     await writeFile(join(base, 'blocker'), '');
-    await expect(writeConfig({ retroReminder: false }, { LOCAL_REVIEW_HOME: join(base, 'blocker') })).rejects.toThrow();
+    await expect(writeConfig({ retroReminder: false }, { SILYKAT_HOME: join(base, 'blocker') })).rejects.toThrow();
     expect(await writeConfig({ retroReminder: false }, env())).toMatchObject({ retroReminder: false });
   });
 });
@@ -222,7 +222,7 @@ describe('git worktrees', () => {
       [sub, 1, 1],
     ]);
     // The main store is ignored by git, as the editor does.
-    expect(await readFile(join(main, '.git', 'info', 'exclude'), 'utf8')).toContain('.local-review/');
+    expect(await readFile(join(main, '.git', 'info', 'exclude'), 'utf8')).toContain('.silykat/');
     expect(await worktreeThreadCount(wt, env())).toBe(3);
 
     git(main, 'worktree', 'remove', '--force', wt);
@@ -253,10 +253,10 @@ describe('git worktrees', () => {
     expect(h.stores.map((s) => s.origin)).toEqual(['root', 'worktree']);
     expect(h.stores[1]!.threads[0]!.conversation).toHaveLength(2);
 
-    const [before] = await savedStores(join(main, '.local-review'));
+    const [before] = await savedStores(join(main, '.silykat'));
     await new Promise((r) => setTimeout(r, 5));
     const again = await saveWorktreeThreads(wt, env());
-    const [slot] = await savedStores(join(main, '.local-review'));
+    const [slot] = await savedStores(join(main, '.silykat'));
     expect(slot!.firstSavedAt).toBe(before!.firstSavedAt);
     expect(slot!.savedAt > before!.savedAt).toBe(true);
     expect(again.copies[0]!.dir).toBe(first.copies[0]!.dir);
@@ -269,7 +269,7 @@ describe('git worktrees', () => {
     await expect(saveWorktreeThreads(main, env())).rejects.toThrow(/main worktree/);
     await expect(saveWorktreeThreads(base, env())).rejects.toThrow(/not in a git repository/);
     expect(await saveWorktreeThreads(wt, env())).toMatchObject({ copies: [], threads: 0 });
-    expect(await savedStores(join(main, '.local-review'))).toEqual([]);
+    expect(await savedStores(join(main, '.silykat'))).toEqual([]);
   });
 
   it('reads only well-formed origins', () => {

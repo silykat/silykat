@@ -3,10 +3,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import { localReviewHome, looseStore, SessionRegistry, type Delivery } from '@local-review/core';
-import type { LocalReviewApi } from '../../src/extension';
+import { silykatHome, looseStore, SessionRegistry, type Delivery } from '@silykat/core';
+import type { SilykatApi } from '../../src/extension';
 
-const EXTENSION_ID = 'local.local-review';
+const EXTENSION_ID = 'silykat.silykat';
 
 async function waitFor<T>(
   what: string,
@@ -23,7 +23,7 @@ async function waitFor<T>(
 }
 
 describe('Comments on files outside the open folders', () => {
-  let api: LocalReviewApi;
+  let api: SilykatApi;
   let outside: string; // a folder in none of the workspace folders
   let file: string;
   let uri: vscode.Uri;
@@ -40,10 +40,10 @@ describe('Comments on files outside the open folders', () => {
   };
 
   before(async () => {
-    const ext = vscode.extensions.getExtension<LocalReviewApi>(EXTENSION_ID)!;
+    const ext = vscode.extensions.getExtension<SilykatApi>(EXTENSION_ID)!;
     api = await ext.activate();
-    registry = new SessionRegistry(localReviewHome());
-    outside = mkdtempSync(join(tmpdir(), 'lr-outside-'));
+    registry = new SessionRegistry(silykatHome());
+    outside = mkdtempSync(join(tmpdir(), 'slk-outside-'));
     file = join(outside, 'spec.md');
     writeFileSync(file, '# Spec\n\nFirst point\nSecond point\n');
     uri = vscode.Uri.file(file);
@@ -66,7 +66,7 @@ describe('Comments on files outside the open folders', () => {
     assert.ok((await ranges(uri)).length > 0, 'commentable');
     await vscode.window.showTextDocument(uri);
     const thread = api.controller.createCommentThread(uri, new vscode.Range(2, 0, 2, 0), []);
-    await vscode.commands.executeCommand('localReview.submitComment', { thread, text: 'Clarify this point' });
+    await vscode.commands.executeCommand('silykat.submitComment', { thread, text: 'Clarify this point' });
 
     const { threads } = await looseStore().loadAll();
     assert.equal(threads.length, 1);
@@ -79,7 +79,7 @@ describe('Comments on files outside the open folders', () => {
 
   it('shows the agent replies live', async () => {
     const thread = api.controller.createCommentThread(uri, new vscode.Range(3, 0, 3, 0), []);
-    await vscode.commands.executeCommand('localReview.submitComment', { thread, text: 'And this one?' });
+    await vscode.commands.executeCommand('silykat.submitComment', { thread, text: 'And this one?' });
     const id = byFile()!.id;
     await looseStore().addComment(
       id,
@@ -102,7 +102,7 @@ describe('Comments on files outside the open folders', () => {
     });
     await registry.subscribe('writer', { kind: 'path', path: file }, 'modified');
     const thread = api.controller.createCommentThread(uri, new vscode.Range(2, 0, 2, 0), []);
-    await vscode.commands.executeCommand('localReview.submitComment', { thread, text: 'For the writer' });
+    await vscode.commands.executeCommand('silykat.submitComment', { thread, text: 'For the writer' });
     const [d] = await waitFor('the delivery', async () => {
       const deliveries: Delivery[] = (await registry.readInbox('writer')).deliveries;
       return deliveries.length > 0 ? deliveries : undefined;
@@ -110,8 +110,8 @@ describe('Comments on files outside the open folders', () => {
     assert.equal(d!.root, '/');
   });
 
-  it("never offers to comment Local Review's own machine folder", async () => {
-    const own = join(localReviewHome(), 'sessions');
+  it("never offers to comment silykat's own machine folder", async () => {
+    const own = join(silykatHome(), 'sessions');
     mkdirSync(own, { recursive: true });
     writeFileSync(join(own, 'x.json'), '{}\n');
     assert.deepEqual(await ranges(vscode.Uri.file(join(own, 'x.json'))), []);

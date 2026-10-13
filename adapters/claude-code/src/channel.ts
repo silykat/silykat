@@ -1,6 +1,6 @@
-import type { Delivery, InboxCursor, Session, SessionRegistry } from '@local-review/core';
+import type { Delivery, InboxCursor, Session, SessionRegistry } from '@silykat/core';
 
-// The Local Review channel: an MCP server that Claude Code starts with each session. It watches
+// The silykat channel: an MCP server that Claude Code starts with each session. It watches
 // that session's inbox and pushes what the user publishes into the session, which wakes Claude up
 // even while it waits for the user. Channels are specific to Claude Code (research preview).
 
@@ -29,15 +29,15 @@ export const BATCH_MS = 1500;
 const SUPPORTED_PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 
 export const INSTRUCTIONS = [
-  'Local Review is the local code review tool the user works with in VS Code.',
-  'When the user publishes comments there (or edits or deletes some), they arrive as <channel source="...local-review..." store="<folder>" threads="<ids>">.',
-  'Process them right away, without waiting to be asked: follow the local-review review skill',
-  '(/local-review:review), passing `--root <folder>` (the store attribute) to every `lr` command, and listing only',
-  'those threads (`lr list --root <folder> --thread <id> --thread <id>…`): others may be for another session.',
-  'Answer in the threads with `lr reply`; nothing needs to be sent back through the channel.',
+  'silykat is the local code review tool the user works with in VS Code.',
+  'When the user publishes comments there (or edits or deletes some), they arrive as <channel source="...silykat..." store="<folder>" threads="<ids>">.',
+  'Process them right away, without waiting to be asked: follow the silykat review skill',
+  '(/silykat:review), passing `--root <folder>` (the store attribute) to every `slk` command, and listing only',
+  'those threads (`slk review list --root <folder> --thread <id> --thread <id>…`): others may be for another session.',
+  'Answer in the threads with `slk review reply`; nothing needs to be sent back through the channel.',
 ].join(' ');
 
-export class LocalReviewChannel {
+export class SilykatChannel {
   private ready = false;
   private sessionId: string | undefined;
   private cursor: InboxCursor | undefined;
@@ -60,7 +60,7 @@ export class LocalReviewChannel {
               ? requested
               : SUPPORTED_PROTOCOLS[0],
           capabilities: { experimental: { 'claude/channel': {} } },
-          serverInfo: { name: 'local-review', version: this.deps.version },
+          serverInfo: { name: 'silykat', version: this.deps.version },
           instructions: INSTRUCTIONS,
         });
         return;
@@ -139,7 +139,7 @@ export class LocalReviewChannel {
   }
 }
 
-/** What Claude reads, e.g. "The user published a review (3 threads) in Local Review, in /repo. …" */
+/** What Claude reads, e.g. "The user published a review (3 threads) in silykat, in /repo. …" */
 export function describe(root: string, deliveries: Delivery[]): string {
   const at = JSON.stringify(root);
   const of = (...kinds: Delivery['kind'][]) => deliveries.filter((d) => kinds.includes(d.kind));
@@ -154,23 +154,23 @@ export function describe(root: string, deliveries: Delivery[]): string {
       count(of('reply').length, 'reply', 'replies'),
     ].filter((x) => x !== '');
     parts.push(
-      `The user published ${joinList(what)} in Local Review (${count(ids.length, 'thread')}), in ${root}. ` +
-        `Process them now with the local-review review skill, running every lr command with --root ${at}, ` +
-        `and listing only these threads: lr list --root ${at} ${ids.map((id) => `--thread ${id}`).join(' ')}`,
+      `The user published ${joinList(what)} in silykat (${count(ids.length, 'thread')}), in ${root}. ` +
+        `Process them now with the silykat review skill, running every slk command with --root ${at}, ` +
+        `and listing only these threads: slk review list --root ${at} ${ids.map((id) => `--thread ${id}`).join(' ')}`,
     );
   }
   const edited = threadIds(of('edit'));
   if (edited.length > 0)
     parts.push(
-      `The user edited comments of ${edited.length === 1 ? 'thread' : 'threads'} ${edited.join(', ')} in Local Review (${root}). ` +
-        `Read ${edited.length === 1 ? 'it' : 'them'} again (lr show <id> --root ${at}): if you already worked on the old ` +
+      `The user edited comments of ${edited.length === 1 ? 'thread' : 'threads'} ${edited.join(', ')} in silykat (${root}). ` +
+        `Read ${edited.length === 1 ? 'it' : 'them'} again (slk review show <id> --root ${at}): if you already worked on the old ` +
         'version, adapt your work to the new one, then reply.',
     );
   const deleted = threadIds(of('delete'));
   if (deleted.length > 0)
     parts.push(
-      `The user deleted comments of ${deleted.length === 1 ? 'thread' : 'threads'} ${deleted.join(', ')} in Local Review (${root}). ` +
-        `Check with lr show <id> --root ${at}: a thread that no longer exists was deleted, so stop working on it; if you ` +
+      `The user deleted comments of ${deleted.length === 1 ? 'thread' : 'threads'} ${deleted.join(', ')} in silykat (${root}). ` +
+        `Check with slk review show <id> --root ${at}: a thread that no longer exists was deleted, so stop working on it; if you ` +
         'already changed code for it, ask the user whether to undo those changes (never undo them on your own).',
     );
   return parts.join('\n\n');

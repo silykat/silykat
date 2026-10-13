@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { DEFAULT_CADENCE, SessionRegistry, topicLabel, type RetroCadence } from '@local-review/core';
+import { DEFAULT_CADENCE, SessionRegistry, topicLabel, type RetroCadence } from '@silykat/core';
 import { LAUNCH_WITH_CHANNEL } from '../src/channelFlag';
 import { findClaudePid, handleHook, runsClaude, type HookDeps } from '../src/hook';
 
@@ -19,7 +19,7 @@ const worktreeOf = async (dir: string) => {
 const subs = async (id = 's1') => (await registry.subscriptions(id)).map((s) => `${topicLabel(s.topic)} (${s.reason})`);
 
 beforeEach(async () => {
-  home = await mkdtemp(join(tmpdir(), 'lr-hook-'));
+  home = await mkdtemp(join(tmpdir(), 'slk-hook-'));
   registry = new SessionRegistry(home, () => true);
   deps = {
     registry,
@@ -161,9 +161,9 @@ describe('the retro reminder at the start of a session', () => {
     deps.retroCadence = async (cwd) => (asked.push(cwd), due);
     const message = await startAs('startup');
     expect(message).toBe(
-      'Local Review: a retro is due for this project (/work): 8 days, 1.2 MB of review threads (45) and 0 agent sessions since the last retro (2026-09-18);' +
+      'silykat: a retro is due for this project (/work): 8 days, 1.2 MB of review threads (45) and 0 agent sessions since the last retro (2026-09-18);' +
         ' 8 days since the last retro (reminder at 7); 1.2 MB of threads to look back at (reminder at 1.0 MB).' +
-        ' In your first reply of this session, tell the user so in one short sentence and suggest `/local-review:retro`' +
+        ' In your first reply of this session, tell the user so in one short sentence and suggest `/silykat:retro`' +
         ' (a retro looks back at their review feedback and their sessions with you, to improve your setup with them).' +
         ' Say it once only, and do not start the retro unless they ask.',
     );
@@ -179,7 +179,7 @@ describe('the retro reminder at the start of a session', () => {
   it('says it after the subscription of a worktree session', async () => {
     deps.retroCadence = async () => due;
     const message = await startAs('startup', '/work/wt-feat');
-    expect(message).toMatch(/now subscribed to app · feat .*\n\nLocal Review: a retro is due/s);
+    expect(message).toMatch(/now subscribed to app · feat .*\n\nsilykat: a retro is due/s);
   });
 
   it('says nothing when no retro is due, when it fails, or when it takes too long', async () => {
@@ -207,7 +207,7 @@ describe('findClaudePid', () => {
 
 describe('runsClaude', () => {
   it('recognizes the claude executable, or a claude script run by node', () => {
-    expect(runsClaude('claude --dangerously-load-development-channels plugin:local-review@local-review')).toBe(true);
+    expect(runsClaude('claude --dangerously-load-development-channels plugin:silykat@silykat')).toBe(true);
     expect(runsClaude('/home/me/.local/bin/claude')).toBe(true);
     expect(runsClaude('node /usr/lib/node_modules/@anthropic-ai/claude-code/bin/claude -p hi')).toBe(true);
   });

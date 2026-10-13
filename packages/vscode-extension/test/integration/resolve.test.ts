@@ -2,10 +2,10 @@ import * as assert from 'node:assert/strict';
 import { readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import type { LocalReviewApi } from '../../src/extension';
+import type { SilykatApi } from '../../src/extension';
 import { WAIT_MS } from './timing';
 
-const EXTENSION_ID = 'local.local-review';
+const EXTENSION_ID = 'silykat.silykat';
 
 async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs = WAIT_MS): Promise<T> {
   const start = Date.now();
@@ -18,13 +18,13 @@ async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs = 
 }
 
 describe('Resolve / reopen a thread', () => {
-  let api: LocalReviewApi;
+  let api: SilykatApi;
   let ws: string;
   let uri: vscode.Uri;
 
   const managed = (id: string) => api.listThreads().find((t) => t.id === id)!;
   const lastEvent = (id: string) => {
-    const lines = readFileSync(join(ws, '.local-review', 'threads', `${id}.jsonl`), 'utf8')
+    const lines = readFileSync(join(ws, '.silykat', 'threads', `${id}.jsonl`), 'utf8')
       .trimEnd()
       .split('\n');
     return JSON.parse(lines[lines.length - 1]!);
@@ -32,15 +32,15 @@ describe('Resolve / reopen a thread', () => {
 
   async function newThread(line: number): Promise<string> {
     const thread = api.controller.createCommentThread(uri, new vscode.Range(line, 0, line, 0), []);
-    await vscode.commands.executeCommand('localReview.submitComment', { thread, text: 'Rename this variable' });
+    await vscode.commands.executeCommand('silykat.submitComment', { thread, text: 'Rename this variable' });
     return api.listThreads().find((t) => t.thread === thread)!.id;
   }
 
-  const resolve = (id: string) => vscode.commands.executeCommand('localReview.resolveThread', managed(id).thread);
-  const reopen = (id: string) => vscode.commands.executeCommand('localReview.reopenThread', managed(id).thread);
+  const resolve = (id: string) => vscode.commands.executeCommand('silykat.resolveThread', managed(id).thread);
+  const reopen = (id: string) => vscode.commands.executeCommand('silykat.reopenThread', managed(id).thread);
 
   before(async () => {
-    const ext = vscode.extensions.getExtension<LocalReviewApi>(EXTENSION_ID)!;
+    const ext = vscode.extensions.getExtension<SilykatApi>(EXTENSION_ID)!;
     api = await ext.activate();
     ws = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
     uri = vscode.Uri.file(join(ws, 'sample.ts'));
@@ -48,7 +48,7 @@ describe('Resolve / reopen a thread', () => {
   });
 
   beforeEach(async () => {
-    rmSync(join(ws, '.local-review'), { recursive: true, force: true });
+    rmSync(join(ws, '.silykat'), { recursive: true, force: true });
     await api.reload();
   });
 
@@ -61,7 +61,7 @@ describe('Resolve / reopen a thread', () => {
     assert.equal(t.thread.state, vscode.CommentThreadState.Resolved);
     assert.equal(t.thread.collapsibleState, vscode.CommentThreadCollapsibleState.Collapsed);
     assert.equal(t.thread.label, undefined);
-    assert.equal(t.thread.contextValue, 'lr resolved');
+    assert.equal(t.thread.contextValue, 'slk resolved');
     assert.deepEqual(
       [lastEvent(id).type, lastEvent(id).by, lastEvent(id).status],
       ['status.changed', 'user', 'resolved'],
@@ -70,7 +70,7 @@ describe('Resolve / reopen a thread', () => {
 
   it('can resolve a thread the agent is waiting on', async () => {
     const id = await newThread(4);
-    await vscode.commands.executeCommand('localReview.dev.simulateAgentReply', {
+    await vscode.commands.executeCommand('silykat.dev.simulateAgentReply', {
       threadId: id,
       body: 'Which name?',
       status: 'needs-info',
@@ -95,7 +95,7 @@ describe('Resolve / reopen a thread', () => {
   it('reopens a resolved thread when the user replies', async () => {
     const id = await newThread(6);
     await resolve(id);
-    await vscode.commands.executeCommand('localReview.reply', {
+    await vscode.commands.executeCommand('silykat.reply', {
       thread: managed(id).thread,
       text: 'Actually, one more thing',
     });
@@ -106,7 +106,7 @@ describe('Resolve / reopen a thread', () => {
   it('does not let the simulated agent reply to, or resolve, a resolved thread', async () => {
     const id = await newThread(7);
     await resolve(id);
-    const ok = await vscode.commands.executeCommand('localReview.dev.simulateAgentReply', {
+    const ok = await vscode.commands.executeCommand('silykat.dev.simulateAgentReply', {
       threadId: id,
       body: 'x',
       status: 'addressed',

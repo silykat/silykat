@@ -17,7 +17,7 @@ runCli(process.argv.slice(2), {
     process.exitCode = code;
   },
   (err: unknown) => {
-    process.stderr.write(`lr: ${String(err)}\n`);
+    process.stderr.write(`slk: ${String(err)}\n`);
     process.exitCode = 1;
   },
 );

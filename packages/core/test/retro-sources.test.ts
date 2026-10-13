@@ -33,11 +33,11 @@ import {
 } from '../src/index';
 
 let base: string;
-const env = () => ({ LOCAL_REVIEW_HOME: join(base, 'machine'), HOME: join(base, 'home') });
+const env = () => ({ SILYKAT_HOME: join(base, 'machine'), HOME: join(base, 'home') });
 const DAY = 86_400_000;
 
 beforeEach(async () => {
-  base = await realpath(await mkdtemp(join(tmpdir(), 'lr-retro-sources-')));
+  base = await realpath(await mkdtemp(join(tmpdir(), 'slk-retro-sources-')));
 });
 afterEach(async () => {
   await rm(base, { recursive: true, force: true });
@@ -73,7 +73,7 @@ describe('the settings of the sources of a retro', () => {
       projectSet: true,
     });
     // The project's own file, in its store; other keys kept, values of the wrong kind ignored.
-    expect(projectConfigFile(work)).toBe(join(work, '.local-review', 'config.json'));
+    expect(projectConfigFile(work)).toBe(join(work, '.silykat', 'config.json'));
     await writeFile(projectConfigFile(work), JSON.stringify({ retroSourceReviews: 'always', other: 1 }));
     expect(await readProjectConfig(work)).toEqual({});
     await writeProjectConfig(work, { retroSourceSessions: 'no' });

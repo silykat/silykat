@@ -3,7 +3,7 @@ dist/
 out/
 coverage/
 .vscode-test/
-.local-review/
+.silykat/
 package-lock.json
 *.vsix
 # Generated bundles, committed so that the plugin installs from git

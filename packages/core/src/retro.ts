@@ -13,18 +13,18 @@ import { STORE_DIR } from './types';
 
 /**
  * Retros: the user and their agent look back at the review feedback of a period and decide how to
- * improve the agent's setup. Local Review keeps their journal, next to the comments of the project:
+ * improve the agent's setup. silykat keeps their journal, next to the comments of the project:
  *
  * ```text
- * .local-review/retros/<retro-id>.jsonl   one append-only journal per retro
- * .local-review/retros/preferences.jsonl  how the user wants their retros (append-only)
- * .local-review/retros/<retro-id>/        files written for the agents of a retro (regenerated), and
+ * .silykat/retros/<retro-id>.jsonl   one append-only journal per retro
+ * .silykat/retros/preferences.jsonl  how the user wants their retros (append-only)
+ * .silykat/retros/<retro-id>/        files written for the agents of a retro (regenerated), and
  *                                         the agent's sessions it reads (sessions.json)
- * .local-review/retros/sessions/          the reports on the agent's sessions, kept for the next
+ * .silykat/retros/sessions/          the reports on the agent's sessions, kept for the next
  *                                         retros (see `sessionReports.ts`)
  * ```
  *
- * Older versions of Local Review never read `retros/`: adding it changes nothing for them. Its
+ * Older versions of silykat never read `retros/`: adding it changes nothing for them. Its
  * events carry their own version (`RETRO_SCHEMA_VERSION`).
  */
 export const RETRO_SCHEMA_VERSION = 1;
@@ -432,7 +432,7 @@ export interface RetroState {
   /** What each source showed, when it was read by its own agent. */
   findings: Partial<Record<FindingSource, SourceFindings>>;
   finishedAt: string | null;
-  /** Written by a newer version of Local Review: never write to it. */
+  /** Written by a newer version of silykat: never write to it. */
   readOnly: boolean;
   warnings: string[];
 }
@@ -651,7 +651,7 @@ async function readRetro(dir: string, id: string): Promise<RetroState | null> {
   return foldRetro(parsed.events, parsed.warnings, parsed.future);
 }
 
-/** The retros of a project, and its retro preferences, kept in `<home>/.local-review/retros/`. */
+/** The retros of a project, and its retro preferences, kept in `<home>/.silykat/retros/`. */
 export class RetroBook {
   readonly dir: string;
 
@@ -768,7 +768,7 @@ export class RetroBook {
   /** Appends events to a retro still in progress. */
   async record(id: string, events: readonly DistributiveOmit<RetroEvent, 'v' | 'at'>[]): Promise<RetroState> {
     const r = await this.get(id);
-    if (r.readOnly) throw new Error(`Retro ${id} was written by a newer version of Local Review: update Local Review`);
+    if (r.readOnly) throw new Error(`Retro ${id} was written by a newer version of silykat: update silykat`);
     if (r.finishedAt) throw new Error(`Retro ${id} is finished`);
     const at = new Date().toISOString();
     await this.append(

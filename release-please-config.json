@@ -6,7 +6,7 @@
   "packages": {
     ".": {
       "release-type": "node",
-      "package-name": "local-review",
+      "package-name": "silykat",
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
         { "type": "json", "path": "packages/vscode-extension/package.json", "jsonpath": "$.version" },

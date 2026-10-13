@@ -1,4 +1,4 @@
-import { formatBytes, type PurgePlan, type ThreadHistory } from '@local-review/core';
+import { formatBytes, type PurgePlan, type ThreadHistory } from '@silykat/core';
 
 // The texts of the archive and clean-up commands, without `vscode`, so that they can be unit-tested.
 
@@ -25,7 +25,7 @@ export function archiveConfirmation(n: number, day: string): { message: string; 
     message: `Archive ${plural(n, 'resolved thread')}?`,
     detail:
       `${n === 1 ? 'It was' : 'They were'} resolved before ${day}. Archived threads leave VS Code and stay in the ` +
-      'history (lr history) and in retros. Local Review: Show Archived Threads brings them back.',
+      'history (slk review history) and in retros. silykat: Show Archived Threads brings them back.',
     action: `Archive ${plural(n, 'Thread')}`,
   };
 }
@@ -51,7 +51,7 @@ export function purgeConfirmation(plan: PurgePlan, day: string): { message: stri
     detail:
       `${plural(n, 'finished thread')} (resolved, archived or deleted) with no activity since ${day}, ${formatBytes(plan.bytes)}: ` +
       `${n === 1 ? 'it' : 'they'} will be gone from the history and from retros, for good. This cannot be undone: ` +
-      `run Local Review: Export Threads first to keep a copy.${keptText(plan)}`,
+      `run silykat: Export Threads first to keep a copy.${keptText(plan)}`,
     action: `Delete ${plural(n, 'Thread')}`,
   };
 }

@@ -4,7 +4,7 @@ import { isAbsolute, join } from 'node:path';
 import { STORE_DIR } from './types';
 
 /**
- * Before `.local-review/` is created at the top of a git worktree (by a retro, or to save the
+ * Before `.silykat/` is created at the top of a git worktree (by a retro, or to save the
  * threads of another worktree), git is told to ignore it, as the editor does for comments (they are
  * the user's, never committed).
  */

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { localReviewHome, relevantSessions, SessionRegistry, type Session } from '@local-review/core';
+import { silykatHome, relevantSessions, SessionRegistry, type Session } from '@silykat/core';
 import { sessionLabel, sessionTopics } from './sessionLabel';
 
 const POLL_MS = 2000;
@@ -7,20 +7,20 @@ const POLL_MS = 2000;
 /** Shows the agent sessions of this workspace in the status bar, and lists them all on demand. */
 export class SessionsUi implements vscode.Disposable {
   private readonly statusBar = vscode.window.createStatusBarItem(
-    'localReview.sessions',
+    'silykat.sessions',
     vscode.StatusBarAlignment.Left,
     98,
   );
-  private readonly registry = new SessionRegistry(localReviewHome());
+  private readonly registry = new SessionRegistry(silykatHome());
   private readonly timer: NodeJS.Timeout;
   private readonly command: vscode.Disposable;
   private all: Session[] = [];
   private relevant: Session[] = [];
 
   constructor() {
-    this.statusBar.name = 'Local Review: agent sessions';
-    this.statusBar.command = 'localReview.showSessions';
-    this.command = vscode.commands.registerCommand('localReview.showSessions', () => this.show());
+    this.statusBar.name = 'silykat: agent sessions';
+    this.statusBar.command = 'silykat.showSessions';
+    this.command = vscode.commands.registerCommand('silykat.showSessions', () => this.show());
     this.timer = setInterval(() => void this.refresh(), POLL_MS);
     void this.refresh();
   }
@@ -66,7 +66,7 @@ export class SessionsUi implements vscode.Disposable {
         ? `$(hubot) ${sessionLabel(only)}${warning}`
         : `$(hubot) ${this.relevant.length} agent sessions${warning}`;
     this.statusBar.tooltip = new vscode.MarkdownString(
-      ['**Local Review: agent sessions of this workspace**', ...this.relevant.map(describe)].join('\n\n'),
+      ['**silykat: agent sessions of this workspace**', ...this.relevant.map(describe)].join('\n\n'),
       true,
     );
     this.statusBar.show();
@@ -76,7 +76,7 @@ export class SessionsUi implements vscode.Disposable {
     await this.refresh();
     if (this.all.length === 0) {
       void vscode.window.showInformationMessage(
-        'Local Review: no agent session is running. Start one (e.g. `claude` with the local-review plugin) and it shows up here.',
+        'silykat: no agent session is running. Start one (e.g. `claude` with the silykat plugin) and it shows up here.',
       );
       return;
     }
@@ -90,7 +90,7 @@ export class SessionsUi implements vscode.Disposable {
       })),
       {
         title: 'Running agent sessions',
-        placeHolder: 'Sessions registered with Local Review, and what they are subscribed to',
+        placeHolder: 'Sessions registered with silykat, and what they are subscribed to',
       },
     );
   }

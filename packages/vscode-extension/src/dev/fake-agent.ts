@@ -5,7 +5,7 @@
 // Usage: fake-agent --root <store root> --thread <thread id> --body <markdown>
 //                   [--status needs-info|addressed|none] [--agent <name>]
 import { parseArgs } from 'node:util';
-import { Store, type ThreadStatus } from '@local-review/core';
+import { Store, type ThreadStatus } from '@silykat/core';
 
 const STATUSES = new Set(['needs-info', 'addressed', 'none']);
 

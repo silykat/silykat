@@ -3,11 +3,11 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buildAnchorContext, readConfig, serializeEvents, Store, type Anchor } from '@local-review/core';
+import { buildAnchorContext, readConfig, serializeEvents, Store, type Anchor } from '@silykat/core';
 import { EXIT, runCli } from '../src/cli';
 
 let base: string;
-const env = () => ({ LOCAL_REVIEW_HOME: join(base, 'machine') });
+const env = () => ({ SILYKAT_HOME: join(base, 'machine') });
 const git = (cwd: string, ...args: string[]) =>
   execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@e', ...args], { cwd, stdio: 'pipe' });
 const anchor: Anchor = {
@@ -18,7 +18,7 @@ const anchor: Anchor = {
   ...buildAnchorContext('one\ntwo\n', { startLine: 1, endLine: 1 }),
 };
 
-async function lr(args: string[], cwd = base) {
+async function slk(args: string[], cwd = base) {
   let out = '';
   let err = '';
   const code = await runCli(args, {
@@ -33,15 +33,15 @@ async function lr(args: string[], cwd = base) {
 }
 
 beforeEach(async () => {
-  base = await realpath(await mkdtemp(join(tmpdir(), 'lr-keep-cli-')));
+  base = await realpath(await mkdtemp(join(tmpdir(), 'slk-keep-cli-')));
 });
 
 afterEach(async () => {
   await rm(base, { recursive: true, force: true });
 });
 
-describe('lr worktree save', () => {
-  it("saves a worktree's threads, which lr history still shows once the worktree is removed", async () => {
+describe('slk worktree save', () => {
+  it("saves a worktree's threads, which slk review history still shows once the worktree is removed", async () => {
     const main = join(base, 'main');
     const wt = join(base, 'wt');
     await mkdir(main);
@@ -51,35 +51,35 @@ describe('lr worktree save', () => {
     git(main, 'commit', '-q', '-m', 'init');
     git(main, 'worktree', 'add', '-q', '-b', 'feat', wt);
 
-    expect((await lr(['worktree', 'save'], wt)).out).toContain(`No comment in the worktree ${wt} (branch feat)`);
+    expect((await slk(['worktree', 'save'], wt)).out).toContain(`No comment in the worktree ${wt} (branch feat)`);
     const t = await new Store(wt).createThread(anchor, { author: 'user', body: 'Keep me', reviewId: null });
-    const saved = await lr(['worktree', 'save'], wt);
+    const saved = await slk(['worktree', 'save'], wt);
     expect(saved.code).toBe(EXIT.OK);
     expect(saved.out).toContain(`Saved 1 thread of the worktree ${wt} (branch feat) to the store of ${main}:`);
-    expect(saved.out).toContain('They stay in lr history and in retros after the worktree is removed.');
-    const json = JSON.parse((await lr(['worktree', 'save', '../wt', '--format', 'json'], main)).out);
+    expect(saved.out).toContain('They stay in slk review history and in retros after the worktree is removed.');
+    const json = JSON.parse((await slk(['worktree', 'save', '../wt', '--format', 'json'], main)).out);
     expect(json).toMatchObject({ worktree: wt, main, published: 1 });
 
     git(main, 'worktree', 'remove', wt);
-    const h = JSON.parse((await lr(['history', '--format', 'json'], main)).out);
+    const h = JSON.parse((await slk(['review', 'history', '--format', 'json'], main)).out);
     expect(h.threads.map((x: { id: string }) => x.id)).toEqual([t.id]);
     expect(h.threads[0].savedFrom).toMatchObject({ worktree: wt, branch: 'feat' });
     expect(h.summary.stores.map((s: { origin: string }) => s.origin)).toEqual(['root', 'saved']);
-    const md = (await lr(['history'], main)).out;
+    const md = (await slk(['review', 'history'], main)).out;
     expect(md).toMatch(new RegExp(`\\| ${wt} \\(saved \\d{4}-\\d{2}-\\d{2}\\) \\| saved from a worktree \\| 1 \\|`));
 
-    const refused = await lr(['worktree', 'save'], main);
+    const refused = await slk(['worktree', 'save'], main);
     expect(refused.code).toBe(EXIT.ERROR);
     expect(refused.err).toContain('is the main worktree of its repository');
   });
 
   it('checks its arguments', async () => {
-    expect((await lr(['worktree'])).err).toContain('lr worktree takes "save"');
-    expect((await lr(['worktree', 'save', 'a', 'b'])).err).toContain('one folder at most');
+    expect((await slk(['worktree'])).err).toContain('slk worktree takes "save"');
+    expect((await slk(['worktree', 'save', 'a', 'b'])).err).toContain('one folder at most');
   });
 });
 
-describe('lr history, deleted threads', () => {
+describe('slk review history, deleted threads', () => {
   it('tells a thread removed by the user from one gone with its branch, and older ones', async () => {
     const store = new Store(base);
     const user = await store.createThread(anchor, { author: 'user', body: 'Never mind', reviewId: null });
@@ -103,11 +103,11 @@ describe('lr history, deleted threads', () => {
         { v: 1, type: 'thread.deleted', at: '2026-09-02T10:00:00.000Z', by: 'user' },
       ]),
     );
-    const md = (await lr(['history'])).out;
+    const md = (await slk(['review', 'history'])).out;
     expect(md).toContain('3 deleted (1 removed by the user, 1 with their branch, 1 reason unknown)');
     expect(md).toContain('Deleted: its branch was deleted');
     expect(md).toContain('_Thread deleted: reason unknown (2026-09-02T10:00:00.000Z)_');
-    const h = JSON.parse((await lr(['history', '--format', 'json'])).out);
+    const h = JSON.parse((await slk(['review', 'history', '--format', 'json'])).out);
     expect(h.summary.deletions).toEqual({ user: 1, 'branch-gone': 1, unknown: 1 });
     const reasons = Object.fromEntries(
       h.threads.map((t: { id: string; deletedReason: string }) => [t.id, t.deletedReason]),
@@ -117,26 +117,26 @@ describe('lr history, deleted threads', () => {
   });
 });
 
-describe('lr config', () => {
+describe('slk config', () => {
   it('shows the settings of this machine and changes them', async () => {
-    expect((await lr(['config'])).out).toContain('keep-history: on');
-    expect((await lr(['config', 'set', 'keep-history', 'off'])).out).toBe(
+    expect((await slk(['config'])).out).toContain('keep-history: on');
+    expect((await slk(['config', 'set', 'keep-history', 'off'])).out).toBe(
       'keep-history is now off. Deleting a thread now erases it, and nothing is saved when an agent removes a worktree.\n',
     );
     expect(await readConfig(env())).toMatchObject({ keepHistory: false });
-    expect(JSON.parse((await lr(['config', '--format', 'json'])).out)).toMatchObject({ keepHistory: false });
-    expect((await lr(['config'])).out).toContain('keep-history: off');
-    expect((await lr(['config'])).out).toContain('retro-sessions: reports');
-    expect((await lr(['config', 'set', 'retro-sessions', 'insights'])).out).toBe('retro-sessions is now insights.\n');
+    expect(JSON.parse((await slk(['config', '--format', 'json'])).out)).toMatchObject({ keepHistory: false });
+    expect((await slk(['config'])).out).toContain('keep-history: off');
+    expect((await slk(['config'])).out).toContain('retro-sessions: reports');
+    expect((await slk(['config', 'set', 'retro-sessions', 'insights'])).out).toBe('retro-sessions is now insights.\n');
     expect(await readConfig(env())).toMatchObject({ retroSessions: 'insights' });
   });
 
   it('refuses unknown settings and values', async () => {
-    expect((await lr(['config', 'set', 'nope', 'on'])).err).toContain('unknown setting "nope"');
-    expect((await lr(['config', 'set', 'keep-history', 'yes'])).err).toContain('takes "on" or "off"');
-    expect((await lr(['config', 'set', 'retro-sessions', 'both'])).err).toContain(
+    expect((await slk(['config', 'set', 'nope', 'on'])).err).toContain('unknown setting "nope"');
+    expect((await slk(['config', 'set', 'keep-history', 'yes'])).err).toContain('takes "on" or "off"');
+    expect((await slk(['config', 'set', 'retro-sessions', 'both'])).err).toContain(
       'retro-sessions takes reports or insights, not "both"',
     );
-    expect((await lr(['config', 'get'])).err).toContain('lr config takes "set" or nothing');
+    expect((await slk(['config', 'get'])).err).toContain('slk config takes "set" or nothing');
   });
 });

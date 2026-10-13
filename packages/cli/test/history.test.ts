@@ -10,15 +10,15 @@ import {
   type Anchor,
   type ThreadEvent,
   formatBytes,
-} from '@local-review/core';
+} from '@silykat/core';
 import { EXIT, parseSince, runCli } from '../src/cli';
 
 const CODE = ['export function find(id: string) {', '  const user = db.get(id);', '  if (!user) return null;', '}'];
 
 let base: string;
-const env = () => ({ LOCAL_REVIEW_HOME: join(base, 'machine') });
+const env = () => ({ SILYKAT_HOME: join(base, 'machine') });
 
-async function lr(args: string[], cwd = base) {
+async function slk(args: string[], cwd = base) {
   let out = '';
   let err = '';
   const code = await runCli(args, {
@@ -42,7 +42,7 @@ const anchorOn = (startLine: number, endLine: number, over: Partial<Anchor> = {}
 });
 
 beforeEach(async () => {
-  base = await realpath(await mkdtemp(join(tmpdir(), 'lr-history-cli-')));
+  base = await realpath(await mkdtemp(join(tmpdir(), 'slk-history-cli-')));
 });
 
 afterEach(async () => {
@@ -79,12 +79,12 @@ async function project() {
   return { resolved, deleted, whole };
 }
 
-describe('lr history', () => {
+describe('slk review history', () => {
   it('lists every thread of the project in markdown, whatever its state, after a summary', async () => {
     const { resolved, deleted, whole } = await project();
-    const { code, out } = await lr(['history']);
+    const { code, out } = await slk(['review', 'history']);
     expect(code).toBe(EXIT.OK);
-    expect(out).toContain(`# Local Review history — ${base}`);
+    expect(out).toContain(`# silykat history — ${base}`);
     expect(out).toMatch(/Whole history · 3 threads · [\d.]+ KB of journals/);
     expect(out).toContain('0 open · 1 needs-info · 0 addressed · 1 resolved · 1 deleted (1 removed by the user)');
     expect(out).toContain('| Store | Found as | Threads | open | needs-info | addressed | resolved | deleted | Size |');
@@ -106,7 +106,7 @@ describe('lr history', () => {
 
   it('gives tools the same in JSON: a summary, then each thread with its whole conversation', async () => {
     const { resolved, deleted } = await project();
-    const { code, out } = await lr(['history', '--format', 'json']);
+    const { code, out } = await slk(['review', 'history', '--format', 'json']);
     expect(code).toBe(EXIT.OK);
     const h = JSON.parse(out);
     expect(h.root).toBe(base);
@@ -160,25 +160,27 @@ describe('lr history', () => {
     const recent = 't_01ARZ3NDEKTSV4RRFFQ69G5FA2';
     await writeFile(store.threadFile(old), serializeEvents(thread(old, '2026-09-01T10:00:00.000Z')));
     await writeFile(store.threadFile(recent), serializeEvents(thread(recent, '2026-09-29T10:00:00.000Z')));
-    const { out } = await lr(['history', '--since', '2026-09-20T00:00:00Z', '--format', 'json']);
+    const { out } = await slk(['review', 'history', '--since', '2026-09-20T00:00:00Z', '--format', 'json']);
     const h = JSON.parse(out);
     expect(h.since).toBe('2026-09-20T00:00:00.000Z');
     expect(h.threads.map((t: { id: string }) => t.id)).toEqual([recent]);
-    const md = (await lr(['history', '--since', '2026-09-20T00:00:00Z'])).out;
+    const md = (await slk(['review', 'history', '--since', '2026-09-20T00:00:00Z'])).out;
     expect(md).toContain('Since 2026-09-20T00:00:00.000Z · 1 thread ·');
-    expect((await lr(['history', '--since', '2026-10-01T00:00:00Z'])).out).toContain(
+    expect((await slk(['review', 'history', '--since', '2026-10-01T00:00:00Z'])).out).toContain(
       'No thread was active in this period.',
     );
   });
 
   it('reads the project of --root, and says when it has no comments', async () => {
     await project();
-    expect((await lr(['history', '--root', 'api'])).out).toContain('2 threads');
+    expect((await slk(['review', 'history', '--root', 'api'])).out).toContain('2 threads');
     await mkdir(join(base, 'empty'));
-    const { code, out } = await lr(['history'], join(base, 'empty'));
+    const { code, out } = await slk(['review', 'history'], join(base, 'empty'));
     expect(code).toBe(EXIT.OK);
     expect(out).toContain('No comment store in this folder, its subfolders or the worktrees of its repositories.');
-    expect(JSON.parse((await lr(['history', '--format', 'json'], join(base, 'empty'))).out).threads).toEqual([]);
+    expect(JSON.parse((await slk(['review', 'history', '--format', 'json'], join(base, 'empty'))).out).threads).toEqual(
+      [],
+    );
   });
 
   it('reads the files outside any open folder with --root /', async () => {
@@ -187,7 +189,7 @@ describe('lr history', () => {
       body: 'Loose',
       reviewId: null,
     });
-    const { out } = await lr(['history', '--root', '/']);
+    const { out } = await slk(['review', 'history', '--root', '/']);
     expect(out).toContain('| / (files outside any open folder) | this folder | 1 |');
     expect(out).toContain('/specs/find.ts:3 · open');
   });
@@ -215,13 +217,13 @@ describe('lr history', () => {
     await new Promise((r) => setTimeout(r, 5));
     await store.editComment(t.id, commentId, 'Final', 'user');
     await writeFile(join(store.threadsDir, 't_01ARZ3NDEKTSV4RRFFQ69G5FAV.jsonl'), 'not json\n');
-    const { out } = await lr(['history']);
+    const { out } = await slk(['review', 'history']);
     expect(out).toMatch(/\*\*User\*\* \([^,]+, submitted in a review [^,]+, edited [^)]+\):\nFinal/);
     expect(out).toContain('About the version HEAD');
     expect(out).toContain('Made in a diff (old side)');
     expect(out).toContain('## Warnings');
     expect(out).toContain('- .: threads/t_01ARZ3NDEKTSV4RRFFQ69G5FAV.jsonl:1: invalid JSON, line skipped');
-    const json = JSON.parse((await lr(['history', '--format', 'json'])).out);
+    const json = JSON.parse((await slk(['review', 'history', '--format', 'json'])).out);
     expect(json.threads[0]).toMatchObject({ diffSide: 'base', source: 'git', ref: 'HEAD' });
     expect(json.threads[0].conversation[0]).toMatchObject({
       publishedAt: expect.any(String),
@@ -231,15 +233,15 @@ describe('lr history', () => {
   });
 
   it('refuses a wrong date or format', async () => {
-    const date = await lr(['history', '--since', 'last week']);
+    const date = await slk(['review', 'history', '--since', 'last week']);
     expect(date.code).toBe(EXIT.ERROR);
     expect(date.err).toContain('--since must be a date');
     for (const wrong of ['7', '2026-02-30', '2026-13-01', '2026-10-01Tnoon'])
-      expect((await lr(['history', '--since', wrong])).code).toBe(EXIT.ERROR);
-    const positional = await lr(['history', '7d']);
+      expect((await slk(['review', 'history', '--since', wrong])).code).toBe(EXIT.ERROR);
+    const positional = await slk(['review', 'history', '7d']);
     expect(positional.code).toBe(EXIT.ERROR);
     expect(positional.err).toContain('takes no argument');
-    const format = await lr(['history', '--format', 'xml']);
+    const format = await slk(['review', 'history', '--format', 'xml']);
     expect(format.code).toBe(EXIT.ERROR);
     expect(format.err).toContain('--format must be "md" or "json"');
   });

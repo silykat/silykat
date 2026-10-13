@@ -10,7 +10,7 @@ RUN apt-get update \
 
 # VS Code refuses to run as root: everything runs as the image's `node` user.
 USER node
-RUN git config --global user.name 'Local Review tests' && git config --global user.email 'tests@localhost'
+RUN git config --global user.name 'silykat tests' && git config --global user.email 'tests@localhost'
 WORKDIR /home/node/repo
 
 # Dependencies first: they are installed again only when a manifest or the lockfile changes.

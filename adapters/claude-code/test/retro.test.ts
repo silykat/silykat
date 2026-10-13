@@ -4,7 +4,7 @@ import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } fro
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buildAnchorContext, RetroBook, Store, type Anchor } from '@local-review/core';
+import { buildAnchorContext, RetroBook, Store, type Anchor } from '@silykat/core';
 import { AUDIT_MODEL, auditArgs, runProcess, type Runner } from '../src/retroAudit';
 import { classifyWithJev, readJevKey, type JevDeps } from '../src/retroJev';
 import { runRetroCli } from '../src/retroCli';
@@ -15,7 +15,7 @@ let home: string;
 const KEY = 'jev-test-key-not-real-1234';
 
 beforeEach(async () => {
-  base = await realpath(await mkdtemp(join(tmpdir(), 'lr-retro-claude-')));
+  base = await realpath(await mkdtemp(join(tmpdir(), 'slk-retro-claude-')));
   home = join(base, 'home');
   await mkdir(home);
 });
@@ -99,7 +99,7 @@ describe('the Claude Code setup of a project', () => {
 });
 
 describe('the Jev key', () => {
-  const keyFile = () => join(home, '.config', 'local-review', 'jev-key');
+  const keyFile = () => join(home, '.config', 'silykat', 'jev-key');
 
   it('is read only from the environment or a safe file', async () => {
     const env = { HOME: home };
@@ -199,7 +199,7 @@ const anchor = (): Anchor => ({
   ...buildAnchorContext(CODE, { startLine: 1, endLine: 1 }),
 });
 
-describe('lr-retro', () => {
+describe('slk-retro', () => {
   async function retro() {
     const root = join(base, 'work');
     const store = new Store(join(root, 'api'));
@@ -223,7 +223,7 @@ describe('lr-retro', () => {
     let err = '';
     const code = await runRetroCli(args, {
       cwd: base,
-      env: { HOME: home, LOCAL_REVIEW_HOME: join(base, 'machine'), ...env },
+      env: { HOME: home, SILYKAT_HOME: join(base, 'machine'), ...env },
       out: (t) => (out += t + '\n'),
       err: (t) => (err += t + '\n'),
       ...(fetchImpl ? { fetch: fetchImpl } : {}),
@@ -237,7 +237,7 @@ describe('lr-retro', () => {
     await put(join(base, 'claude-config', 'CLAUDE.md'), '# from CLAUDE_CONFIG_DIR');
     const r = await run(['setup', id, '--root', root], { CLAUDE_CONFIG_DIR: join(base, 'claude-config') });
     expect(r.code).toBe(0);
-    const file = join(root, '.local-review', 'retros', id, 'setup.md');
+    const file = join(root, '.silykat', 'retros', id, 'setup.md');
     expect(r.out).toContain(`Written: ${file}`);
     expect(r.out).toContain('2 setup files (2 rules files).');
     expect(await readFile(file, 'utf8')).toContain('Amounts are integers in cents');
@@ -259,7 +259,7 @@ describe('lr-retro', () => {
     await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
     const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/decide`;
     try {
-      const r = await run(['jev', id, '--root', root], { JEV_API_KEY: KEY, LR_JEV_URL: url });
+      const r = await run(['jev', id, '--root', root], { JEV_API_KEY: KEY, SLK_JEV_URL: url });
       expect(r).toMatchObject({ code: 0, err: '' });
       expect(r.out).toContain('Classified 2/2 threads with Jev');
       expect(r.out + r.err).not.toContain(KEY);
@@ -311,7 +311,7 @@ describe('lr-retro', () => {
       const { runner, calls } = fakeClaude('2.1.288 (Claude Code)', { stdout: JSON.stringify(answer) });
       const r = await run(['audit', id, '--root', root], {}, undefined, runner);
       expect(r).toMatchObject({ code: 0, err: '' });
-      const file = join(root, '.local-review', 'retros', id, 'audit.md');
+      const file = join(root, '.silykat', 'retros', id, 'audit.md');
       expect(r.out).toBe(`Written: ${file}\nThe audit of the setup is done in 3 min (about $0.42).\n`);
       const report = await readFile(file, 'utf8');
       expect(report).toContain('# Audit of the setup — /doctor prompt-audit');
@@ -413,8 +413,8 @@ describe('lr-retro', () => {
   });
 
   it('explains its usage', async () => {
-    expect((await run([], {})).out).toContain('lr-retro setup <retro-id>');
-    expect((await run([], {})).out).toContain('lr-retro audit <retro-id>');
+    expect((await run([], {})).out).toContain('slk-retro setup <retro-id>');
+    expect((await run([], {})).out).toContain('slk-retro audit <retro-id>');
     expect((await run(['what'], {})).code).toBe(1);
     expect((await run(['setup'], {})).err).toContain('missing <retro-id>');
     expect((await run(['setup', 'rt_00000000000000000000000000', '--root', base], {})).err).toContain(

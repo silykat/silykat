@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   buildAnchorContext,
   countStates,
-  localReviewHome,
+  silykatHome,
   looseStore,
   projectHistory,
   projectStores,
@@ -166,12 +166,12 @@ describe('threadHistory', () => {
 let base: string;
 const git = (cwd: string, ...args: string[]) =>
   execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@e', ...args], { cwd, stdio: 'pipe' });
-const env = () => ({ LOCAL_REVIEW_HOME: join(base, 'home') });
+const env = () => ({ SILYKAT_HOME: join(base, 'home') });
 const comment = (root: string, body: string) =>
   new Store(root).createThread(anchor(), { author: 'user', body, reviewId: null });
 
 beforeEach(async () => {
-  base = await realpath(await mkdtemp(join(tmpdir(), 'lr-history-')));
+  base = await realpath(await mkdtemp(join(tmpdir(), 'slk-history-')));
 });
 
 afterEach(async () => {
@@ -243,9 +243,9 @@ describe('projectStores', () => {
 
   it('never takes the machine folder for a store', async () => {
     await comment(base, 'base');
-    const home = { LOCAL_REVIEW_HOME: join(base, '.local-review') };
+    const home = { SILYKAT_HOME: join(base, '.silykat') };
     await looseStore(home).createThread(anchor({ path: '/x/a.ts' }), { author: 'user', body: 'x', reviewId: null });
-    expect(localReviewHome(home)).toBe(join(base, '.local-review'));
+    expect(silykatHome(home)).toBe(join(base, '.silykat'));
     expect(await projectStores(base, home)).toEqual([]);
   });
 

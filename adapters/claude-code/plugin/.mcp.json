@@ -1,8 +1,8 @@
 {
   "mcpServers": {
-    "local-review": {
+    "silykat": {
       "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/channel/local-review-channel.js"]
+      "args": ["${CLAUDE_PLUGIN_ROOT}/channel/silykat-channel.js"]
     }
   }
 }

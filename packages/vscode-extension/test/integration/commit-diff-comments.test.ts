@@ -3,11 +3,11 @@ import { execFileSync } from 'node:child_process';
 import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import { buildAnchorContext, Store } from '@local-review/core';
-import type { LocalReviewApi } from '../../src/extension';
+import { buildAnchorContext, Store } from '@silykat/core';
+import type { SilykatApi } from '../../src/extension';
 import { WAIT_MS } from './timing';
 
-const EXTENSION_ID = 'local.local-review';
+const EXTENSION_ID = 'silykat.silykat';
 const V1 = Array.from({ length: 8 }, (_, i) => `const v${i + 1} = ${i + 1};`);
 
 interface GitApi {
@@ -26,7 +26,7 @@ async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs = 
 }
 
 describe('Comment in the diff between two commits (Timeline)', () => {
-  let api: LocalReviewApi;
+  let api: SilykatApi;
   let gitApi: GitApi;
   let ws: string;
   let n = 0;
@@ -70,12 +70,12 @@ describe('Comment in the diff between two commits (Timeline)', () => {
     await vscode.workspace.openTextDocument(uri);
     const known = new Set(api.listThreads().map((t) => t.id));
     const thread = api.controller.createCommentThread(uri, new vscode.Range(line, 0, line, 0), []);
-    await vscode.commands.executeCommand('localReview.submitComment', { thread, text });
+    await vscode.commands.executeCommand('silykat.submitComment', { thread, text });
     return api.listThreads().find((t) => !known.has(t.id))!.id;
   }
 
   before(async () => {
-    const ext = vscode.extensions.getExtension<LocalReviewApi>(EXTENSION_ID)!;
+    const ext = vscode.extensions.getExtension<SilykatApi>(EXTENSION_ID)!;
     api = await ext.activate();
     ws = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
     const gitExt = vscode.extensions.getExtension<{ getAPI(v: 1): GitApi }>('vscode.git')!;
@@ -84,7 +84,7 @@ describe('Comment in the diff between two commits (Timeline)', () => {
   });
 
   beforeEach(async () => {
-    rmSync(join(ws, '.local-review'), { recursive: true, force: true });
+    rmSync(join(ws, '.silykat'), { recursive: true, force: true });
     await api.reload();
   });
 
@@ -140,7 +140,7 @@ describe('Comment in the diff between two commits (Timeline)', () => {
     await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     assert.ok(managed(id), 'still listed');
 
-    assert.equal(await vscode.commands.executeCommand('localReview.openOriginalDiff', managed(id).thread), true);
+    assert.equal(await vscode.commands.executeCommand('silykat.openOriginalDiff', managed(id).thread), true);
     const reopened = await waitFor('the original diff', () => activeDiff());
     assert.ok(reopened.original.query.includes(c1), reopened.original.query);
     assert.ok(reopened.modified.query.includes(c2), reopened.modified.query);
@@ -161,7 +161,7 @@ describe('Comment in the diff between two commits (Timeline)', () => {
     const id = await commentOn(diff.modified, 8, 'New line');
     await vscode.commands.executeCommand('workbench.action.closeAllEditors');
 
-    assert.equal(await vscode.commands.executeCommand('localReview.openOriginalDiff', managed(id).thread), true);
+    assert.equal(await vscode.commands.executeCommand('silykat.openOriginalDiff', managed(id).thread), true);
     const reopened = await waitFor('the diff', () => activeDiff());
     assert.equal(reopened.modified.fsPath, path);
     assert.equal(reopened.original.scheme, 'git');
@@ -187,7 +187,7 @@ describe('Comment in the diff between two commits (Timeline)', () => {
     );
     await api.reload();
     const t = api.listThreads().find((x) => x.state.anchor.path === rel)!;
-    assert.equal(await vscode.commands.executeCommand('localReview.openOriginalDiff', t.thread), false);
+    assert.equal(await vscode.commands.executeCommand('silykat.openOriginalDiff', t.thread), false);
     assert.equal(activeDiff(), undefined, 'no diff opened');
   });
 });

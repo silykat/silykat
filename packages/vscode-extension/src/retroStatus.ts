@@ -7,17 +7,17 @@ import {
   type CadenceThresholds,
   type MachineConfig,
   type RetroCadence,
-} from '@local-review/core';
+} from '@silykat/core';
 
 // Pure (no `vscode` import) so that the retro reminder's texts and choices can be unit-tested.
 
-export const RETRO_COMMAND = '/local-review:retro';
+export const RETRO_COMMAND = '/silykat:retro';
 
 export type StatusBarMode = 'always' | 'whenDue' | 'never';
 
 /**
  * The reminder settings of the extension that the agent hooks need too: they run outside the editor,
- * so the extension mirrors them in the machine settings (`lr config`).
+ * so the extension mirrors them in the machine settings (`slk config`).
  */
 export const MIRRORED: Readonly<Record<string, keyof MachineConfig>> = {
   days: 'retroReminderDays',
@@ -50,7 +50,7 @@ export function retroStatusText(c: RetroCadence | undefined, mode: StatusBarMode
 /** The tooltip lines: one per folder with something new. */
 export function retroTooltip(cadences: readonly RetroCadence[], name: (c: RetroCadence) => string): string {
   return [
-    '**Local Review: retro**',
+    '**silykat: retro**',
     ...cadences
       .filter((c) => c.threads > 0)
       .map((c) => `${c.due ? '$(bell-dot) **due**' : '$(history)'} ${name(c)}: ${cadenceSummary(c)}`),
@@ -69,9 +69,9 @@ export function retroReminderMessage(
   const how =
     'A retro looks back at your work with your agent (your review comments, your sessions with it), to improve its setup together (rules, skills, hooks).' +
     ` To run it with Claude Code: ${RETRO_COMMAND}, in a session started in the project folder.` +
-    ' With another agent, ask it for a retro: it runs the `lr retro` commands.';
-  if (!c) return `Local Review: nothing to look back at since the last retro. ${settings}`;
+    ' With another agent, ask it for a retro: it runs the `slk retro` commands.';
+  if (!c) return `silykat: nothing to look back at since the last retro. ${settings}`;
   return c.due
-    ? `Local Review: a retro is due for ${name(c)}: ${cadenceSummary(c)} (${dueReasons(c).join('; ')}). ${how}`
-    : `Local Review: no retro due yet for ${name(c)}: ${cadenceSummary(c)}. ${settings} ${how}`;
+    ? `silykat: a retro is due for ${name(c)}: ${cadenceSummary(c)} (${dueReasons(c).join('; ')}). ${how}`
+    : `silykat: no retro due yet for ${name(c)}: ${cadenceSummary(c)}. ${settings} ${how}`;
 }

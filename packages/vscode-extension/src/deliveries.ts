@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import {
-  localReviewHome,
+  silykatHome,
   newDeliveryId,
   SessionRegistry,
   subscribersOf,
@@ -9,7 +9,7 @@ import {
   topicOf,
   type Session,
   type Topic,
-} from '@local-review/core';
+} from '@silykat/core';
 import type { Log } from './log';
 import type { Publication, ReviewController } from './controller';
 import { sessionLabel } from './sessionLabel';
@@ -26,8 +26,8 @@ export type NoSubscriberPrompt = (
 
 const COPY = 'Copy Command';
 
-/** `localReview.pushToAgents`: whether published comments are sent to the agent sessions at all. */
-const pushEnabled = () => vscode.workspace.getConfiguration('localReview').get<boolean>('pushToAgents', true);
+/** `silykat.pushToAgents`: whether published comments are sent to the agent sessions at all. */
+const pushEnabled = () => vscode.workspace.getConfiguration('silykat').get<boolean>('pushToAgents', true);
 const PUBLISH = 'Publish';
 const PUBLISH_AND_MUTE = "Publish, Don't Warn Again for This Folder";
 
@@ -38,7 +38,7 @@ const PUBLISH_AND_MUTE = "Publish, Don't Warn Again for This Folder";
  * sessions: what each one does with a comment is up to it.
  */
 export class DeliveriesUi implements vscode.Disposable {
-  private readonly registry = new SessionRegistry(localReviewHome());
+  private readonly registry = new SessionRegistry(silykatHome());
   private readonly subscription: vscode.Disposable;
   private queue: Promise<void> = Promise.resolve();
   /** Sessions already said not to be notifiable: once each, not at every comment. */
@@ -85,7 +85,7 @@ export class DeliveriesUi implements vscode.Disposable {
       const what = files.length === 1 ? 'this comment' : 'these comments';
       const picked = await this.askNoSubscriber(
         `No agent session is subscribed to ${orphans.map(topicLabel).join(', ')}. Publish ${what} anyway?`,
-        'They will be saved, but sent to no session: an agent reads them when you ask it (e.g. /local-review:review). ' +
+        'They will be saved, but sent to no session: an agent reads them when you ask it (e.g. /silykat:review). ' +
           'A session subscribes by modifying a file there, by being started in that worktree, or when you ask it to.',
         PUBLISH,
         PUBLISH_AND_MUTE,
@@ -143,7 +143,7 @@ export class DeliveriesUi implements vscode.Disposable {
     this.warned.add(s.id);
     const fix = s.pushCommand ? ` To fix it, relaunch it with: ${s.pushCommand}` : '';
     const picked = await this.warn(
-      `Local Review: ${sessionLabel(s)} won't see your comments until you ask it, as its session can't be notified.${fix}`,
+      `silykat: ${sessionLabel(s)} won't see your comments until you ask it, as its session can't be notified.${fix}`,
       ...(s.pushCommand ? [COPY] : []),
     );
     if (picked === COPY && s.pushCommand) await vscode.env.clipboard.writeText(s.pushCommand);

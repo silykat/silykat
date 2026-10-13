@@ -19,7 +19,7 @@ import {
   historyJson,
   historyPlan,
   historySummary,
-  localReviewHome,
+  silykatHome,
   parseDateArg,
   processAncestors,
   projectHistory,
@@ -39,7 +39,7 @@ import {
   type AgentThreadView,
   type ThreadState,
   type ThreadStatus,
-} from '@local-review/core';
+} from '@silykat/core';
 import { locate, renderReviews, renderThread, type Located } from './digest';
 import { parse, str, UsageError, type Values } from './args';
 import { renderHistory } from './history';
@@ -65,26 +65,30 @@ export const EXIT = { OK: 0, ERROR: 1, NOT_FOUND: 2, CHANGED: 3 } as const;
 /** The user changed the thread since the agent read it: its reply would answer an old request. */
 class ChangedError extends Error {}
 
-const USAGE = `lr — Local Review, for agents
+const USAGE = `slk — silykat, for agents
 
-Usage:
-  lr status                               How many threads wait for you
-  lr list [--all] [--thread <id>]… [--any-topic] [--format md|json]
+Usage: slk <module> <command> … (modules: review, retro), or slk <command> … for what they share.
+
+Review (the comment threads of the project):
+  slk review status                       How many threads wait for you
+  slk review list [--all] [--thread <id>]… [--any-topic] [--format md|json]
                                           Threads waiting for you (--all: every unresolved thread;
                                           --thread: only those threads). In an agent session, only
                                           the threads of what it is subscribed to (--any-topic: all)
-  lr show <thread-id> [--format md|json]  One thread, in full
-  lr reply <thread-id> --agent <name> (--body <markdown> | --body-file <path> | --body -)
+  slk review show <thread-id> [--format md|json]
+                                          One thread, in full
+  slk review reply <thread-id> --agent <name> (--body <markdown> | --body-file <path> | --body -)
            [--status addressed|needs-info] [--rev <version>] [--session <id>] [--message <id>]
-           The reply records your session (found from the processes running lr, or --session,
-           or $LR_SESSION) and, when known, your message (--message): a retro can then read
+           The reply records your session (found from the processes running slk, or --session,
+           or $SLK_SESSION) and, when known, your message (--message): a retro can then read
            your conversation back
-  lr set-status <thread-id> addressed|needs-info --agent <name> [--rev <version>]
-           --rev: the version you read (lr list / lr show): refused, exit 3, if the user changed
+  slk review set-status <thread-id> addressed|needs-info --agent <name> [--rev <version>]
+           --rev: the version you read (slk review list / slk review show): refused, exit 3, if the user changed
            the thread since. Exit 2: the thread no longer exists (e.g. deleted by the user).
 
-History (every thread, whatever its state: open, addressed, resolved, deleted, archived or not):
-  lr history [--since <date>] [--format md|json] [--out <file>]
+History of the review (every thread, whatever its state: open, addressed, resolved, deleted, archived or
+not):
+  slk review history [--since <date>] [--format md|json] [--out <file>]
                                           The whole conversation of every thread of the project:
                                           the folder (--root, default: the current one), its
                                           subfolders, and the git worktrees of its repositories,
@@ -98,40 +102,40 @@ ${ARCHIVE_USAGE}
 ${RETRO_USAGE}
 
 Git worktrees (git worktree remove deletes a worktree's comments with it):
-  lr worktree save [<dir>] [--format md|json]
+  slk worktree save [<dir>] [--format md|json]
                                           Save the threads of the git worktree of that folder
                                           (default: the current one) to the store of its main
-                                          worktree, before removing it: they stay in lr history
+                                          worktree, before removing it: they stay in slk review history
                                           and in retros. Saving again refreshes the copy
 
 Settings of this machine:
-  lr config [--format md|json]            Show them
-  lr config set <name> <value>            Change one:
+  slk config [--format md|json]           Show them
+  slk config set <name> <value>           Change one:
 ${Object.entries(CONFIG_KEYS)
   .map(([name, c]) => `                                            ${name}: ${c.help}`)
   .join('\n')}
-  lr config [set <name> <value>] --project [--root <dir>]
-                                          The project's own settings (its .local-review/config.json,
+  slk config [set <name> <value>] --project [--root <dir>]
+                                          The project's own settings (its .silykat/config.json,
                                           personal), which come before the machine's: ${PROJECT_CONFIG_KEYS.join(', ')}
 
 Subscriptions (comments are published to the sessions subscribed to their branch or path):
-  lr subscribe [<dir-or-file>] [--path]   Subscribe this session to the branch of that folder
+  slk subscribe [<dir-or-file>] [--path]  Subscribe this session to the branch of that folder
                                           (default: the current one), or to the path itself
                                           (--path, and always outside git)
-  lr unsubscribe [<dir-or-file>] [--path] [--all]
-  lr subscriptions [--format md|json]     What this session is subscribed to
-  (the session is found from the processes running lr; --session <id> or $LR_SESSION to name it)
+  slk unsubscribe [<dir-or-file>] [--path] [--all]
+  slk subscriptions [--format md|json]    What this session is subscribed to
+  (the session is found from the processes running slk; --session <id> or $SLK_SESSION to name it)
 
 Sessions (used by agent integrations to register themselves):
-  lr sessions [--format md|json]          Running agent sessions on this machine
-  lr session register --id <id> --agent <name> --cwd <dir> [--branch <b>] [--pid <n>]
+  slk sessions [--format md|json]         Running agent sessions on this machine
+  slk session register --id <id> --agent <name> --cwd <dir> [--branch <b>] [--pid <n>]
                      [--push yes|no] [--push-command <command>]
-  lr session unregister --id <id>
+  slk session unregister --id <id>
 
 Options:
-  --root <dir>    Folder holding .local-review/ (default: found from the current directory);
+  --root <dir>    Folder holding .silykat/ (default: found from the current directory);
                   --root / for the files outside any folder open in the editor
-  --agent <name>  Your display name in the threads (default: $LR_AGENT)
+  --agent <name>  Your display name in the threads (default: $SLK_AGENT)
 
 Statuses: "addressed" = done, the user will verify; "needs-info" = you asked the user a question.
 Only the user resolves threads.`;
@@ -140,24 +144,8 @@ export async function runCli(args: string[], io: Io): Promise<number> {
   const [command, ...rest] = args;
   try {
     switch (command) {
-      case 'status':
-        return await status(rest, io);
-      case 'list':
-        return await list(rest, io);
-      case 'show':
-        return await show(rest, io);
-      case 'reply':
-        return await reply(rest, io);
-      case 'set-status':
-        return await setStatus(rest, io);
-      case 'history':
-        return await history(rest, io);
-      case 'archive':
-        return await archive(rest, io, parseDateOption);
-      case 'unarchive':
-        return await unarchive(rest, io);
-      case 'purge':
-        return await purge(rest, io, parseDateOption);
+      case 'review':
+        return await review(rest, io);
       case 'retro':
         return await retro(rest, io, parseSince);
       case 'worktree':
@@ -185,16 +173,45 @@ export async function runCli(args: string[], io: Io): Promise<number> {
     }
   } catch (err) {
     if (err instanceof UsageError) {
-      io.err(`lr: ${err.message}\n\n${USAGE}`);
+      io.err(`slk: ${err.message}\n\n${USAGE}`);
       return EXIT.ERROR;
     }
     if (err instanceof ChangedError) {
-      io.err(`lr: ${err.message}`);
+      io.err(`slk: ${err.message}`);
       return EXIT.CHANGED;
     }
     const message = err instanceof Error ? err.message : String(err);
-    io.err(`lr: ${message}`);
+    io.err(`slk: ${message}`);
     return /not found/i.test(message) ? EXIT.NOT_FOUND : EXIT.ERROR;
+  }
+}
+
+/** `slk review <command>`: the comment threads. */
+async function review(args: string[], io: Io): Promise<number> {
+  const [command, ...rest] = args;
+  switch (command) {
+    case 'status':
+      return await status(rest, io);
+    case 'list':
+      return await list(rest, io);
+    case 'show':
+      return await show(rest, io);
+    case 'reply':
+      return await reply(rest, io);
+    case 'set-status':
+      return await setStatus(rest, io);
+    case 'history':
+      return await history(rest, io);
+    case 'archive':
+      return await archive(rest, io, parseDateOption);
+    case 'unarchive':
+      return await unarchive(rest, io);
+    case 'purge':
+      return await purge(rest, io, parseDateOption);
+    case undefined:
+      throw new UsageError('Missing review command');
+    default:
+      throw new UsageError(`Unknown review command: ${command}`);
   }
 }
 
@@ -206,7 +223,7 @@ function openStore(root: string | undefined, io: Io): Store {
     below.length > 0
       ? `Stores below this folder:\n${below.map((b) => `  ${b}`).join('\n')}\nRun the command in one of them, or pass --root <dir>.`
       : 'Nothing has been commented in this folder or above yet.';
-  throw new Error(`no Local Review store in ${io.cwd} or above. ${hint}`);
+  throw new Error(`no silykat store in ${io.cwd} or above. ${hint}`);
 }
 
 /** Every thread an agent can see, located in the current files. */
@@ -230,7 +247,7 @@ async function readWorkingFile(store: Store, view: AgentThreadView): Promise<str
 const lineOf = (l: Located) => l.range?.startLine ?? 0;
 
 /**
- * When lr runs in an agent session: only the threads of what it is subscribed to (their branch, or
+ * When slk runs in an agent session: only the threads of what it is subscribed to (their branch, or
  * a path holding their file). Elsewhere, or with `--any-topic`: every thread.
  */
 async function forThisSession(
@@ -256,7 +273,7 @@ async function forThisSession(
   };
   const scope =
     subs.length === 0
-      ? 'this session is subscribed to nothing (lr subscribe, or --any-topic to see every thread)'
+      ? 'this session is subscribed to nothing (slk subscribe, or --any-topic to see every thread)'
       : `only what this session is subscribed to: ${subs.map((x) => topicLabel(x.topic)).join(', ')} (--any-topic for every thread)`;
   const keep = await Promise.all(located.map(covered));
   return { located: located.filter((_, i) => keep[i]), scope };
@@ -306,7 +323,7 @@ async function list(rest: string[], io: Io): Promise<number> {
   const { reviews } = await store.loadAll();
   const n = selected.length;
   const parts = [
-    `# Local Review — ${n} thread${n === 1 ? '' : 's'} ${values.all === true ? 'unresolved' : 'waiting for you'}`,
+    `# silykat — ${n} thread${n === 1 ? '' : 's'} ${values.all === true ? 'unresolved' : 'waiting for you'}`,
   ];
   if (scope) parts.push(`_Showing ${scope}._`);
   const summaries = renderReviews(selected, reviews);
@@ -359,13 +376,13 @@ async function reply(rest: string[], io: Io): Promise<number> {
 
 /**
  * The agent's conversation a reply is written in, for retros: the session (named, or the registered
- * session this command runs in) and, when its adapter noted it, the message running `lr reply`. A
+ * session this command runs in) and, when its adapter noted it, the message running `slk review reply`. A
  * best effort: a reply never fails for want of it.
  */
 async function replySession(threadId: string, values: Values, io: Io): Promise<AgentSessionRef | undefined> {
   try {
     const registry = registryFor(io);
-    const named = str(values.session)?.trim() || io.env.LR_SESSION?.trim();
+    const named = str(values.session)?.trim() || io.env.SLK_SESSION?.trim();
     const id =
       named || sessionOfProcess(await registry.list(), (await io.ancestors?.()) ?? (await processAncestors()))?.id;
     if (!id) return undefined;
@@ -393,7 +410,7 @@ async function history(rest: string[], io: Io): Promise<number> {
     format: { type: 'string' },
     out: { type: 'string' },
   });
-  if (positionals.length > 0) throw new UsageError(`lr history takes no argument: "${positionals[0]}"`);
+  if (positionals.length > 0) throw new UsageError(`slk review history takes no argument: "${positionals[0]}"`);
   const format = str(values.format) ?? 'md';
   if (format !== 'md' && format !== 'json') throw new UsageError(`--format must be "md" or "json", not "${format}"`);
   const since = parseSince(str(values.since));
@@ -412,8 +429,8 @@ async function history(rest: string[], io: Io): Promise<number> {
 async function worktree(rest: string[], io: Io): Promise<number> {
   const { values, positionals } = parse(rest, { format: { type: 'string' } });
   const [action, dir, extra] = positionals;
-  if (action !== 'save') throw new UsageError(`lr worktree takes "save", not "${action ?? ''}"`);
-  if (extra !== undefined) throw new UsageError(`lr worktree save takes one folder at most: "${extra}"`);
+  if (action !== 'save') throw new UsageError(`slk worktree takes "save", not "${action ?? ''}"`);
+  if (extra !== undefined) throw new UsageError(`slk worktree save takes one folder at most: "${extra}"`);
   const result = await saveWorktreeThreads(resolve(io.cwd, dir ?? str(values.root) ?? '.'), io.env);
   if (str(values.format) === 'json') {
     io.out(JSON.stringify(result, null, 2));
@@ -425,7 +442,7 @@ async function worktree(rest: string[], io: Io): Promise<number> {
       ? `No comment in the worktree ${result.worktree}${branch}: nothing to save.`
       : `Saved ${result.published} thread${result.published === 1 ? '' : 's'} of the worktree ${result.worktree}${branch} ` +
           `to the store of ${result.main}:\n${result.copies.map((c) => `  ${c.from} → ${c.dir}`).join('\n')}\n` +
-          'They stay in lr history and in retros after the worktree is removed.',
+          'They stay in slk review history and in retros after the worktree is removed.',
   );
   return EXIT.OK;
 }
@@ -442,7 +459,7 @@ async function keptHistoryNote(io: Io): Promise<string> {
   return (
     ' Deleting a thread now erases it, and nothing is saved when an agent removes a worktree.' +
     (summary
-      ? `\nThe history already kept stays: ${summary} in ${io.cwd}. To erase it: lr purge --history (it shows what, then --yes).`
+      ? `\nThe history already kept stays: ${summary} in ${io.cwd}. To erase it: slk review purge --history (it shows what, then --yes).`
       : '')
   );
 }
@@ -469,7 +486,7 @@ async function config(rest: string[], io: Io): Promise<number> {
     io.out(`${name} is now ${value}.` + (name === 'keep-history' && value === 'off' ? await keptHistoryNote(io) : ''));
     return EXIT.OK;
   }
-  if (action !== undefined) throw new UsageError(`lr config takes "set" or nothing, not "${action}"`);
+  if (action !== undefined) throw new UsageError(`slk config takes "set" or nothing, not "${action}"`);
   const current = await readConfig(io.env);
   if (str(values.format) === 'json') {
     io.out(JSON.stringify(current, null, 2));
@@ -485,7 +502,7 @@ async function config(rest: string[], io: Io): Promise<number> {
   return EXIT.OK;
 }
 
-/** `lr config --project`: the settings a project sets for itself, before the machine's. */
+/** `slk config --project`: the settings a project sets for itself, before the machine's. */
 async function projectConfig(
   io: Io,
   root: string | undefined,
@@ -506,7 +523,7 @@ async function projectConfig(
     io.out(`${name} is now ${value} for the project (${home}).`);
     return EXIT.OK;
   }
-  if (action !== undefined) throw new UsageError(`lr config takes "set" or nothing, not "${action}"`);
+  if (action !== undefined) throw new UsageError(`slk config takes "set" or nothing, not "${action}"`);
   const own = await readProjectConfig(home);
   if (format === 'json') {
     io.out(JSON.stringify(own, null, 2));
@@ -538,7 +555,7 @@ export function parseDateOption(value: string, flag: string, now = Date.now()): 
   return date;
 }
 
-const registryFor = (io: Io) => new SessionRegistry(localReviewHome(io.env));
+const registryFor = (io: Io) => new SessionRegistry(silykatHome(io.env));
 
 async function sessions(rest: string[], io: Io): Promise<number> {
   const { values } = parse(rest, { format: { type: 'string' } });
@@ -615,12 +632,12 @@ const subscriptionOptions = {
 /** The agent session this command runs in. */
 async function currentSession(values: Values, io: Io): Promise<{ registry: SessionRegistry; id: string }> {
   const registry = registryFor(io);
-  const named = str(values.session) ?? io.env.LR_SESSION?.trim();
+  const named = str(values.session) ?? io.env.SLK_SESSION?.trim();
   if (named) return { registry, id: named };
   const found = sessionOfProcess(await registry.list(), (await io.ancestors?.()) ?? (await processAncestors()));
   if (!found)
     throw new Error(
-      'this command does not run in a registered agent session. Pass --session <id> (see lr sessions), or set LR_SESSION.',
+      'this command does not run in a registered agent session. Pass --session <id> (see slk sessions), or set SLK_SESSION.',
     );
   return { registry, id: found.id };
 }
@@ -692,7 +709,7 @@ async function whyNotFound(store: Store, id: string, env: Io['env']): Promise<st
   if (state?.deleted)
     return `Thread not found: ${id} was deleted by the user. Stop working on it; if you already changed code for it, ask the user whether to undo those changes (never undo them on your own).`;
   if (state?.archived)
-    return `Thread not found: ${id} was archived by the user: it is finished. Stop working on it (lr unarchive ${id} brings it back, only if the user asks).`;
+    return `Thread not found: ${id} was archived by the user: it is finished. Stop working on it (slk review unarchive ${id} brings it back, only if the user asks).`;
   // Erased: the user deleted it, and this machine does not keep the history.
   if (!state && !(await readConfig(env)).keepHistory)
     return `Thread not found: ${id}. The user may have deleted it (deleted threads are erased on this machine): if you were working on it, stop, and ask the user whether to undo the changes you made for it (never undo them on your own).`;
@@ -706,8 +723,8 @@ function requireThreadId(positionals: string[]): string {
 }
 
 function requireAgent(flag: string | undefined, io: Io): string {
-  const agent = (flag ?? io.env.LR_AGENT)?.trim();
-  if (!agent) throw new UsageError('say who you are with --agent <name> (or set LR_AGENT)');
+  const agent = (flag ?? io.env.SLK_AGENT)?.trim();
+  if (!agent) throw new UsageError('say who you are with --agent <name> (or set SLK_AGENT)');
   return agent;
 }
 

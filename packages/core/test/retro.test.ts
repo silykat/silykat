@@ -33,12 +33,12 @@ import {
 } from '../src/index';
 
 let base: string;
-const env = () => ({ LOCAL_REVIEW_HOME: join(base, 'machine'), HOME: join(base, 'home') });
+const env = () => ({ SILYKAT_HOME: join(base, 'machine'), HOME: join(base, 'home') });
 const git = (cwd: string, ...args: string[]) =>
   execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@e', ...args], { cwd, stdio: 'pipe' });
 
 beforeEach(async () => {
-  base = await realpath(await mkdtemp(join(tmpdir(), 'lr-retro-')));
+  base = await realpath(await mkdtemp(join(tmpdir(), 'slk-retro-')));
 });
 afterEach(async () => {
   await rm(base, { recursive: true, force: true });
@@ -529,11 +529,11 @@ describe('the retro journal', () => {
     await writeFile(join(repo, '.git', 'info', 'exclude'), '# mine');
     await prepareStoreHome(repo);
     await prepareStoreHome(repo);
-    expect(await readFile(join(repo, '.git', 'info', 'exclude'), 'utf8')).toBe('# mine\n.local-review/\n');
+    expect(await readFile(join(repo, '.git', 'info', 'exclude'), 'utf8')).toBe('# mine\n.silykat/\n');
     expect(execFileSync('git', ['status', '--porcelain'], { cwd: repo }).toString()).toBe('');
     await mkdir(join(base, 'plain'));
     await prepareStoreHome(join(base, 'plain'));
-    expect(await realpath(join(base, 'plain', '.local-review'))).toBeTruthy();
+    expect(await realpath(join(base, 'plain', '.silykat'))).toBeTruthy();
   });
 });
 
@@ -687,7 +687,7 @@ describe('what the agents read', () => {
 });
 
 describe('the Jev key', () => {
-  const keyFile = () => join(base, 'home', '.config', 'local-review', 'jev-key');
+  const keyFile = () => join(base, 'home', '.config', 'silykat', 'jev-key');
 
   it('is checked without being read: present, private, in no repository', async () => {
     expect(await jevKeyStatus(env())).toMatchObject({ source: 'none', exists: false, ok: false, path: keyFile() });
@@ -712,7 +712,7 @@ describe('the Jev key', () => {
     // Interrupted (Ctrl+C), it gives the terminal its echo back.
     expect(cmd).toContain('trap "stty echo; echo; exit 130" INT TERM');
     expect(cmd).toContain('umask 077');
-    expect(cmd).toContain('chmod 600 "$HOME/.config/local-review/jev-key"');
+    expect(cmd).toContain('chmod 600 "$HOME/.config/silykat/jev-key"');
   });
 });
 

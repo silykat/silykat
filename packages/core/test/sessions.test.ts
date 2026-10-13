@@ -6,7 +6,7 @@ import {
   filesChangedSince,
   localBranches,
   renamedBranch,
-  localReviewHome,
+  silykatHome,
   relevantSessions,
   SessionRegistry,
   subscribersOf,
@@ -32,7 +32,7 @@ const record = (over: Partial<SessionRecord> = {}): SessionRecord => ({
 });
 
 beforeEach(async () => {
-  home = await mkdtemp(join(tmpdir(), 'lr-home-'));
+  home = await mkdtemp(join(tmpdir(), 'slk-home-'));
 });
 afterEach(async () => {
   await rm(home, { recursive: true, force: true });
@@ -81,10 +81,10 @@ describe('SessionRegistry', () => {
   });
 });
 
-describe('localReviewHome', () => {
-  it('uses LOCAL_REVIEW_HOME when set, else ~/.local-review', () => {
-    expect(localReviewHome({ LOCAL_REVIEW_HOME: '/tmp/lr' })).toBe('/tmp/lr');
-    expect(localReviewHome({})).toMatch(/\.local-review$/);
+describe('silykatHome', () => {
+  it('uses SILYKAT_HOME when set, else ~/.silykat', () => {
+    expect(silykatHome({ SILYKAT_HOME: '/tmp/slk' })).toBe('/tmp/slk');
+    expect(silykatHome({})).toMatch(/\.silykat$/);
   });
 });
 
@@ -233,7 +233,7 @@ describe('Topics during a rebase', () => {
   it('are the branch being rebased', async () => {
     const { execFileSync } = await import('node:child_process');
     const { realpath, writeFile } = await import('node:fs/promises');
-    const repo = await realpath(await mkdtemp(join(tmpdir(), 'lr-rebase-')));
+    const repo = await realpath(await mkdtemp(join(tmpdir(), 'slk-rebase-')));
     try {
       const g = (...args: string[]) =>
         execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@e', ...args], { cwd: repo, stdio: 'pipe' });
@@ -264,7 +264,7 @@ describe('Topics', () => {
   it('are the branch of a git worktree (shared by its worktrees as one repo), else the path', async () => {
     const { execFileSync } = await import('node:child_process');
     const { mkdir, realpath, stat, writeFile } = await import('node:fs/promises');
-    const base = await realpath(await mkdtemp(join(tmpdir(), 'lr-topics-')));
+    const base = await realpath(await mkdtemp(join(tmpdir(), 'slk-topics-')));
     try {
       const repo = join(base, 'app');
       const g = (...args: string[]) =>

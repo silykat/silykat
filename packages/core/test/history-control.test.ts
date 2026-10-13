@@ -30,7 +30,7 @@ const anchor = (): Anchor => ({
 const at = (day: number) => `2026-09-${String(day).padStart(2, '0')}T10:00:00.000Z`;
 
 let base: string;
-const env = () => ({ LOCAL_REVIEW_HOME: join(base, 'home'), HOME: join(base, 'user') });
+const env = () => ({ SILYKAT_HOME: join(base, 'home'), HOME: join(base, 'user') });
 const git = (cwd: string, ...args: string[]) =>
   execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@e', ...args], { cwd, stdio: 'pipe' });
 const comment = (root: string, body: string) =>
@@ -60,7 +60,7 @@ async function resolved(root: string, body: string, day: number) {
 }
 
 beforeEach(async () => {
-  base = await realpath(await mkdtemp(join(tmpdir(), 'lr-history-control-')));
+  base = await realpath(await mkdtemp(join(tmpdir(), 'slk-history-control-')));
 });
 
 afterEach(async () => {
@@ -149,7 +149,7 @@ describe('erasing what the history keeps', () => {
     expect(await eraseHistory(plan)).toEqual({ threads: 1, saved: 1 });
 
     expect((await projectThreads([main], env())).map((t) => t.thread.id)).toEqual([kept.id]);
-    expect(await readdir(join(main, '.local-review', 'saved'))).toEqual([]);
+    expect(await readdir(join(main, '.silykat', 'saved'))).toEqual([]);
     expect((await projectThreads([main], env())).some((t) => t.thread.id === inWt.id)).toBe(false);
     expect(await historyPlan([main], env())).toEqual({ deleted: [], saved: [] });
     expect(await eraseHistory({ deleted: [], saved: plan.saved })).toEqual({ threads: 0, saved: 0 });

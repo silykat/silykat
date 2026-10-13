@@ -2,29 +2,29 @@ import * as assert from 'node:assert/strict';
 import { appendFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import type { LocalReviewApi } from '../../src/extension';
+import type { SilykatApi } from '../../src/extension';
 import { WAIT_MS } from './timing';
 
-const EXTENSION_ID = 'local.local-review';
+const EXTENSION_ID = 'silykat.silykat';
 
-describe('Comments written by a newer version of Local Review', () => {
-  let api: LocalReviewApi;
+describe('Comments written by a newer version of silykat', () => {
+  let api: SilykatApi;
   let ws: string;
   let uri: vscode.Uri;
   let shown: string[];
 
   async function newThread(line: number): Promise<string> {
     const thread = api.controller.createCommentThread(uri, new vscode.Range(line, 0, line, 0), []);
-    await vscode.commands.executeCommand('localReview.submitComment', { thread, text: 'Rename this variable' });
+    await vscode.commands.executeCommand('silykat.submitComment', { thread, text: 'Rename this variable' });
     return api.listThreads().find((t) => t.thread === thread)!.id;
   }
   /** An event of a future format, as a newer version would write it. */
   const fromTheFuture = (id: string) =>
-    appendFileSync(join(ws, '.local-review', 'threads', `${id}.jsonl`), '{"v":99,"type":"comment.added"}\n');
-  const warnings = () => shown.filter((m) => m.includes('newer version of Local Review'));
+    appendFileSync(join(ws, '.silykat', 'threads', `${id}.jsonl`), '{"v":99,"type":"comment.added"}\n');
+  const warnings = () => shown.filter((m) => m.includes('newer version of silykat'));
 
   before(async () => {
-    const ext = vscode.extensions.getExtension<LocalReviewApi>(EXTENSION_ID)!;
+    const ext = vscode.extensions.getExtension<SilykatApi>(EXTENSION_ID)!;
     api = await ext.activate();
     ws = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
     uri = vscode.Uri.file(join(ws, 'sample.ts'));
@@ -37,13 +37,13 @@ describe('Comments written by a newer version of Local Review', () => {
 
   beforeEach(async () => {
     shown = [];
-    rmSync(join(ws, '.local-review'), { recursive: true, force: true });
+    rmSync(join(ws, '.silykat'), { recursive: true, force: true });
     await api.reload();
   });
 
   after(async () => {
     api.setChooseHandler(undefined);
-    rmSync(join(ws, '.local-review'), { recursive: true, force: true });
+    rmSync(join(ws, '.silykat'), { recursive: true, force: true });
     await api.reload();
   });
 

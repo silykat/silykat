@@ -15,7 +15,7 @@ export interface SimulateArgs {
 }
 
 /**
- * "Local Review (dev): Simulate Agent Reply". Stand-in for a real agent integration (step 2): it
+ * "silykat (dev): Simulate Agent Reply". Stand-in for a real agent integration (step 2): it
  * runs `dist/fake-agent.js` in a separate process, so the reply reaches VS Code through the file
  * watcher exactly like a real one would.
  */
@@ -30,9 +30,7 @@ export async function simulateAgentReply(
     .listThreads()
     .filter((t) => t.state.hasPublished && t.state.status !== 'resolved' && !t.state.readOnly);
   if (candidates.length === 0) {
-    void vscode.window.showInformationMessage(
-      `Local Review: no thread for ${agent} to reply to. Leave a comment first.`,
-    );
+    void vscode.window.showInformationMessage(`silykat: no thread for ${agent} to reply to. Leave a comment first.`);
     return false;
   }
 
@@ -97,7 +95,7 @@ export async function simulateAgentReply(
     agent,
   ]);
   if (result.code !== 0) {
-    void vscode.window.showErrorMessage(`Local Review: simulated reply failed. ${result.stderr.trim()}`);
+    void vscode.window.showErrorMessage(`silykat: simulated reply failed. ${result.stderr.trim()}`);
     return false;
   }
   return true;

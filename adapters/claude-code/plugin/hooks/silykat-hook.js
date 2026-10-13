@@ -7,7 +7,7 @@ var import_node_path15 = require("node:path");
 
 // ../../packages/core/src/types.ts
 var SCHEMA_VERSION = 2;
-var STORE_DIR = ".local-review";
+var STORE_DIR = ".silykat";
 var DELETE_REASONS = ["user", "branch-gone"];
 function sessionRefOf(raw) {
   if (typeof raw !== "object" || raw === null) return void 0;
@@ -386,7 +386,7 @@ function countDeletions(threads) {
 // ../../packages/core/src/store.ts
 var Store = class {
   /**
-   * A store of the files under `root`, kept in `<root>/.local-review/` by default. `dir` puts it
+   * A store of the files under `root`, kept in `<root>/.silykat/` by default. `dir` puts it
    * elsewhere (e.g. the machine store of the files outside any open folder).
    */
   constructor(root, dir = (0, import_node_path.join)(root, STORE_DIR)) {
@@ -725,7 +725,7 @@ var Store = class {
       throw new Error(`Thread ${threadId} is archived: unarchive it first`);
     if (state.readOnly)
       throw new Error(
-        `Thread ${threadId} was written by a newer version of Local Review, so it is read-only: update Local Review to change it`
+        `Thread ${threadId} was written by a newer version of silykat, so it is read-only: update silykat to change it`
       );
     return state;
   }
@@ -939,13 +939,13 @@ var CALL_NOTE = "call-";
 var CALL_MAX_AGE_MS = 15 * 6e4;
 var LOOSE_ROOT = "/";
 function looseStore(env = process.env) {
-  return new Store(LOOSE_ROOT, (0, import_node_path3.join)(localReviewHome(env), "files"));
+  return new Store(LOOSE_ROOT, (0, import_node_path3.join)(silykatHome(env), "files"));
 }
 function storeAt(root, env = process.env) {
   return root === LOOSE_ROOT ? looseStore(env) : new Store(root);
 }
-function localReviewHome(env = process.env) {
-  return env.LOCAL_REVIEW_HOME?.trim() || (0, import_node_path3.join)((0, import_node_os.homedir)(), ".local-review");
+function silykatHome(env = process.env) {
+  return env.SILYKAT_HOME?.trim() || (0, import_node_path3.join)((0, import_node_os.homedir)(), ".silykat");
 }
 var SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/;
 function isProcessAlive(pid) {
@@ -957,7 +957,7 @@ function isProcessAlive(pid) {
   }
 }
 var SessionRegistry = class {
-  constructor(home = localReviewHome(), isAlive = isProcessAlive) {
+  constructor(home = silykatHome(), isAlive = isProcessAlive) {
     this.isAlive = isAlive;
     this.dir = (0, import_node_path3.join)(home, "sessions");
   }
@@ -1003,7 +1003,7 @@ var SessionRegistry = class {
     }
   }
   /**
-   * Notes a command an agent starts (e.g. `lr reply …`), written by its adapter before it runs: `lr`
+   * Notes a command an agent starts (e.g. `slk review reply …`), written by its adapter before it runs: `slk`
    * then knows which message of the agent's conversation runs it. Removed by `endCall`, or with the
    * session.
    */
@@ -1188,7 +1188,7 @@ function parseDelivery(line) {
 function isStoreRoot(dir, env = process.env) {
   const store = (0, import_node_path4.join)(dir, STORE_DIR);
   if (!(0, import_node_fs.existsSync)((0, import_node_path4.join)(store, "schema-version")) && !(0, import_node_fs.existsSync)((0, import_node_path4.join)(store, "threads"))) return false;
-  return realpath2(store) !== realpath2(localReviewHome(env));
+  return realpath2(store) !== realpath2(silykatHome(env));
 }
 function findStoreRoot(fromDir, env = process.env) {
   let dir = (0, import_node_path4.resolve)(fromDir);
@@ -1518,7 +1518,7 @@ async function worktreeThreadCount(dir, env = process.env) {
 
 // ../../packages/core/src/agentSessions.ts
 var LOG_VERSION = 1;
-var agentSessionsFile = (env = process.env) => (0, import_node_path9.join)(localReviewHome(env), "agent-sessions.jsonl");
+var agentSessionsFile = (env = process.env) => (0, import_node_path9.join)(silykatHome(env), "agent-sessions.jsonl");
 async function readAgentSessions(env = process.env) {
   let text = "";
   try {
@@ -1557,7 +1557,7 @@ async function recordAgentSessions(entries, opts = {}) {
   if (opts.imported)
     lines.push({ v: LOG_VERSION, type: "imported", source: opts.imported, at: (/* @__PURE__ */ new Date()).toISOString() });
   if (lines.length === 0) return;
-  await (0, import_promises8.mkdir)(localReviewHome(env), { recursive: true });
+  await (0, import_promises8.mkdir)(silykatHome(env), { recursive: true });
   await (0, import_promises8.appendFile)(agentSessionsFile(env), lines.map((l) => JSON.stringify(l) + "\n").join(""));
 }
 async function projectFolders(root, env = process.env) {
@@ -1598,7 +1598,7 @@ var CONFIG_KEYS = {
   "keep-history": {
     key: "keepHistory",
     kind: "boolean",
-    help: "on|off \u2014 keep deleted threads (for lr history and retros) and save the threads of a worktree before an agent removes it; off, deleting a thread erases it (default: on)"
+    help: "on|off \u2014 keep deleted threads (for slk review history and retros) and save the threads of a worktree before an agent removes it; off, deleting a thread erases it (default: on)"
   },
   "retro-reminder": {
     key: "retroReminder",
@@ -1645,7 +1645,7 @@ var CONFIG_KEYS = {
     help: "yes|no|ask \u2014 a retro audits your setup (/doctor prompt-audit): always, never, or asked (default: ask)"
   }
 };
-var configFile = (env = process.env) => (0, import_node_path10.join)(localReviewHome(env), "config.json");
+var configFile = (env = process.env) => (0, import_node_path10.join)(silykatHome(env), "config.json");
 var validSettingNumber = (x) => typeof x === "number" && Number.isInteger(x) && x >= 1;
 async function readConfig(env = process.env) {
   const config = { ...DEFAULT_CONFIG };
@@ -1985,7 +1985,7 @@ var import_promises13 = require("node:fs/promises");
 var import_node_path14 = require("node:path");
 
 // src/channelFlag.ts
-var CHANNEL = "plugin:local-review@local-review";
+var CHANNEL = "plugin:silykat@silykat";
 var LAUNCH_WITH_CHANNEL = `claude --dangerously-load-development-channels ${CHANNEL}`;
 var CHANNEL_FLAGS = ["--dangerously-load-development-channels", "--channels"];
 function hasChannel(commandLine2) {
@@ -2000,7 +2000,7 @@ function hasChannel(commandLine2) {
   }
   return false;
 }
-var isOurChannel = (value) => value === CHANNEL || /^plugin:local-review@[\w.-]+$/.test(value);
+var isOurChannel = (value) => value === CHANNEL || /^plugin:silykat@[\w.-]+$/.test(value);
 
 // src/retroInsights.ts
 var import_node_fs2 = require("node:fs");
@@ -2156,15 +2156,15 @@ async function retroReminder(cwd, deps) {
     deps.reminderTimeoutMs
   );
   if (!cadence?.due) return void 0;
-  return `Local Review: a retro is due for this project (${cadence.root}): ${cadenceSummary(cadence)}; ${dueReasons(cadence).join("; ")}. In your first reply of this session, tell the user so in one short sentence and suggest \`/local-review:retro\` (a retro looks back at their review feedback and their sessions with you, to improve your setup with them). Say it once only, and do not start the retro unless they ask.`;
+  return `silykat: a retro is due for this project (${cadence.root}): ${cadenceSummary(cadence)}; ${dueReasons(cadence).join("; ")}. In your first reply of this session, tell the user so in one short sentence and suggest \`/silykat:retro\` (a retro looks back at their review feedback and their sessions with you, to improve your setup with them). Say it once only, and do not start the retro unless they ask.`;
 }
 function replyCall(input) {
   const command = input.tool_input?.command;
   const message = input.tool_use_id ?? "";
   if (typeof command !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(message)) return null;
   const replies = shellSegments(command).some((words) => {
-    const i = words.findIndex((w) => (0, import_node_path14.basename)(w) === "lr");
-    return i >= 0 && words[i + 1] === "reply";
+    const i = words.findIndex((w) => (0, import_node_path14.basename)(w) === "slk");
+    return i >= 0 && words[i + 1] === "review" && words[i + 2] === "reply";
   });
   return replies ? { message, command } : null;
 }
@@ -2172,17 +2172,17 @@ function purgeConfirmation(input, now = Date.now()) {
   const command = input.tool_input?.command;
   if (input.tool_name !== "Bash" || typeof command !== "string") return null;
   for (const words of shellSegments(command)) {
-    const i = words.findIndex((w) => (0, import_node_path14.basename)(w) === "lr");
-    if (i < 0 || words[i + 1] !== "purge" || !words.includes("--yes")) continue;
+    const i = words.findIndex((w) => (0, import_node_path14.basename)(w) === "slk");
+    if (i < 0 || words[i + 1] !== "review" || words[i + 2] !== "purge" || !words.includes("--yes")) continue;
     const ask = " It runs only if the user allows it; if they refuse, nothing is deleted.";
     if (words.includes("--history"))
-      return "Local Review: this erases for good the review history kept for retros: the deleted comment threads, and the threads saved from git worktrees." + ask;
+      return "silykat: this erases for good the review history kept for retros: the deleted comment threads, and the threads saved from git worktrees." + ask;
     const at = words.indexOf("--count");
     const count = at >= 0 && /^\d+$/.test(words[at + 1] ?? "") ? Number(words[at + 1]) : null;
     const before = words.includes("--before") ? words[words.indexOf("--before") + 1] : void 0;
     const date = before ? parseDateArg(before, now) : null;
     const what = count === null ? "old comment threads" : `${plural(count, "comment thread")}`;
-    return `Local Review: this deletes ${what} for good` + (before ? ` (finished, with no activity since ${date ? dateArgLabel(before, date) : before})` : "") + ": gone from the history and from retros." + ask;
+    return `silykat: this deletes ${what} for good` + (before ? ` (finished, with no activity since ${date ? dateArgLabel(before, date) : before})` : "") + ": gone from the history and from retros." + ask;
   }
   return null;
 }
@@ -2216,19 +2216,19 @@ async function beforeWorktreeRemoval(input, deps) {
     if (keep) {
       const saved = await wt.save(info.worktree).catch((err) => {
         messages.push(
-          `Local Review: this command removes the git worktree ${name}, but its comment threads could not be saved first (${err instanceof Error ? err.message : String(err)}): they may be lost with it. Tell the user before going on.`
+          `silykat: this command removes the git worktree ${name}, but its comment threads could not be saved first (${err instanceof Error ? err.message : String(err)}): they may be lost with it. Tell the user before going on.`
         );
         return null;
       });
       if (saved && saved.published > 0)
         messages.push(
-          `Local Review: before this command removes the git worktree ${name}, its comment threads (${saved.published}) were saved to the store of ${saved.main}: the user's review history and retros keep them. Tell the user in one short sentence.`
+          `silykat: before this command removes the git worktree ${name}, its comment threads (${saved.published}) were saved to the store of ${saved.main}: the user's review history and retros keep them. Tell the user in one short sentence.`
         );
     } else {
       const n = await wt.threadCount(info.worktree);
       if (n > 0)
         messages.push(
-          `Local Review: this command removes the git worktree ${name}, which holds ${plural(n, "comment thread")} of the user's review, and they are lost with it (the history is not kept on this machine: keep-history is off). Tell the user; to keep them, they can run \`lr worktree save ${info.worktree}\` before the removal.`
+          `silykat: this command removes the git worktree ${name}, which holds ${plural(n, "comment thread")} of the user's review, and they are lost with it (the history is not kept on this machine: keep-history is off). Tell the user; to keep them, they can run \`slk worktree save ${info.worktree}\` before the removal.`
         );
     }
   }
@@ -2337,7 +2337,7 @@ async function afterShellCommand(id, input, deps) {
   if (already || (await deps.filesChangedSince(input.cwd, since)).length === 0) return void 0;
   return await deps.registry.subscribe(id, topic, "modified") ? subscribed(topic, "you modified files there") : void 0;
 }
-var subscribed = (topic, why) => `Local Review: this session is now subscribed to ${topicLabel(topic)} (${why}): the comments the user publishes there will come to you. Tell the user in one short sentence.`;
+var subscribed = (topic, why) => `silykat: this session is now subscribed to ${topicLabel(topic)} (${why}): the comments the user publishes there will come to you. Tell the user in one short sentence.`;
 var bashNote = (input) => `bash-${/^[A-Za-z0-9_-]{1,100}$/.test(input.tool_use_id ?? "") ? input.tool_use_id : "command"}`;
 function run(cmd, args, cwd) {
   return new Promise(
@@ -2369,7 +2369,7 @@ async function main() {
   const input = JSON.parse(Buffer.concat(chunks).toString("utf8"));
   const ask = input.hook_event_name === "PreToolUse" ? purgeConfirmation(input) : null;
   const message = await handleHook(input, {
-    registry: new SessionRegistry(localReviewHome()),
+    registry: new SessionRegistry(silykatHome()),
     claudePid: () => findClaudePid(),
     commandLine,
     gitBranch,

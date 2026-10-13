@@ -3,10 +3,10 @@ import { fork } from 'node:child_process';
 import { readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import type { LocalReviewApi } from '../../src/extension';
+import type { SilykatApi } from '../../src/extension';
 import { WAIT_MS } from './timing';
 
-const EXTENSION_ID = 'local.local-review';
+const EXTENSION_ID = 'silykat.silykat';
 
 async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs = WAIT_MS): Promise<T> {
   const start = Date.now();
@@ -19,38 +19,38 @@ async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs = 
 }
 
 describe('Reply to the agent in the thread', () => {
-  let api: LocalReviewApi;
+  let api: SilykatApi;
   let ws: string;
   let uri: vscode.Uri;
   let extensionPath: string;
 
   const managed = (id: string) => api.listThreads().find((t) => t.id === id)!;
   const journal = (id: string) =>
-    readFileSync(join(ws, '.local-review', 'threads', `${id}.jsonl`), 'utf8')
+    readFileSync(join(ws, '.silykat', 'threads', `${id}.jsonl`), 'utf8')
       .trimEnd()
       .split('\n')
       .map((l) => JSON.parse(l));
 
   async function newThread(line: number): Promise<string> {
     const thread = api.controller.createCommentThread(uri, new vscode.Range(line, 0, line, 0), []);
-    await vscode.commands.executeCommand('localReview.submitComment', { thread, text: 'Why return null here?' });
+    await vscode.commands.executeCommand('silykat.submitComment', { thread, text: 'Why return null here?' });
     return api.listThreads().find((t) => t.thread === thread)!.id;
   }
 
   async function agentSays(id: string, body: string, status: 'needs-info' | 'addressed' | 'none') {
     const before = managed(id).state.comments.length;
     assert.equal(
-      await vscode.commands.executeCommand('localReview.dev.simulateAgentReply', { threadId: id, body, status }),
+      await vscode.commands.executeCommand('silykat.dev.simulateAgentReply', { threadId: id, body, status }),
       true,
     );
     await waitFor('the agent reply', () => (managed(id).state.comments.length > before ? true : undefined));
   }
 
   const userReplies = (id: string, text: string) =>
-    vscode.commands.executeCommand('localReview.reply', { thread: managed(id).thread, text });
+    vscode.commands.executeCommand('silykat.reply', { thread: managed(id).thread, text });
 
   before(async () => {
-    const ext = vscode.extensions.getExtension<LocalReviewApi>(EXTENSION_ID)!;
+    const ext = vscode.extensions.getExtension<SilykatApi>(EXTENSION_ID)!;
     api = await ext.activate();
     extensionPath = ext.extensionPath;
     ws = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
@@ -59,7 +59,7 @@ describe('Reply to the agent in the thread', () => {
   });
 
   beforeEach(async () => {
-    rmSync(join(ws, '.local-review'), { recursive: true, force: true });
+    rmSync(join(ws, '.silykat'), { recursive: true, force: true });
     await api.reload();
   });
 

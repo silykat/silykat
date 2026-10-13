@@ -13,7 +13,7 @@ const GROUP_MS = 500;
 /** Tells the user when the agent replied: a notification, and a status bar counter (threads waiting for them). */
 export class AgentRepliesUi implements vscode.Disposable {
   private readonly statusBar = vscode.window.createStatusBarItem(
-    'localReview.awaitingUser',
+    'silykat.awaitingUser',
     vscode.StatusBarAlignment.Left,
     99,
   );
@@ -23,12 +23,12 @@ export class AgentRepliesUi implements vscode.Disposable {
   notify: Notifier = infoNotifier;
 
   constructor(private readonly review: ReviewController) {
-    this.statusBar.name = 'Local Review: replies';
-    this.statusBar.command = 'localReview.showAwaitingUser';
+    this.statusBar.name = 'silykat: replies';
+    this.statusBar.command = 'silykat.showAwaitingUser';
     this.subscriptions.push(
       review.onDidChange(() => this.update()),
       review.onDidReceiveAgentReply((reply) => this.onReply(reply)),
-      vscode.commands.registerCommand('localReview.showAwaitingUser', () => this.showAwaitingUser()),
+      vscode.commands.registerCommand('silykat.showAwaitingUser', () => this.showAwaitingUser()),
     );
     this.update();
   }
@@ -52,12 +52,12 @@ export class AgentRepliesUi implements vscode.Disposable {
     }
     const n = waiting.length;
     this.statusBar.text = `$(comment-unresolved) ${n}`;
-    this.statusBar.tooltip = `Local Review: ${n} thread${n === 1 ? '' : 's'} waiting for your reply. Click to see ${n === 1 ? 'it' : 'them'}.`;
+    this.statusBar.tooltip = `silykat: ${n} thread${n === 1 ? '' : 's'} waiting for your reply. Click to see ${n === 1 ? 'it' : 'them'}.`;
     this.statusBar.show();
   }
 
   private onReply(reply: AgentReply): void {
-    if (!vscode.workspace.getConfiguration('localReview').get<boolean>('notifyOnAgentReply', true)) return;
+    if (!vscode.workspace.getConfiguration('silykat').get<boolean>('notifyOnAgentReply', true)) return;
     this.pending = [...this.pending.filter((p) => p.threadId !== reply.threadId), reply];
     clearTimeout(this.timer);
     this.timer = setTimeout(() => void this.flush(), GROUP_MS);
@@ -77,10 +77,10 @@ export class AgentRepliesUi implements vscode.Disposable {
     if (replies.length === 1) {
       const r = replies[0]!;
       const where = r.line === null ? r.path : `${r.path}:${r.line}`;
-      if (await this.notify(`Local Review: ${who} replied on ${where}`, 'Open')) await this.review.reveal(r.threadId);
+      if (await this.notify(`silykat: ${who} replied on ${where}`, 'Open')) await this.review.reveal(r.threadId);
       return;
     }
-    if (await this.notify(`Local Review: ${who} replied on ${replies.length} threads`, 'Show')) {
+    if (await this.notify(`silykat: ${who} replied on ${replies.length} threads`, 'Show')) {
       await this.showAwaitingUser();
     }
   }
@@ -92,7 +92,7 @@ export class AgentRepliesUi implements vscode.Disposable {
       id,
     }));
     if (items.length === 0) {
-      void vscode.window.showInformationMessage('Local Review: no thread is waiting for your reply.');
+      void vscode.window.showInformationMessage('silykat: no thread is waiting for your reply.');
       return;
     }
     const pick = await vscode.window.showQuickPick(items, {

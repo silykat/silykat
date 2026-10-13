@@ -3,16 +3,16 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import type { LocalReviewApi } from '../../src/extension';
+import type { SilykatApi } from '../../src/extension';
 
-const EXTENSION_ID = 'local.local-review';
+const EXTENSION_ID = 'silykat.silykat';
 
 describe('Direct comment on lines', () => {
-  let api: LocalReviewApi;
+  let api: SilykatApi;
   let ws: string;
   let uri: vscode.Uri;
 
-  const storeDir = () => join(ws, '.local-review');
+  const storeDir = () => join(ws, '.silykat');
   const threadFiles = () => (existsSync(join(storeDir(), 'threads')) ? readdirSync(join(storeDir(), 'threads')) : []);
   const journal = (file: string) =>
     readFileSync(join(storeDir(), 'threads', file), 'utf8')
@@ -22,12 +22,12 @@ describe('Direct comment on lines', () => {
 
   async function comment(range: vscode.Range, text: string): Promise<vscode.CommentThread> {
     const thread = api.controller.createCommentThread(uri, range, []);
-    await vscode.commands.executeCommand('localReview.submitComment', { thread, text });
+    await vscode.commands.executeCommand('silykat.submitComment', { thread, text });
     return thread;
   }
 
   before(async () => {
-    const ext = vscode.extensions.getExtension<LocalReviewApi>(EXTENSION_ID);
+    const ext = vscode.extensions.getExtension<SilykatApi>(EXTENSION_ID);
     assert.ok(ext, 'extension not found');
     api = await ext.activate();
     ws = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
@@ -69,7 +69,7 @@ describe('Direct comment on lines', () => {
 
   it('cancel closes the new thread without writing anything', async () => {
     const thread = api.controller.createCommentThread(uri, new vscode.Range(3, 0, 3, 0), []);
-    await vscode.commands.executeCommand('localReview.cancelNewThread', { thread, text: 'draft text' });
+    await vscode.commands.executeCommand('silykat.cancelNewThread', { thread, text: 'draft text' });
     assert.deepEqual(threadFiles(), []);
     assert.equal(api.listThreads().length, 0);
   });
@@ -87,20 +87,20 @@ describe('Direct comment on lines', () => {
     assert.equal(threads[0]!.thread.collapsibleState, vscode.CommentThreadCollapsibleState.Expanded);
   });
 
-  it('keeps .local-review out of git status', async () => {
+  it('keeps .silykat out of git status', async () => {
     await comment(new vscode.Range(0, 0, 0, 0), 'git hygiene');
     const status = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], {
       cwd: ws,
       encoding: 'utf8',
     });
     assert.ok(status.includes('sample.ts'), status);
-    assert.ok(!status.includes('.local-review'), status);
+    assert.ok(!status.includes('.silykat'), status);
     const exclude = execFileSync('git', ['rev-parse', '--git-path', 'info/exclude'], {
       cwd: ws,
       encoding: 'utf8',
     }).trim();
     const lines = readFileSync(join(ws, exclude), 'utf8').split('\n');
-    assert.equal(lines.filter((l) => l === '/.local-review/').length, 1);
+    assert.equal(lines.filter((l) => l === '/.silykat/').length, 1);
   });
 
   it('creates two separate threads for two places', async () => {

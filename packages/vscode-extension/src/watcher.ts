@@ -1,6 +1,6 @@
 import { readdirSync, statSync, watch, type FSWatcher } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import { Store } from '@local-review/core';
+import { Store } from '@silykat/core';
 
 const DEBOUNCE_MS = 100;
 /** A new watch is not active right away (macOS): what is written meanwhile is read after this delay. */

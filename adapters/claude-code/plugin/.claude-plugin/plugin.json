@@ -1,7 +1,7 @@
 {
-  "name": "local-review",
+  "name": "silykat",
   "version": "0.10.0",
-  "description": "Local Review for Claude Code: address the review comments left in VS Code with the Local Review extension, and reply in their threads.",
+  "description": "silykat for Claude Code: address the review comments left in VS Code with the silykat extension, and reply in their threads.",
   "author": {
     "name": "Lakhdar Benamer"
   },

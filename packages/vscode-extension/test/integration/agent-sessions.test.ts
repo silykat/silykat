@@ -2,13 +2,13 @@ import * as assert from 'node:assert/strict';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import { localReviewHome, SessionRegistry, type SessionRecord } from '@local-review/core';
-import type { LocalReviewApi } from '../../src/extension';
+import { silykatHome, SessionRegistry, type SessionRecord } from '@silykat/core';
+import type { SilykatApi } from '../../src/extension';
 
-const EXTENSION_ID = 'local.local-review';
+const EXTENSION_ID = 'silykat.silykat';
 
 describe('Agent sessions of this workspace', () => {
-  let api: LocalReviewApi;
+  let api: SilykatApi;
   let ws: string;
   let registry: SessionRegistry;
 
@@ -23,23 +23,23 @@ describe('Agent sessions of this workspace', () => {
   });
 
   before(async () => {
-    const ext = vscode.extensions.getExtension<LocalReviewApi>(EXTENSION_ID)!;
+    const ext = vscode.extensions.getExtension<SilykatApi>(EXTENSION_ID)!;
     api = await ext.activate();
     ws = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
-    registry = new SessionRegistry(localReviewHome());
+    registry = new SessionRegistry(silykatHome());
   });
 
   // Nothing registered or waiting may leak between tests (or into later files: sessions left
   // behind would make their comments ask which session to use).
   const clean = () => {
     rmSync(registry.dir, { recursive: true, force: true });
-    rmSync(join(localReviewHome(), 'queue'), { recursive: true, force: true });
+    rmSync(join(silykatHome(), 'queue'), { recursive: true, force: true });
   };
   beforeEach(clean);
   after(clean);
 
-  it('uses a private Local Review home in tests', () => {
-    assert.ok(process.env.LOCAL_REVIEW_HOME, 'LOCAL_REVIEW_HOME is set by the test config');
+  it('uses a private silykat home in tests', () => {
+    assert.ok(process.env.SILYKAT_HOME, 'SILYKAT_HOME is set by the test config');
   });
 
   it('shows nothing when no agent runs', async () => {

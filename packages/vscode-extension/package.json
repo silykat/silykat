@@ -1,14 +1,14 @@
 {
-  "name": "local-review",
-  "displayName": "Local Review",
+  "name": "silykat",
+  "displayName": "silykat",
   "description": "GitHub-style code review between you and your AI coding agent, 100% local.",
   "version": "0.10.0",
-  "publisher": "local",
+  "publisher": "silykat",
   "private": true,
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/lbenamer/local-review"
+    "url": "https://github.com/silykat/silykat"
   },
   "engines": {
     "vscode": "^1.100.0"
@@ -26,377 +26,377 @@
   "contributes": {
     "commands": [
       {
-        "command": "localReview.commentSelection",
+        "command": "silykat.commentSelection",
         "title": "Comment on Selection",
-        "category": "Local Review"
+        "category": "silykat"
       },
       {
-        "command": "localReview.commentFile",
+        "command": "silykat.commentFile",
         "title": "Comment on File",
-        "category": "Local Review"
+        "category": "silykat"
       },
       {
-        "command": "localReview.submitComment",
+        "command": "silykat.submitComment",
         "title": "Comment"
       },
       {
-        "command": "localReview.commentNow",
+        "command": "silykat.commentNow",
         "title": "Comment Now"
       },
       {
-        "command": "localReview.addToReview",
+        "command": "silykat.addToReview",
         "title": "Add to Review"
       },
       {
-        "command": "localReview.startReview",
+        "command": "silykat.startReview",
         "title": "Start Review",
-        "category": "Local Review"
+        "category": "silykat"
       },
       {
-        "command": "localReview.submitReview",
+        "command": "silykat.submitReview",
         "title": "Submit Review",
-        "category": "Local Review",
+        "category": "silykat",
         "icon": "$(check)"
       },
       {
-        "command": "localReview.discardReview",
+        "command": "silykat.discardReview",
         "title": "Discard Review",
-        "category": "Local Review",
+        "category": "silykat",
         "icon": "$(trash)"
       },
       {
-        "command": "localReview.showPendingComments",
+        "command": "silykat.showPendingComments",
         "title": "Show Pending Comments",
-        "category": "Local Review"
+        "category": "silykat"
       },
       {
-        "command": "localReview.showAwaitingUser",
+        "command": "silykat.showAwaitingUser",
         "title": "Threads Waiting for My Reply",
-        "category": "Local Review"
+        "category": "silykat"
       },
       {
-        "command": "localReview.showSessions",
+        "command": "silykat.showSessions",
         "title": "Show Agent Sessions",
-        "category": "Local Review"
+        "category": "silykat"
       },
       {
-        "command": "localReview.reviewMenu",
+        "command": "silykat.reviewMenu",
         "title": "Review Menu",
-        "category": "Local Review"
+        "category": "silykat"
       },
       {
-        "command": "localReview.revealThread",
+        "command": "silykat.revealThread",
         "title": "Reveal Thread",
-        "category": "Local Review"
+        "category": "silykat"
       },
       {
-        "command": "localReview.saveWorktreeThreads",
+        "command": "silykat.saveWorktreeThreads",
         "title": "Save Worktree Threads",
-        "category": "Local Review"
+        "category": "silykat"
       },
       {
-        "command": "localReview.showRetroReminder",
+        "command": "silykat.showRetroReminder",
         "title": "When Is the Next Retro?",
-        "category": "Local Review"
+        "category": "silykat"
       },
       {
-        "command": "localReview.archiveResolvedThreads",
+        "command": "silykat.archiveResolvedThreads",
         "title": "Archive Resolved Threads…",
-        "category": "Local Review"
+        "category": "silykat"
       },
       {
-        "command": "localReview.showArchivedThreads",
+        "command": "silykat.showArchivedThreads",
         "title": "Show Archived Threads",
-        "category": "Local Review"
+        "category": "silykat"
       },
       {
-        "command": "localReview.exportThreads",
+        "command": "silykat.exportThreads",
         "title": "Export Threads (JSON)…",
-        "category": "Local Review"
+        "category": "silykat"
       },
       {
-        "command": "localReview.deleteOldThreads",
+        "command": "silykat.deleteOldThreads",
         "title": "Delete Old Threads Permanently…",
-        "category": "Local Review"
+        "category": "silykat"
       },
       {
-        "command": "localReview.reply",
+        "command": "silykat.reply",
         "title": "Reply"
       },
       {
-        "command": "localReview.replyNow",
+        "command": "silykat.replyNow",
         "title": "Reply Now"
       },
       {
-        "command": "localReview.cancelNewThread",
+        "command": "silykat.cancelNewThread",
         "title": "Cancel"
       },
       {
-        "command": "localReview.resolveThread",
+        "command": "silykat.resolveThread",
         "title": "Resolve",
         "icon": "$(check)"
       },
       {
-        "command": "localReview.reopenThread",
+        "command": "silykat.reopenThread",
         "title": "Reopen",
         "icon": "$(issue-reopened)"
       },
       {
-        "command": "localReview.openOriginalDiff",
+        "command": "silykat.openOriginalDiff",
         "title": "Open Original Diff",
         "icon": "$(diff)"
       },
       {
-        "command": "localReview.archiveThread",
+        "command": "silykat.archiveThread",
         "title": "Archive Thread",
         "icon": "$(archive)"
       },
       {
-        "command": "localReview.deleteThread",
+        "command": "silykat.deleteThread",
         "title": "Delete Thread",
         "icon": "$(trash)"
       },
       {
-        "command": "localReview.editComment",
+        "command": "silykat.editComment",
         "title": "Edit",
         "icon": "$(edit)"
       },
       {
-        "command": "localReview.deleteComment",
+        "command": "silykat.deleteComment",
         "title": "Delete",
         "icon": "$(trash)"
       },
       {
-        "command": "localReview.saveEdit",
+        "command": "silykat.saveEdit",
         "title": "Save"
       },
       {
-        "command": "localReview.cancelEdit",
+        "command": "silykat.cancelEdit",
         "title": "Cancel"
       },
       {
-        "command": "localReview.dev.simulateAgentReply",
+        "command": "silykat.dev.simulateAgentReply",
         "title": "Simulate Agent Reply",
-        "category": "Local Review (dev)"
+        "category": "silykat (dev)"
       }
     ],
     "menus": {
       "commandPalette": [
         {
-          "command": "localReview.commentSelection",
+          "command": "silykat.commentSelection",
           "when": "resourceScheme == file"
         },
         {
-          "command": "localReview.submitComment",
+          "command": "silykat.submitComment",
           "when": "false"
         },
         {
-          "command": "localReview.cancelNewThread",
+          "command": "silykat.cancelNewThread",
           "when": "false"
         },
         {
-          "command": "localReview.reply",
+          "command": "silykat.reply",
           "when": "false"
         },
         {
-          "command": "localReview.resolveThread",
+          "command": "silykat.resolveThread",
           "when": "false"
         },
         {
-          "command": "localReview.reopenThread",
+          "command": "silykat.reopenThread",
           "when": "false"
         },
         {
-          "command": "localReview.deleteThread",
+          "command": "silykat.deleteThread",
           "when": "false"
         },
         {
-          "command": "localReview.archiveThread",
+          "command": "silykat.archiveThread",
           "when": "false"
         },
         {
-          "command": "localReview.editComment",
+          "command": "silykat.editComment",
           "when": "false"
         },
         {
-          "command": "localReview.deleteComment",
+          "command": "silykat.deleteComment",
           "when": "false"
         },
         {
-          "command": "localReview.saveEdit",
+          "command": "silykat.saveEdit",
           "when": "false"
         },
         {
-          "command": "localReview.cancelEdit",
+          "command": "silykat.cancelEdit",
           "when": "false"
         },
         {
-          "command": "localReview.commentNow",
+          "command": "silykat.commentNow",
           "when": "false"
         },
         {
-          "command": "localReview.addToReview",
+          "command": "silykat.addToReview",
           "when": "false"
         },
         {
-          "command": "localReview.startReview",
-          "when": "!localReview.reviewActiveHere"
+          "command": "silykat.startReview",
+          "when": "!silykat.reviewActiveHere"
         },
         {
-          "command": "localReview.submitReview",
-          "when": "localReview.reviewActive"
+          "command": "silykat.submitReview",
+          "when": "silykat.reviewActive"
         },
         {
-          "command": "localReview.showPendingComments",
-          "when": "localReview.reviewActive"
+          "command": "silykat.showPendingComments",
+          "when": "silykat.reviewActive"
         },
         {
-          "command": "localReview.reviewMenu",
+          "command": "silykat.reviewMenu",
           "when": "false"
         },
         {
-          "command": "localReview.revealThread",
+          "command": "silykat.revealThread",
           "when": "false"
         },
         {
-          "command": "localReview.replyNow",
+          "command": "silykat.replyNow",
           "when": "false"
         },
         {
-          "command": "localReview.discardReview",
-          "when": "localReview.reviewActive"
+          "command": "silykat.discardReview",
+          "when": "silykat.reviewActive"
         },
         {
-          "command": "localReview.openOriginalDiff",
+          "command": "silykat.openOriginalDiff",
           "when": "false"
         },
         {
-          "command": "localReview.commentFile",
+          "command": "silykat.commentFile",
           "when": "resourceScheme == file || resourceScheme == git"
         }
       ],
       "editor/context": [
         {
-          "command": "localReview.commentSelection",
+          "command": "silykat.commentSelection",
           "when": "resourceScheme == file",
-          "group": "localReview@1"
+          "group": "silykat@1"
         }
       ],
       "comments/commentThread/context": [
         {
-          "command": "localReview.submitComment",
-          "when": "commentController == local-review && commentThreadIsEmpty && !commentIsEmpty && !localReview.reviewActiveHere",
+          "command": "silykat.submitComment",
+          "when": "commentController == silykat && commentThreadIsEmpty && !commentIsEmpty && !silykat.reviewActiveHere",
           "group": "inline@1"
         },
         {
-          "command": "localReview.startReview",
-          "when": "commentController == local-review && commentThreadIsEmpty && !commentIsEmpty && !localReview.reviewActiveHere",
+          "command": "silykat.startReview",
+          "when": "commentController == silykat && commentThreadIsEmpty && !commentIsEmpty && !silykat.reviewActiveHere",
           "group": "inline@2"
         },
         {
-          "command": "localReview.addToReview",
-          "when": "commentController == local-review && commentThreadIsEmpty && !commentIsEmpty && localReview.reviewActiveHere",
+          "command": "silykat.addToReview",
+          "when": "commentController == silykat && commentThreadIsEmpty && !commentIsEmpty && silykat.reviewActiveHere",
           "group": "inline@1"
         },
         {
-          "command": "localReview.commentNow",
-          "when": "commentController == local-review && commentThreadIsEmpty && !commentIsEmpty && localReview.reviewActiveHere",
+          "command": "silykat.commentNow",
+          "when": "commentController == silykat && commentThreadIsEmpty && !commentIsEmpty && silykat.reviewActiveHere",
           "group": "inline@2"
         },
         {
-          "command": "localReview.cancelNewThread",
-          "when": "commentController == local-review && commentThreadIsEmpty",
+          "command": "silykat.cancelNewThread",
+          "when": "commentController == silykat && commentThreadIsEmpty",
           "group": "inline@3"
         },
         {
-          "command": "localReview.addToReview",
-          "when": "commentController == local-review && !commentThreadIsEmpty && !commentIsEmpty && commentThread =~ /^lr draft /",
+          "command": "silykat.addToReview",
+          "when": "commentController == silykat && !commentThreadIsEmpty && !commentIsEmpty && commentThread =~ /^slk draft /",
           "group": "inline@1"
         },
         {
-          "command": "localReview.reply",
-          "when": "commentController == local-review && !commentThreadIsEmpty && !commentIsEmpty && commentThread =~ /^lr (open|needs-info|addressed|resolved)( diff)?$/ && !localReview.reviewActiveHere",
+          "command": "silykat.reply",
+          "when": "commentController == silykat && !commentThreadIsEmpty && !commentIsEmpty && commentThread =~ /^slk (open|needs-info|addressed|resolved)( diff)?$/ && !silykat.reviewActiveHere",
           "group": "inline@1"
         },
         {
-          "command": "localReview.addToReview",
-          "when": "commentController == local-review && !commentThreadIsEmpty && !commentIsEmpty && commentThread =~ /^lr (open|needs-info|addressed|resolved)( diff)?$/ && localReview.reviewActiveHere",
+          "command": "silykat.addToReview",
+          "when": "commentController == silykat && !commentThreadIsEmpty && !commentIsEmpty && commentThread =~ /^slk (open|needs-info|addressed|resolved)( diff)?$/ && silykat.reviewActiveHere",
           "group": "inline@1"
         },
         {
-          "command": "localReview.replyNow",
-          "when": "commentController == local-review && !commentThreadIsEmpty && !commentIsEmpty && commentThread =~ /^lr (open|needs-info|addressed|resolved)( diff)?$/ && localReview.reviewActiveHere",
+          "command": "silykat.replyNow",
+          "when": "commentController == silykat && !commentThreadIsEmpty && !commentIsEmpty && commentThread =~ /^slk (open|needs-info|addressed|resolved)( diff)?$/ && silykat.reviewActiveHere",
           "group": "inline@2"
         }
       ],
       "comments/commentThread/title": [
         {
-          "command": "localReview.openOriginalDiff",
-          "when": "commentController == local-review && commentThread =~ / diff$/",
+          "command": "silykat.openOriginalDiff",
+          "when": "commentController == silykat && commentThread =~ / diff$/",
           "group": "inline@0"
         },
         {
-          "command": "localReview.resolveThread",
-          "when": "commentController == local-review && commentThread =~ /^lr (open|needs-info|addressed)( diff)?$/",
+          "command": "silykat.resolveThread",
+          "when": "commentController == silykat && commentThread =~ /^slk (open|needs-info|addressed)( diff)?$/",
           "group": "inline@1"
         },
         {
-          "command": "localReview.reopenThread",
-          "when": "commentController == local-review && commentThread =~ /^lr resolved( diff)?$/",
+          "command": "silykat.reopenThread",
+          "when": "commentController == silykat && commentThread =~ /^slk resolved( diff)?$/",
           "group": "inline@1"
         },
         {
-          "command": "localReview.archiveThread",
-          "when": "commentController == local-review && commentThread =~ /^lr (open|needs-info|addressed|resolved)( diff)?$/",
+          "command": "silykat.archiveThread",
+          "when": "commentController == silykat && commentThread =~ /^slk (open|needs-info|addressed|resolved)( diff)?$/",
           "group": "inline@2"
         },
         {
-          "command": "localReview.deleteThread",
-          "when": "commentController == local-review && commentThread =~ /^lr (draft )?(open|needs-info|addressed|resolved)( diff)?$/",
+          "command": "silykat.deleteThread",
+          "when": "commentController == silykat && commentThread =~ /^slk (draft )?(open|needs-info|addressed|resolved)( diff)?$/",
           "group": "inline@3"
         }
       ],
       "comments/comment/title": [
         {
-          "command": "localReview.editComment",
-          "when": "commentController == local-review && comment == author-user",
+          "command": "silykat.editComment",
+          "when": "commentController == silykat && comment == author-user",
           "group": "inline@1"
         },
         {
-          "command": "localReview.deleteComment",
-          "when": "commentController == local-review && comment == author-user",
+          "command": "silykat.deleteComment",
+          "when": "commentController == silykat && comment == author-user",
           "group": "inline@2"
         }
       ],
       "comments/comment/context": [
         {
-          "command": "localReview.saveEdit",
-          "when": "commentController == local-review && comment == author-user",
+          "command": "silykat.saveEdit",
+          "when": "commentController == silykat && comment == author-user",
           "group": "inline@1"
         },
         {
-          "command": "localReview.cancelEdit",
-          "when": "commentController == local-review && comment == author-user",
+          "command": "silykat.cancelEdit",
+          "when": "commentController == silykat && comment == author-user",
           "group": "inline@2"
         }
       ],
       "editor/title/context": [
         {
-          "command": "localReview.commentFile",
+          "command": "silykat.commentFile",
           "when": "resourceScheme == file || resourceScheme == git",
-          "group": "localReview@1"
+          "group": "silykat@1"
         }
       ]
     },
     "configuration": {
-      "title": "Local Review",
+      "title": "silykat",
       "properties": {
-        "localReview.userName": {
+        "silykat.userName": {
           "type": "string",
           "default": "",
           "description": "Name shown on your comments. When empty: `git config user.name`, otherwise your OS user name."
         },
-        "localReview.commentShortcut": {
+        "silykat.commentShortcut": {
           "type": "string",
           "enum": [
             "ctrl+cmd+c",
@@ -408,33 +408,33 @@
             "Ctrl+Cmd+C on macOS, Ctrl+Alt+C on Windows/Linux.",
             "Ctrl+Alt+C (Ctrl+Option+C on macOS).",
             "Cmd+Alt+M on macOS (may clash with \"Minimize All\"), Ctrl+Alt+M on Windows/Linux.",
-            "No shortcut from Local Review. Bind `localReview.commentSelection` yourself in keybindings.json."
+            "No shortcut from silykat. Bind `silykat.commentSelection` yourself in keybindings.json."
           ],
           "default": "ctrl+cmd+c",
-          "markdownDescription": "Keyboard shortcut for **Local Review: Comment on Selection**. For any other key combination, pick `none` and bind the `localReview.commentSelection` command in `keybindings.json` (*Preferences: Open Keyboard Shortcuts*)."
+          "markdownDescription": "Keyboard shortcut for **silykat: Comment on Selection**. For any other key combination, pick `none` and bind the `silykat.commentSelection` command in `keybindings.json` (*Preferences: Open Keyboard Shortcuts*)."
         },
-        "localReview.notifyOnAgentReply": {
+        "silykat.notifyOnAgentReply": {
           "type": "boolean",
           "default": true,
           "description": "Show a notification when the agent replies in a thread. The status bar counter of threads waiting for your reply is always shown."
         },
-        "localReview.excludeFromGit": {
+        "silykat.excludeFromGit": {
           "type": "boolean",
           "default": true,
-          "description": "Add `.local-review/` to the local git exclude file (`.git/info/exclude`) on the first comment. Never modifies `.gitignore`."
+          "description": "Add `.silykat/` to the local git exclude file (`.git/info/exclude`) on the first comment. Never modifies `.gitignore`."
         },
-        "localReview.pushToAgents": {
+        "silykat.pushToAgents": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Send what you publish (comments, replies, reviews, edits, deletions) to the agent sessions subscribed to it, so that they handle it on their own. When off, nothing is sent: ask the agent yourself (e.g. `/local-review:review`), and no warning is shown about sessions."
+          "markdownDescription": "Send what you publish (comments, replies, reviews, edits, deletions) to the agent sessions subscribed to it, so that they handle it on their own. When off, nothing is sent: ask the agent yourself (e.g. `/silykat:review`), and no warning is shown about sessions."
         },
-        "localReview.keepHistory": {
+        "silykat.keepHistory": {
           "type": "boolean",
           "default": true,
           "scope": "application",
-          "markdownDescription": "Keep the history of what you delete, for `lr history` and retros (looking back at your review comments with your agent): a deleted thread stays on disk, out of sight, and the agent saves the threads of a git worktree before removing it. When off, deleting a thread erases it for good, nothing is saved when a worktree is removed, and you are offered to erase the history already kept. For this machine: machine setting `keep-history` of `lr config`, updated when you change it here."
+          "markdownDescription": "Keep the history of what you delete, for `slk review history` and retros (looking back at your review comments with your agent): a deleted thread stays on disk, out of sight, and the agent saves the threads of a git worktree before removing it. When off, deleting a thread erases it for good, nothing is saved when a worktree is removed, and you are offered to erase the history already kept. For this machine: machine setting `keep-history` of `slk config`, updated when you change it here."
         },
-        "localReview.retroSessions": {
+        "silykat.retroSessions": {
           "type": "string",
           "enum": [
             "reports",
@@ -446,9 +446,9 @@
           ],
           "default": "reports",
           "scope": "application",
-          "markdownDescription": "How a retro (looking back at your review comments with your agent, e.g. `/local-review:retro`) reads your sessions with the agent, next to the review threads. Never both: they tell the same sessions twice. For this machine: machine setting `retro-sessions` of `lr config`, updated when you change it here."
+          "markdownDescription": "How a retro (looking back at your review comments with your agent, e.g. `/silykat:retro`) reads your sessions with the agent, next to the review threads. Never both: they tell the same sessions twice. For this machine: machine setting `retro-sessions` of `slk config`, updated when you change it here."
         },
-        "localReview.retroSources.reviews": {
+        "silykat.retroSources.reviews": {
           "type": "string",
           "enum": [
             "ask",
@@ -462,9 +462,9 @@
           ],
           "default": "ask",
           "scope": "application",
-          "markdownDescription": "Whether a retro (looking back at your work with your agent, e.g. `/local-review:retro`) reads your review threads (the comments you left in VS Code). A retro reads at least one source. For this machine: machine setting `retro-source-reviews` of `lr config`, updated when you change it here. A project's own setting comes first: it is asked at the first retro of each project, and changed with `lr config set retro-source-reviews <value> --project`."
+          "markdownDescription": "Whether a retro (looking back at your work with your agent, e.g. `/silykat:retro`) reads your review threads (the comments you left in VS Code). A retro reads at least one source. For this machine: machine setting `retro-source-reviews` of `slk config`, updated when you change it here. A project's own setting comes first: it is asked at the first retro of each project, and changed with `slk config set retro-source-reviews <value> --project`."
         },
-        "localReview.retroSources.sessions": {
+        "silykat.retroSources.sessions": {
           "type": "string",
           "enum": [
             "ask",
@@ -478,9 +478,9 @@
           ],
           "default": "ask",
           "scope": "application",
-          "markdownDescription": "Whether a retro (looking back at your work with your agent, e.g. `/local-review:retro`) reads your sessions with the agent (how they are read: Retro Sessions). A retro reads at least one source. For this machine: machine setting `retro-source-sessions` of `lr config`, updated when you change it here. A project's own setting comes first: it is asked at the first retro of each project, and changed with `lr config set retro-source-sessions <value> --project`."
+          "markdownDescription": "Whether a retro (looking back at your work with your agent, e.g. `/silykat:retro`) reads your sessions with the agent (how they are read: Retro Sessions). A retro reads at least one source. For this machine: machine setting `retro-source-sessions` of `slk config`, updated when you change it here. A project's own setting comes first: it is asked at the first retro of each project, and changed with `slk config set retro-source-sessions <value> --project`."
         },
-        "localReview.retroSources.audit": {
+        "silykat.retroSources.audit": {
           "type": "string",
           "enum": [
             "ask",
@@ -494,27 +494,27 @@
           ],
           "default": "ask",
           "scope": "application",
-          "markdownDescription": "Whether a retro (looking back at your work with your agent, e.g. `/local-review:retro`) reads the audit of your setup by the agent (Claude Code's `/doctor prompt-audit`, about 8 minutes). A retro reads at least one source. For this machine: machine setting `retro-source-audit` of `lr config`, updated when you change it here. A project's own setting comes first: it is asked at the first retro of each project, and changed with `lr config set retro-source-audit <value> --project`."
+          "markdownDescription": "Whether a retro (looking back at your work with your agent, e.g. `/silykat:retro`) reads the audit of your setup by the agent (Claude Code's `/doctor prompt-audit`, about 8 minutes). A retro reads at least one source. For this machine: machine setting `retro-source-audit` of `slk config`, updated when you change it here. A project's own setting comes first: it is asked at the first retro of each project, and changed with `slk config set retro-source-audit <value> --project`."
         },
-        "localReview.retroReminder.days": {
+        "silykat.retroReminder.days": {
           "type": "integer",
           "default": 7,
           "minimum": 1,
-          "markdownDescription": "A retro (looking back at your review comments with your agent, e.g. `/local-review:retro`) is due this many days after the last one. Also used by the agent's reminder at the start of a session (machine setting `retro-reminder-days` of `lr config`, updated when you change it here)."
+          "markdownDescription": "A retro (looking back at your review comments with your agent, e.g. `/silykat:retro`) is due this many days after the last one. Also used by the agent's reminder at the start of a session (machine setting `retro-reminder-days` of `slk config`, updated when you change it here)."
         },
-        "localReview.retroReminder.sizeKB": {
+        "silykat.retroReminder.sizeKB": {
           "type": "integer",
           "default": 1000,
           "minimum": 1,
           "markdownDescription": "Or sooner, once the review threads since the last retro weigh this many kilobytes (1000 = 1 MB): a retro reads them all, and reads less finely when there are too many. Machine setting `retro-reminder-size`."
         },
-        "localReview.retroReminder.maxDays": {
+        "silykat.retroReminder.maxDays": {
           "type": "integer",
           "default": 25,
           "minimum": 1,
           "markdownDescription": "And never later than this many days, whatever the setting above: agents delete their conversations after a while (Claude Code: 30 days by default), and the retro reads back those linked to replies. Machine setting `retro-reminder-max-days`."
         },
-        "localReview.retroReminder.statusBar": {
+        "silykat.retroReminder.statusBar": {
           "type": "string",
           "enum": [
             "always",
@@ -529,31 +529,31 @@
           "default": "always",
           "description": "The retro reminder in the status bar (hidden while there is nothing new since the last retro)."
         },
-        "localReview.retroReminder.agentMessage": {
+        "silykat.retroReminder.agentMessage": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "When a retro is due, the agent says so once at the start of a session (Claude Code). Machine setting `retro-reminder` of `lr config`, updated when you change it here."
+          "markdownDescription": "When a retro is due, the agent says so once at the start of a session (Claude Code). Machine setting `retro-reminder` of `slk config`, updated when you change it here."
         }
       }
     },
     "keybindings": [
       {
-        "command": "localReview.commentSelection",
+        "command": "silykat.commentSelection",
         "key": "ctrl+alt+c",
         "mac": "ctrl+cmd+c",
-        "when": "editorTextFocus && resourceScheme == file && config.localReview.commentShortcut == 'ctrl+cmd+c'"
+        "when": "editorTextFocus && resourceScheme == file && config.silykat.commentShortcut == 'ctrl+cmd+c'"
       },
       {
-        "command": "localReview.commentSelection",
+        "command": "silykat.commentSelection",
         "key": "ctrl+alt+c",
         "mac": "ctrl+alt+c",
-        "when": "editorTextFocus && resourceScheme == file && config.localReview.commentShortcut == 'ctrl+alt+c'"
+        "when": "editorTextFocus && resourceScheme == file && config.silykat.commentShortcut == 'ctrl+alt+c'"
       },
       {
-        "command": "localReview.commentSelection",
+        "command": "silykat.commentSelection",
         "key": "ctrl+alt+m",
         "mac": "cmd+alt+m",
-        "when": "editorTextFocus && resourceScheme == file && config.localReview.commentShortcut == 'cmd+alt+m'"
+        "when": "editorTextFocus && resourceScheme == file && config.silykat.commentShortcut == 'cmd+alt+m'"
       }
     ]
   },
@@ -563,10 +563,10 @@
     "test": "vitest run",
     "test:integration": "node esbuild.mjs --tests && vscode-test",
     "test:integration:coverage": "node esbuild.mjs --tests && vscode-test --coverage --coverage-output ../../coverage/integration",
-    "package": "node esbuild.mjs --production && node scripts/check-local-only.mjs && vsce package --no-dependencies --skip-license -o dist/local-review.vsix"
+    "package": "node esbuild.mjs --production && node scripts/check-local-only.mjs && vsce package --no-dependencies --skip-license -o dist/silykat.vsix"
   },
   "devDependencies": {
-    "@local-review/core": "0.1.0",
+    "@silykat/core": "0.1.0",
     "@types/mocha": "10.0.10",
     "@types/vscode": "1.100.0",
     "@vscode/test-cli": "0.0.15",

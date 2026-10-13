@@ -30,7 +30,7 @@ var import_node_util = require("node:util");
 
 // ../../packages/core/src/types.ts
 var SCHEMA_VERSION = 2;
-var STORE_DIR = ".local-review";
+var STORE_DIR = ".silykat";
 var DELETE_REASONS = ["user", "branch-gone"];
 function sessionRefOf(raw) {
   if (typeof raw !== "object" || raw === null) return void 0;
@@ -412,7 +412,7 @@ function deletionLabel(reason) {
 // ../../packages/core/src/store.ts
 var Store = class {
   /**
-   * A store of the files under `root`, kept in `<root>/.local-review/` by default. `dir` puts it
+   * A store of the files under `root`, kept in `<root>/.silykat/` by default. `dir` puts it
    * elsewhere (e.g. the machine store of the files outside any open folder).
    */
   constructor(root, dir = (0, import_node_path.join)(root, STORE_DIR)) {
@@ -751,7 +751,7 @@ var Store = class {
       throw new Error(`Thread ${threadId} is archived: unarchive it first`);
     if (state.readOnly)
       throw new Error(
-        `Thread ${threadId} was written by a newer version of Local Review, so it is read-only: update Local Review to change it`
+        `Thread ${threadId} was written by a newer version of silykat, so it is read-only: update silykat to change it`
       );
     return state;
   }
@@ -917,13 +917,13 @@ var CALL_NOTE = "call-";
 var CALL_MAX_AGE_MS = 15 * 6e4;
 var LOOSE_ROOT = "/";
 function looseStore(env = process.env) {
-  return new Store(LOOSE_ROOT, (0, import_node_path3.join)(localReviewHome(env), "files"));
+  return new Store(LOOSE_ROOT, (0, import_node_path3.join)(silykatHome(env), "files"));
 }
 function storeAt(root, env = process.env) {
   return root === LOOSE_ROOT ? looseStore(env) : new Store(root);
 }
-function localReviewHome(env = process.env) {
-  return env.LOCAL_REVIEW_HOME?.trim() || (0, import_node_path3.join)((0, import_node_os.homedir)(), ".local-review");
+function silykatHome(env = process.env) {
+  return env.SILYKAT_HOME?.trim() || (0, import_node_path3.join)((0, import_node_os.homedir)(), ".silykat");
 }
 var SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/;
 function isProcessAlive(pid) {
@@ -935,7 +935,7 @@ function isProcessAlive(pid) {
   }
 }
 var SessionRegistry = class {
-  constructor(home = localReviewHome(), isAlive = isProcessAlive) {
+  constructor(home = silykatHome(), isAlive = isProcessAlive) {
     this.isAlive = isAlive;
     this.dir = (0, import_node_path3.join)(home, "sessions");
   }
@@ -981,7 +981,7 @@ var SessionRegistry = class {
     }
   }
   /**
-   * Notes a command an agent starts (e.g. `lr reply …`), written by its adapter before it runs: `lr`
+   * Notes a command an agent starts (e.g. `slk review reply …`), written by its adapter before it runs: `slk`
    * then knows which message of the agent's conversation runs it. Removed by `endCall`, or with the
    * session.
    */
@@ -1189,7 +1189,7 @@ function sessionOfProcess(sessions, ancestors) {
 function isStoreRoot(dir, env = process.env) {
   const store = (0, import_node_path4.join)(dir, STORE_DIR);
   if (!(0, import_node_fs.existsSync)((0, import_node_path4.join)(store, "schema-version")) && !(0, import_node_fs.existsSync)((0, import_node_path4.join)(store, "threads"))) return false;
-  return realpath2(store) !== realpath2(localReviewHome(env));
+  return realpath2(store) !== realpath2(silykatHome(env));
 }
 function findStoreRoot(fromDir, env = process.env) {
   let dir = (0, import_node_path4.resolve)(fromDir);
@@ -1422,7 +1422,7 @@ var CONFIG_KEYS = {
   "keep-history": {
     key: "keepHistory",
     kind: "boolean",
-    help: "on|off \u2014 keep deleted threads (for lr history and retros) and save the threads of a worktree before an agent removes it; off, deleting a thread erases it (default: on)"
+    help: "on|off \u2014 keep deleted threads (for slk review history and retros) and save the threads of a worktree before an agent removes it; off, deleting a thread erases it (default: on)"
   },
   "retro-reminder": {
     key: "retroReminder",
@@ -1469,7 +1469,7 @@ var CONFIG_KEYS = {
     help: "yes|no|ask \u2014 a retro audits your setup (/doctor prompt-audit): always, never, or asked (default: ask)"
   }
 };
-var configFile = (env = process.env) => (0, import_node_path9.join)(localReviewHome(env), "config.json");
+var configFile = (env = process.env) => (0, import_node_path9.join)(silykatHome(env), "config.json");
 var validSettingNumber = (x) => typeof x === "number" && Number.isInteger(x) && x >= 1;
 async function readConfig(env = process.env) {
   const config = { ...DEFAULT_CONFIG };
@@ -1813,7 +1813,7 @@ var RetroBook = class {
   /** Appends events to a retro still in progress. */
   async record(id, events) {
     const r = await this.get(id);
-    if (r.readOnly) throw new Error(`Retro ${id} was written by a newer version of Local Review: update Local Review`);
+    if (r.readOnly) throw new Error(`Retro ${id} was written by a newer version of silykat: update silykat`);
     if (r.finishedAt) throw new Error(`Retro ${id} is finished`);
     const at = (/* @__PURE__ */ new Date()).toISOString();
     await this.append(
@@ -1963,7 +1963,7 @@ var import_promises12 = require("node:fs/promises");
 var import_node_os2 = require("node:os");
 var import_node_path13 = require("node:path");
 function jevKeyFile(env = process.env) {
-  return (0, import_node_path13.join)(env.HOME?.trim() || (0, import_node_os2.homedir)(), ".config", "local-review", "jev-key");
+  return (0, import_node_path13.join)(env.HOME?.trim() || (0, import_node_os2.homedir)(), ".config", "silykat", "jev-key");
 }
 async function jevKeyStatus(env = process.env) {
   const path = jevKeyFile(env);
@@ -2160,7 +2160,7 @@ var atLeast = (v, min) => {
   return true;
 };
 async function runAudit(root, claudeDir, env, run = runProcess, timeoutMs = AUDIT_TIMEOUT_MS) {
-  const claude = env.LR_CLAUDE_BIN?.trim() || "claude";
+  const claude = env.SLK_CLAUDE_BIN?.trim() || "claude";
   const v = await run(claude, ["--version"], { cwd: root, env, timeoutMs: 3e4 });
   const version = v.code === 0 ? parseVersion(v.stdout) : null;
   if (!version) return { kind: "skipped", reason: "Claude Code was not found" };
@@ -2206,7 +2206,7 @@ var DEFAULT_FIELDS = {
   start_time: "start_time"
 };
 async function runInsights(root, env, run = runProcess, timeoutMs = INSIGHTS_TIMEOUT_MS) {
-  const claude = env.LR_CLAUDE_BIN?.trim() || "claude";
+  const claude = env.SLK_CLAUDE_BIN?.trim() || "claude";
   const r = await run(claude, ["-p", INSIGHTS_COMMAND, "--output-format", "json"], { cwd: root, env, timeoutMs });
   if (r.timedOut) return { kind: "failed", reason: `it took more than ${Math.round(timeoutMs / 6e4)} min` };
   let out;
@@ -2224,7 +2224,7 @@ async function runInsights(root, env, run = runProcess, timeoutMs = INSIGHTS_TIM
     durationMs: typeof out.duration_ms === "number" ? out.duration_ms : null
   };
 }
-var fieldsFile = (env) => (0, import_node_path15.join)(localReviewHome(env), FIELDS_FILE);
+var fieldsFile = (env) => (0, import_node_path15.join)(silykatHome(env), FIELDS_FILE);
 async function readFieldMaps(env) {
   const maps = [{ ...DEFAULT_FIELDS }];
   try {
@@ -2239,7 +2239,7 @@ async function readFieldMaps(env) {
 }
 async function writeFieldMaps(env, maps) {
   const file = fieldsFile(env);
-  await (0, import_promises14.mkdir)(localReviewHome(env), { recursive: true });
+  await (0, import_promises14.mkdir)(silykatHome(env), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
   await (0, import_promises14.writeFile)(tmp, JSON.stringify({ formats: maps.slice(1) }, null, 2) + "\n");
   await (0, import_promises14.rename)(tmp, file);
@@ -2284,7 +2284,7 @@ async function askFieldMap(files, root, env, run = runProcess) {
     "",
     JSON.stringify(describeFields(files), null, 2)
   ].join("\n");
-  const claude = env.LR_CLAUDE_BIN?.trim() || "claude";
+  const claude = env.SLK_CLAUDE_BIN?.trim() || "claude";
   const r = await run(
     claude,
     [
@@ -2442,7 +2442,7 @@ var FAMILIES = {
   setup: ["skills", "commands", "subagents"],
   workflow: ["context_pressure", "handoff", "repeated_requests", "autonomy"],
   cost: ["api_errors"],
-  delivery: ["pull_requests", "git", "local_review_messages"]
+  delivery: ["pull_requests", "git", "silykat_messages"]
 };
 var INJECTED = new RegExp(
   "^\\s*(<(channel|local-command-caveat|local-command-stdout|local-command-stderr|command-name|command-message|command-args|task-notification|system-reminder|ide_opened_file|ide_selection|bash-input|bash-stdout|bash-stderr|user-prompt-submit-hook|cross-session-message)\\b|\\[SYSTEM NOTIFICATION|\\[Workflow harness|\\[Request interrupted|\\[Your previous response)"
@@ -2872,7 +2872,7 @@ async function analyseSession(sessionFile) {
         }
         const origin = isRecord3(e.origin) ? e.origin : {};
         const human = agent.id === "main" && text !== "" && !e.isMeta && !e.isCompactSummary && (origin.kind ?? "human") === "human" && !INJECTED.test(text);
-        if (origin.kind === "channel") add("delivery", "local_review_messages", at(n, e, { text: cut(text, 200) }));
+        if (origin.kind === "channel") add("delivery", "silykat_messages", at(n, e, { text: cut(text, 200) }));
         if (human) {
           const after = [...actionsSincePrompt.reduce((m2, a) => bump(m2, a), /* @__PURE__ */ new Map())].sort(
             (a, b) => b[1] - a[1]
@@ -2992,7 +2992,7 @@ For each signal present, judge every occurrence (or a representative sample when
 - **autonomy** (messages sent while the agent worked, plan mode). Relevant when it is a course correction mid-way.
 
 ### cost / delivery
-- **api_errors**, **pull_requests**, **git**, **local_review_messages**: context. No judgement needed, unless something is off.
+- **api_errors**, **pull_requests**, **git**, **silykat_messages**: context. No judgement needed, unless something is off.
 
 ## Answer
 
@@ -3101,7 +3101,7 @@ var REPORT_TIMEOUT_MS = 20 * 6e4;
 var REPORT_CONCURRENCY = 4;
 var REPORT_COST = { baseUsd: 0.05, perPromptUsd: 0.04, baseMs: 4e4, perPromptMs: 6500 };
 async function currentSession(env) {
-  const sessions = await new SessionRegistry(localReviewHome(env)).list().catch(() => []);
+  const sessions = await new SessionRegistry(silykatHome(env)).list().catch(() => []);
   return sessionOfProcess(sessions, await processAncestors())?.id;
 }
 async function planReports(book, transcripts, opts = {}) {
@@ -3253,12 +3253,12 @@ var tokensOf2 = (usage) => {
   return n || null;
 };
 async function writeReport(c, env, run = runProcess, timeoutMs = REPORT_TIMEOUT_MS) {
-  const work = await (0, import_promises16.mkdtemp)((0, import_node_path18.join)((0, import_node_os3.tmpdir)(), "lr-session-report-"));
+  const work = await (0, import_promises16.mkdtemp)((0, import_node_path18.join)((0, import_node_os3.tmpdir)(), "slk-session-report-"));
   try {
     const { transcripts, uuids } = await renderSession(c.transcript.file);
     await (0, import_promises16.writeFile)((0, import_node_path18.join)(work, "analytics.json"), JSON.stringify(c.analytics, null, 1));
     for (const t of transcripts) await (0, import_promises16.writeFile)((0, import_node_path18.join)(work, t.name), t.text);
-    const claude = env.LR_CLAUDE_BIN?.trim() || "claude";
+    const claude = env.SLK_CLAUDE_BIN?.trim() || "claude";
     const r = await run(claude, reportArgs(reportPrompt(c.transcript.id, transcripts.length)), {
       cwd: work,
       env,
@@ -3379,7 +3379,7 @@ async function readJevKey(env = process.env) {
   const fromEnv = env.JEV_API_KEY?.trim();
   if (fromEnv) return fromEnv;
   const s = await jevKeyStatus(env);
-  if (!s.exists) throw new Error(`no Jev key: ${s.path} does not exist (lr retro key tells how to add one)`);
+  if (!s.exists) throw new Error(`no Jev key: ${s.path} does not exist (slk retro key tells how to add one)`);
   if (!s.ok) throw new Error(`the Jev key file is not safe, fix it first: ${s.fixes.join("; ")}`);
   const key = (await (0, import_promises17.readFile)(s.path, "utf8")).trim();
   if (!key) throw new Error(`the Jev key file ${s.path} is empty`);
@@ -3503,7 +3503,7 @@ function findReply(entries, reply, threadId) {
     if (Date.parse(e.timestamp ?? "") > until) continue;
     const named2 = toolUses(e).some((b) => {
       const command = b.input?.command;
-      return typeof command === "string" && /\blr\b/.test(command) && command.includes(threadId);
+      return typeof command === "string" && /\bslk\b/.test(command) && command.includes(threadId);
     });
     if (named2) return i;
   }
@@ -3594,7 +3594,7 @@ async function threadConversations(thread, claudeDir, read = (f) => (0, import_p
     return {
       text: `${head}
 
-No conversation is linked to this thread: its replies were written before Local Review recorded the agent's session, or by an agent that does not give it. Analyse it from the thread alone.`,
+No conversation is linked to this thread: its replies were written before silykat recorded the agent's session, or by an agent that does not give it. Analyse it from the thread alone.`,
       sessions,
       available: false,
       linked: 0
@@ -3931,38 +3931,42 @@ async function setupUsage(tools, claudeDir, root, env, exclude = /* @__PURE__ */
 }
 
 // src/retroCli.ts
-var RETRO_CLI_USAGE = `lr-retro \u2014 the Claude Code part of Local Review's retros
+var RETRO_CLI_USAGE = `slk-retro \u2014 the Claude Code part of silykat's retros
 
-  lr-retro setup <retro-id> [--root <dir>]   Write Claude Code's setup of the project (rules files,
+  slk-retro setup <retro-id> [--root <dir>]
+                                          Write Claude Code's setup of the project (rules files,
                                              .claude/ and .agents/ of the project and of ~) in a file
                                              of the retro, for its analysis
-  lr-retro jev <retro-id> [--root <dir>]     Classify the retro's threads with Jev (needs a key:
-                                             lr retro key), and record the labels
-  lr-retro audit <retro-id> [--root <dir>]   Audit the setup with /doctor prompt-audit (a separate,
+  slk-retro jev <retro-id> [--root <dir>]
+                                          Classify the retro's threads with Jev (needs a key:
+                                             slk retro key), and record the labels
+  slk-retro audit <retro-id> [--root <dir>]
+                                          Audit the setup with /doctor prompt-audit (a separate,
                                              read-only Claude Code; several minutes), in a file of
                                              the retro, for its analysis
 
-  lr-retro sessions [--root <dir>] [--since <date> | --all]
+  slk-retro sessions [--root <dir>] [--since <date> | --all]
                                              How many Claude Code sessions the project had in the
-                                             period of the next retro (as lr retro scope), how many
+                                             period of the next retro (as slk retro scope), how many
                                              need a report, and what writing them would take
-  lr-retro reports <retro-id> [--root <dir>]
+  slk-retro reports <retro-id> [--root <dir>]
                                              Write a report on each Claude Code session of the
                                              project and of the retro's period (one separate Claude
                                              Code each, with Opus, several at once), or reuse the
                                              one already written, for its analysis
-  lr-retro insights <retro-id> [--root <dir>]
+  slk-retro insights <retro-id> [--root <dir>]
                                              Run Claude Code's /insights (a separate Claude Code,
                                              about a minute), then keep what it knows of the
                                              sessions of the project and of the retro's period, for
                                              its analysis
 
-  lr-retro usage <retro-id> [--root <dir>]   Count how much each skill, command and sub-agent of the
+  slk-retro usage <retro-id> [--root <dir>]
+                                          Count how much each skill, command and sub-agent of the
                                              setup was used, from Claude Code's sessions (the
                                              project's tools on its sessions, the user's on every
                                              project), without a model, for the analysis of the audit
 
-  lr-retro conversation <retro-id> <thread-id> [--root <dir>]
+  slk-retro conversation <retro-id> <thread-id> [--root <dir>]
                                              Read back Claude Code's conversation where the agent
                                              replied in that thread (the steps that led to each
                                              reply), while Claude Code keeps it (30 days by
@@ -3972,8 +3976,8 @@ var localDay = (iso) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
 var MODE_LINE = {
-  reports: "The retro reads them through these reports (setting retro-sessions: reports; Claude Code's /insights is cheaper: lr config set retro-sessions insights).",
-  insights: "The retro reads them through Claude Code's /insights (setting retro-sessions: insights; a report on each session is finer: lr config set retro-sessions reports)."
+  reports: "The retro reads them through these reports (setting retro-sessions: reports; Claude Code's /insights is cheaper: slk config set retro-sessions insights).",
+  insights: "The retro reads them through Claude Code's /insights (setting retro-sessions: insights; a report on each session is finer: slk config set retro-sessions reports)."
 };
 var SOURCE_OF_ACTION = {
   jev: "reviews",
@@ -4053,7 +4057,7 @@ async function runRetroCli(args, io) {
           `${MODE_LINE.insights} No report is written.`
         ];
         if (scope.options.length > 0) {
-          lines.push("", "Periods to choose from (as lr retro scope lists them):");
+          lines.push("", "Periods to choose from (as slk retro scope lists them):");
           for (const o of scope.options) {
             const x = o.since === scope.since ? n2 : await count(o.since);
             lines.push(
@@ -4077,7 +4081,7 @@ async function runRetroCli(args, io) {
       );
       for (const o of p.oversized) tooLong.set(o.id, o);
       if (scope.options.length > 0) {
-        const lines = ["", "Periods to choose from (as lr retro scope lists them):"];
+        const lines = ["", "Periods to choose from (as slk retro scope lists them):"];
         for (const o of scope.options) {
           const x = o.since === scope.since ? p : await period(o.since);
           for (const s of x.oversized) tooLong.set(s.id, s);
@@ -4132,7 +4136,7 @@ async function runRetroCli(args, io) {
         [
           `Usage of the ${usage.tools.length} skills, commands and sub-agents of the setup, from Claude Code's sessions ` + usage.windows.map(
             (w) => `(${w.scope === "project" ? "the project's" : "every project's, for the user's tools"}: ${w.sessions} session${w.sessions === 1 ? "" : "s"})`
-          ).join(" ") + `: ${never.length} never used. lr retro input --for audit includes it.`
+          ).join(" ") + `: ${never.length} never used. slk retro input --for audit includes it.`
         ].join("\n")
       );
       return 0;
@@ -4186,7 +4190,7 @@ ${files.length} setup files (${files.filter((f) => f.kind === "rules").length} r
       const leftOut = done.refs.filter((r) => r.status === "excluded");
       io.out(
         [
-          `Reports on the ${done.refs.length} Claude Code session${done.refs.length === 1 ? "" : "s"} of this project in the period: ${written} written, ${kept} kept from before` + (failed.length ? `, ${failed.length} could not be written` : "") + (leftOut.length ? `, ${leftOut.length} left out (too long to analyse)` : "") + (written ? `, in ${minutes(done.durationMs)}` : "") + (done.costUsd !== null ? ` (about $${done.costUsd.toFixed(2)} at the API list price)` : "") + ". lr retro input --for analysis includes them.",
+          `Reports on the ${done.refs.length} Claude Code session${done.refs.length === 1 ? "" : "s"} of this project in the period: ${written} written, ${kept} kept from before` + (failed.length ? `, ${failed.length} could not be written` : "") + (leftOut.length ? `, ${leftOut.length} left out (too long to analyse)` : "") + (written ? `, in ${minutes(done.durationMs)}` : "") + (done.costUsd !== null ? ` (about $${done.costUsd.toFixed(2)} at the API list price)` : "") + ". slk retro input --for analysis includes them.",
           ...failed.map((r) => `- ${r.id}: ${r.reason ?? "failed"}`)
         ].join("\n")
       );
@@ -4205,12 +4209,12 @@ ${files.length} setup files (${files.filter((f) => f.kind === "rules").length} r
       );
       if (files > 0 && read === 0) {
         io.err(
-          `lr-retro: /insights has ${files} session file(s), but none could be read: its format changed. The retro goes on without the sessions; tell the user to report it as a bug of Local Review.`
+          `slk-retro: /insights has ${files} session file(s), but none could be read: its format changed. The retro goes on without the sessions; tell the user to report it as a bug of silykat.`
         );
         return 1;
       }
       if (files === 0 && ran.kind === "failed") {
-        io.err(`lr-retro: /insights failed (${ran.reason}): the retro goes on without the sessions.`);
+        io.err(`slk-retro: /insights failed (${ran.reason}): the retro goes on without the sessions.`);
         return 1;
       }
       const file = await recordRetroSessions(
@@ -4224,7 +4228,7 @@ ${files.length} setup files (${files.filter((f) => f.kind === "rules").length} r
       io.out(
         [
           `Written: ${file}`,
-          `${sessions.length} Claude Code session${sessions.length === 1 ? "" : "s"} of this project in the period, ${withSummary} with a summary by /insights: lr retro input --for analysis includes them.`,
+          `${sessions.length} Claude Code session${sessions.length === 1 ? "" : "s"} of this project in the period, ${withSummary} with a summary by /insights: slk retro input --for analysis includes them.`,
           ...ran.kind === "failed" ? [`(/insights did not run: ${ran.reason}; its last results were used.)`] : []
         ].join("\n")
       );
@@ -4237,7 +4241,7 @@ ${files.length} setup files (${files.filter((f) => f.kind === "rules").length} r
         return 0;
       }
       if (outcome.kind === "failed") {
-        io.err(`lr-retro: the audit failed: ${outcome.reason}.`);
+        io.err(`slk-retro: the audit failed: ${outcome.reason}.`);
         return 1;
       }
       const file = await writeRetroFile(
@@ -4266,7 +4270,7 @@ ${f.content}`).join("\n\n").slice(0, RULES_CAP);
     const result = await classifyWithJev(
       [...threads.values()].map(({ thread, store }) => ({ id: thread.id, text: threadText(thread, store) })),
       rules,
-      { fetch: io.fetch ?? fetch, key, url: io.env.LR_JEV_URL?.trim() || void 0 }
+      { fetch: io.fetch ?? fetch, key, url: io.env.SLK_JEV_URL?.trim() || void 0 }
     );
     const n = Object.keys(result.labels).length;
     if (n > 0) await book.record(retro.id, [{ type: "retro.classified", by: "jev", labels: result.labels }]);
@@ -4276,7 +4280,7 @@ ${result.failed.length} failed: ${result.failed.map((f) => `${f.thread} (${f.err
     );
     return n > 0 ? 0 : 1;
   } catch (err) {
-    io.err(`lr-retro: ${err instanceof Error ? err.message : String(err)}`);
+    io.err(`slk-retro: ${err instanceof Error ? err.message : String(err)}`);
     return 1;
   }
 }
@@ -4292,7 +4296,7 @@ runRetroCli(process.argv.slice(2), {
     process.exitCode = code;
   },
   (err) => {
-    process.stderr.write(`lr-retro: ${String(err)}
+    process.stderr.write(`slk-retro: ${String(err)}
 `);
     process.exitCode = 1;
   }

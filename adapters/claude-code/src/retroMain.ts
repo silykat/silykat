@@ -1,6 +1,6 @@
 import { runRetroCli } from './retroCli';
 
-// Entry point of `lr-retro`, on Claude's PATH with the plugin.
+// Entry point of `slk-retro`, on Claude's PATH with the plugin.
 runRetroCli(process.argv.slice(2), {
   cwd: process.cwd(),
   env: process.env,
@@ -11,7 +11,7 @@ runRetroCli(process.argv.slice(2), {
     process.exitCode = code;
   },
   (err: unknown) => {
-    process.stderr.write(`lr-retro: ${String(err)}\n`);
+    process.stderr.write(`slk-retro: ${String(err)}\n`);
     process.exitCode = 1;
   },
 );
