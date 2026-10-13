@@ -1,0 +1,16 @@
+name: Idea
+description: Suggest a feature or an improvement
+labels: [idea]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What is hard or missing today, in your own work?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your idea
+      description: What would help. Rough is fine.
