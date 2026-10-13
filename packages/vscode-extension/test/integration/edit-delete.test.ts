@@ -2,10 +2,10 @@ import * as assert from 'node:assert/strict';
 import { readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import type { LocalReviewApi } from '../../src/extension';
+import type { SilykatApi } from '../../src/extension';
 import { WAIT_MS } from './timing';
 
-const EXTENSION_ID = 'local.local-review';
+const EXTENSION_ID = 'silykat.silykat';
 
 async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs = WAIT_MS): Promise<T> {
   const start = Date.now();
@@ -18,7 +18,7 @@ async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs = 
 }
 
 describe('Edit / delete my comments and threads', () => {
-  let api: LocalReviewApi;
+  let api: SilykatApi;
   let ws: string;
   let uri: vscode.Uri;
   let confirmations: string[];
@@ -28,20 +28,20 @@ describe('Edit / delete my comments and threads', () => {
   const comments = (id: string) => managed(id)!.thread.comments as (vscode.Comment & { commentId: string })[];
   const text = (c: vscode.Comment) => (typeof c.body === 'string' ? c.body : c.body.value);
   const events = (id: string) =>
-    readFileSync(join(ws, '.local-review', 'threads', `${id}.jsonl`), 'utf8')
+    readFileSync(join(ws, '.silykat', 'threads', `${id}.jsonl`), 'utf8')
       .trimEnd()
       .split('\n')
       .map((l) => JSON.parse(l).type as string);
 
   async function newThread(line: number, body = 'Rename this variable'): Promise<string> {
     const thread = api.controller.createCommentThread(uri, new vscode.Range(line, 0, line, 0), []);
-    await vscode.commands.executeCommand('localReview.submitComment', { thread, text: body });
+    await vscode.commands.executeCommand('silykat.submitComment', { thread, text: body });
     return api.listThreads().find((t) => t.thread === thread)!.id;
   }
 
   async function withAgentReply(line: number): Promise<string> {
     const id = await newThread(line);
-    await vscode.commands.executeCommand('localReview.dev.simulateAgentReply', {
+    await vscode.commands.executeCommand('silykat.dev.simulateAgentReply', {
       threadId: id,
       body: 'Which name?',
       status: 'needs-info',
@@ -51,7 +51,7 @@ describe('Edit / delete my comments and threads', () => {
   }
 
   before(async () => {
-    const ext = vscode.extensions.getExtension<LocalReviewApi>(EXTENSION_ID)!;
+    const ext = vscode.extensions.getExtension<SilykatApi>(EXTENSION_ID)!;
     api = await ext.activate();
     ws = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
     uri = vscode.Uri.file(join(ws, 'sample.ts'));
@@ -59,7 +59,7 @@ describe('Edit / delete my comments and threads', () => {
   });
 
   beforeEach(async () => {
-    rmSync(join(ws, '.local-review'), { recursive: true, force: true });
+    rmSync(join(ws, '.silykat'), { recursive: true, force: true });
     await api.reload();
     confirmations = [];
     answer = true;
@@ -74,11 +74,11 @@ describe('Edit / delete my comments and threads', () => {
   it('edits my comment, then saves it and marks it edited', async () => {
     const id = await newThread(3);
     const c = comments(id)[0]!;
-    await vscode.commands.executeCommand('localReview.editComment', c);
+    await vscode.commands.executeCommand('silykat.editComment', c);
     assert.equal(comments(id)[0]!.mode, vscode.CommentMode.Editing);
 
     c.body = 'Rename it to `userCount`'; // what VS Code does when the user types
-    await vscode.commands.executeCommand('localReview.saveEdit', c);
+    await vscode.commands.executeCommand('silykat.saveEdit', c);
 
     const saved = comments(id)[0]!;
     assert.equal(saved.mode, vscode.CommentMode.Preview);
@@ -94,9 +94,9 @@ describe('Edit / delete my comments and threads', () => {
   it('cancels an edit without writing anything', async () => {
     const id = await newThread(4);
     const c = comments(id)[0]!;
-    await vscode.commands.executeCommand('localReview.editComment', c);
+    await vscode.commands.executeCommand('silykat.editComment', c);
     c.body = 'changed my mind';
-    await vscode.commands.executeCommand('localReview.cancelEdit', c);
+    await vscode.commands.executeCommand('silykat.cancelEdit', c);
     assert.equal(comments(id)[0]!.mode, vscode.CommentMode.Preview);
     assert.equal(text(comments(id)[0]!), 'Rename this variable');
     assert.deepEqual(events(id), ['thread.created', 'comment.added']);
@@ -105,18 +105,18 @@ describe('Edit / delete my comments and threads', () => {
   it('refuses to save an empty edit', async () => {
     const id = await newThread(5);
     const c = comments(id)[0]!;
-    await vscode.commands.executeCommand('localReview.editComment', c);
+    await vscode.commands.executeCommand('silykat.editComment', c);
     c.body = '   ';
-    await vscode.commands.executeCommand('localReview.saveEdit', c);
+    await vscode.commands.executeCommand('silykat.saveEdit', c);
     assert.deepEqual(events(id), ['thread.created', 'comment.added']);
   });
 
   it('keeps an edit in progress when the agent replies meanwhile', async () => {
     const id = await newThread(6);
     const c = comments(id)[0]!;
-    await vscode.commands.executeCommand('localReview.editComment', c);
+    await vscode.commands.executeCommand('silykat.editComment', c);
     c.body = 'half-typed edit';
-    await vscode.commands.executeCommand('localReview.dev.simulateAgentReply', {
+    await vscode.commands.executeCommand('silykat.dev.simulateAgentReply', {
       threadId: id,
       body: 'Hi',
       status: 'none',
@@ -128,8 +128,8 @@ describe('Edit / delete my comments and threads', () => {
 
   it('deletes my comment after confirmation', async () => {
     const id = await withAgentReply(7);
-    await vscode.commands.executeCommand('localReview.reply', { thread: managed(id)!.thread, text: 'typo reply' });
-    await vscode.commands.executeCommand('localReview.deleteComment', comments(id)[2]!);
+    await vscode.commands.executeCommand('silykat.reply', { thread: managed(id)!.thread, text: 'typo reply' });
+    await vscode.commands.executeCommand('silykat.deleteComment', comments(id)[2]!);
     assert.equal(confirmations.length, 1);
     assert.deepEqual(comments(id).map(text), ['Rename this variable', 'Which name?']);
     assert.equal(events(id).at(-1), 'comment.deleted');
@@ -138,7 +138,7 @@ describe('Edit / delete my comments and threads', () => {
   it('does nothing when the deletion is not confirmed', async () => {
     const id = await newThread(8);
     answer = false;
-    await vscode.commands.executeCommand('localReview.deleteComment', comments(id)[0]!);
+    await vscode.commands.executeCommand('silykat.deleteComment', comments(id)[0]!);
     assert.equal(comments(id).length, 1);
     assert.deepEqual(events(id), ['thread.created', 'comment.added']);
   });
@@ -147,16 +147,16 @@ describe('Edit / delete my comments and threads', () => {
     const id = await withAgentReply(9);
     const agentComment = comments(id)[1]!;
     assert.equal(agentComment.contextValue, 'author-agent');
-    await vscode.commands.executeCommand('localReview.editComment', agentComment);
+    await vscode.commands.executeCommand('silykat.editComment', agentComment);
     assert.equal(comments(id)[1]!.mode, vscode.CommentMode.Preview);
-    await vscode.commands.executeCommand('localReview.deleteComment', agentComment);
+    await vscode.commands.executeCommand('silykat.deleteComment', agentComment);
     assert.equal(comments(id).length, 2);
     assert.equal(confirmations.length, 0);
   });
 
   it('removes the thread with its only comment', async () => {
     const id = await newThread(10);
-    await vscode.commands.executeCommand('localReview.deleteComment', comments(id)[0]!);
+    await vscode.commands.executeCommand('silykat.deleteComment', comments(id)[0]!);
     assert.match(confirmations[0]!, /thread will be deleted too/);
     assert.equal(managed(id), undefined);
     assert.deepEqual(events(id).slice(-2), ['comment.deleted', 'thread.deleted']);
@@ -166,7 +166,7 @@ describe('Edit / delete my comments and threads', () => {
 
   it('deletes a whole thread, agent replies included', async () => {
     const id = await withAgentReply(11);
-    await vscode.commands.executeCommand('localReview.deleteThread', managed(id)!.thread);
+    await vscode.commands.executeCommand('silykat.deleteThread', managed(id)!.thread);
     assert.match(confirmations[0]!, /2 comments/);
     assert.equal(managed(id), undefined);
     await api.reload();

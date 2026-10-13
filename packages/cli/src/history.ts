@@ -12,7 +12,7 @@ import {
   type StateCounts,
   type StoreOrigin,
   type ThreadHistory,
-} from '@local-review/core';
+} from '@silykat/core';
 import { fence } from './digest';
 
 const ORIGIN: Record<StoreOrigin, string> = {
@@ -45,7 +45,7 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 export function renderHistory(h: ProjectHistory): string {
   const period = h.since ? `Since ${h.since}` : 'Whole history';
   const parts = [
-    `# Local Review history — ${h.root}`,
+    `# silykat history — ${h.root}`,
     `${period} · ${plural(h.threads, 'thread')} · ${formatBytes(h.bytes)} of journals\n\n${states(h.states, h.deletions)}` +
       (h.archived > 0 ? ` — ${h.archived} archived` : ''),
   ];
@@ -115,7 +115,7 @@ export function renderThreadHistory(t: ThreadHistory, store: string): string {
   const tag = versionTag(a);
   if (tag) facts.push(`About the ${tag === 'Index' ? 'staged version (index)' : `version ${tag}`}`);
   if (a.diff) facts.push(`Made in a diff (${a.diff.side === 'base' ? 'old' : 'new'} side)`);
-  if (t.readOnly) facts.push('Written by a newer version of Local Review: partly shown');
+  if (t.readOnly) facts.push('Written by a newer version of silykat: partly shown');
   const lines = [`### ${t.id} — ${where(t)} · ${t.state}`, '', facts.join(' · '), ''];
   if (a.range) lines.push(fence(a.snippet, a.path, a.range.startLine), '');
   for (const e of t.conversation) lines.push(renderEntry(e), '');

@@ -2,11 +2,11 @@ import * as assert from 'node:assert/strict';
 import { existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import { readConfig, RetroBook } from '@local-review/core';
-import type { LocalReviewApi } from '../../src/extension';
+import { readConfig, RetroBook } from '@silykat/core';
+import type { SilykatApi } from '../../src/extension';
 import { WAIT_MS } from './timing';
 
-const EXTENSION_ID = 'local.local-review';
+const EXTENSION_ID = 'silykat.silykat';
 
 async function until(what: string, probe: () => Promise<boolean> | boolean, timeoutMs = WAIT_MS): Promise<void> {
   const start = Date.now();
@@ -17,7 +17,7 @@ async function until(what: string, probe: () => Promise<boolean> | boolean, time
 }
 
 describe('Keeping the history of what is deleted', () => {
-  let api: LocalReviewApi;
+  let api: SilykatApi;
   let ws: string;
   let uri: vscode.Uri;
   let confirmed: { message: string; detail: string; action: string }[];
@@ -25,8 +25,8 @@ describe('Keeping the history of what is deleted', () => {
   let offers: string[];
   let eraseAnswer: string | undefined;
 
-  const settings = () => vscode.workspace.getConfiguration('localReview');
-  const journal = (id: string) => join(ws, '.local-review', 'threads', `${id}.jsonl`);
+  const settings = () => vscode.workspace.getConfiguration('silykat');
+  const journal = (id: string) => join(ws, '.silykat', 'threads', `${id}.jsonl`);
   const managed = (id: string) => api.listThreads().find((t) => t.id === id)!;
   const tomorrow = () => {
     const d = new Date(Date.now() + 86_400_000);
@@ -35,13 +35,13 @@ describe('Keeping the history of what is deleted', () => {
 
   async function newThread(line: number, text = 'Rename this variable'): Promise<string> {
     const thread = api.controller.createCommentThread(uri, new vscode.Range(line, 0, line, 0), []);
-    await vscode.commands.executeCommand('localReview.submitComment', { thread, text });
+    await vscode.commands.executeCommand('silykat.submitComment', { thread, text });
     return api.listThreads().find((t) => t.thread === thread)!.id;
   }
-  const deleteThread = (id: string) => vscode.commands.executeCommand('localReview.deleteThread', managed(id).thread);
+  const deleteThread = (id: string) => vscode.commands.executeCommand('silykat.deleteThread', managed(id).thread);
 
   before(async () => {
-    const ext = vscode.extensions.getExtension<LocalReviewApi>(EXTENSION_ID)!;
+    const ext = vscode.extensions.getExtension<SilykatApi>(EXTENSION_ID)!;
     api = await ext.activate();
     ws = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
     uri = vscode.Uri.file(join(ws, 'sample.ts'));
@@ -53,7 +53,7 @@ describe('Keeping the history of what is deleted', () => {
     informed = [];
     offers = [];
     eraseAnswer = 'Erase';
-    rmSync(join(ws, '.local-review'), { recursive: true, force: true });
+    rmSync(join(ws, '.silykat'), { recursive: true, force: true });
     await api.reload();
     api.setConfirmHandler(async (message, detail, action) => {
       confirmed.push({ message, detail, action });
@@ -75,7 +75,7 @@ describe('Keeping the history of what is deleted', () => {
     api.setConfirmHandler(undefined);
     api.setArchivePrompts(undefined);
     api.setErasePrompt(undefined);
-    rmSync(join(ws, '.local-review'), { recursive: true, force: true });
+    rmSync(join(ws, '.silykat'), { recursive: true, force: true });
     await api.reload();
   });
 
@@ -107,7 +107,7 @@ describe('Keeping the history of what is deleted', () => {
     // Deleting the only comment of a thread deletes the thread: erased too.
     const last = await newThread(6);
     const comment = managed(last).thread.comments[0]!;
-    await vscode.commands.executeCommand('localReview.deleteComment', comment);
+    await vscode.commands.executeCommand('silykat.deleteComment', comment);
     assert.equal(existsSync(journal(last)), false);
   });
 
@@ -123,7 +123,7 @@ describe('Keeping the history of what is deleted', () => {
 
   it('keeps the old threads a retro has not read yet, when deleting old threads', async () => {
     const read = await newThread(2);
-    await vscode.commands.executeCommand('localReview.resolveThread', managed(read).thread);
+    await vscode.commands.executeCommand('silykat.resolveThread', managed(read).thread);
     const book = new RetroBook(ws);
     const retro = await book.start({
       root: ws,
@@ -136,9 +136,9 @@ describe('Keeping the history of what is deleted', () => {
     await book.record(retro.id, [{ type: 'retro.finished' }]);
     await new Promise((r) => setTimeout(r, 20));
     const unread = await newThread(4);
-    await vscode.commands.executeCommand('localReview.resolveThread', managed(unread).thread);
+    await vscode.commands.executeCommand('silykat.resolveThread', managed(unread).thread);
 
-    await vscode.commands.executeCommand('localReview.deleteOldThreads');
+    await vscode.commands.executeCommand('silykat.deleteOldThreads');
     assert.equal(confirmed[0]?.message, 'Delete 1 thread permanently?');
     assert.match(confirmed[0]!.detail, /with no activity since \d{4}-\d{2}-\d{2}, /);
     assert.match(confirmed[0]!.detail, /1 finished thread not read by a retro yet is kept for the next one\./);

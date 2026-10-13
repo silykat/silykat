@@ -23,7 +23,7 @@ The pull requests merged into the epic branch (one per user story) say what chan
 - Conventional Commits, one change per line: `feat(<scope>): <description>`, `fix(<scope>): <description>`, `perf(<scope>): …`. Scopes: `core`, `cli`, `vscode-extension`, `claude-code`, or none.
 - **Only the first line of each entry is shown in the CHANGELOG**: no body, no wrapped line. Say what the user gets, in their words ("comment a whole file", not "add FileThread class"), in English, imperative, lower case, no final period.
 - Leave out what users do not see (refactoring, tests, CI, docs of the repository): those do not go in the block.
-- A breaking change (the `.local-review/` format, the `lr` commands, the settings): `!` after the scope, and a `BREAKING CHANGE: <what to do>` line right after it.
+- A breaking change (the `.silykat/` format, the `slk` commands, the settings): `!` after the scope, and a `BREAKING CHANGE: <what to do>` line right after it.
 - Several stories that make one feature: one line for the feature.
 
 ## 3. Put the block in the pull request description
@@ -35,7 +35,7 @@ Keep the rest of the description (what, why, how it was tested). Add or replace 
 ```
 BEGIN_COMMIT_OVERRIDE
 feat(vscode-extension): browse and reopen past reviews
-feat(cli): list past reviews with lr archive
+feat(cli): list past reviews with slk review archive
 fix(core): keep drafts when their file is renamed
 END_COMMIT_OVERRIDE
 ```

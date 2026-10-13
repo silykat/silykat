@@ -24,7 +24,7 @@ import {
   type ReviewScope,
   type ReviewState,
   type ThreadState,
-} from '@local-review/core';
+} from '@silykat/core';
 import { Branches } from './branches';
 import { commitExists, ensureExcluded, findRename, gitUserName, resolveCommit } from './git';
 import { keepHistory } from './history';
@@ -36,7 +36,7 @@ import {
   awaitsUser,
   bodyText,
   DEFAULT_AGENT_NAME,
-  LrComment,
+  SlkComment,
   threadRange,
   type RenderContext,
 } from './render';
@@ -44,7 +44,7 @@ import { Roots, type Root } from './roots';
 import { applyChanges, REMOVED } from './tracking';
 import { watchStore } from './watcher';
 
-export const CONTROLLER_ID = 'local-review';
+export const CONTROLLER_ID = 'silykat';
 
 const SAVE_THREADS = 'Save Threads Now';
 
@@ -116,7 +116,7 @@ export class ReviewController implements vscode.Disposable {
    * other files): an older one that finishes after a newer one would show a stale state.
    */
   private readonly loads = new Map<string, number>();
-  /** Folders already told that a newer version of Local Review wrote some of their comments. */
+  /** Folders already told that a newer version of silykat wrote some of their comments. */
   private readonly warnedNewer = new Set<string>();
   /** Which branch is checked out where, to show each thread on its branch only. */
   readonly branches = new Branches();
@@ -162,7 +162,7 @@ export class ReviewController implements vscode.Disposable {
     extensionUri: vscode.Uri,
   ) {
     this.ctx = { userName: 'Me', agentIcon: vscode.Uri.joinPath(extensionUri, 'media', 'agent.svg') };
-    this.controller = vscode.comments.createCommentController(CONTROLLER_ID, 'Local Review');
+    this.controller = vscode.comments.createCommentController(CONTROLLER_ID, 'silykat');
     this.controller.options = {
       prompt: 'Reply',
       placeHolder: 'Write a comment (Markdown supported)…',
@@ -224,7 +224,7 @@ export class ReviewController implements vscode.Disposable {
     try {
       const target = await this.anchorBaseFor(thread.uri);
       if (typeof target === 'string') {
-        void vscode.window.showErrorMessage(`Local Review: ${target}`);
+        void vscode.window.showErrorMessage(`silykat: ${target}`);
         return;
       }
       const { root, base } = target;
@@ -252,7 +252,7 @@ export class ReviewController implements vscode.Disposable {
       if (root.isGit) void this.warnIfWorktree(root.path);
     } catch (err) {
       this.log.error('Failed to save the comment', err);
-      void vscode.window.showErrorMessage(`Local Review: the comment could not be saved (${String(err)}).`);
+      void vscode.window.showErrorMessage(`silykat: the comment could not be saved (${String(err)}).`);
     }
   }
 
@@ -271,7 +271,7 @@ export class ReviewController implements vscode.Disposable {
       if (!reviewId) this.published.fire({ root: managed.root.path, kind: 'reply', threadIds: [threadId] });
     } catch (err) {
       this.log.error('Failed to save the reply', err);
-      void vscode.window.showErrorMessage(`Local Review: the reply could not be saved (${String(err)}).`);
+      void vscode.window.showErrorMessage(`silykat: the reply could not be saved (${String(err)}).`);
     }
   }
 
@@ -430,7 +430,7 @@ export class ReviewController implements vscode.Disposable {
   /** A thread whose file was deleted can still be closed. */
   private async offerToClose(m: Managed): Promise<void> {
     const choice = await this.choose(
-      `Local Review: the file of this thread no longer exists (${m.state.anchor.path}).`,
+      `silykat: the file of this thread no longer exists (${m.state.anchor.path}).`,
       m.state.readOnly ? [] : ['Resolve', 'Delete Thread'],
     );
     try {
@@ -550,8 +550,8 @@ export class ReviewController implements vscode.Disposable {
   readonly reviewContext = { active: false, here: false };
 
   /**
-   * `localReview.reviewActive`: a review is in progress somewhere (Submit, Discard…).
-   * `localReview.reviewActiveHere`: one is in progress for the active editor's file (its branch, or
+   * `silykat.reviewActive`: a review is in progress somewhere (Submit, Discard…).
+   * `silykat.reviewActiveHere`: one is in progress for the active editor's file (its branch, or
    * the file itself off any branch), which decides whether new comments are drafts first ("Add to
    * Review") or published first.
    */
@@ -567,7 +567,7 @@ export class ReviewController implements vscode.Disposable {
 
   private setReviewContext(which: 'active' | 'here', value: boolean): void {
     this.reviewContext[which] = value;
-    const key = which === 'active' ? 'localReview.reviewActive' : 'localReview.reviewActiveHere';
+    const key = which === 'active' ? 'silykat.reviewActive' : 'silykat.reviewActiveHere';
     void vscode.commands.executeCommand('setContext', key, value);
   }
 
@@ -601,7 +601,7 @@ export class ReviewController implements vscode.Disposable {
     for (const side of [diff.base, diff.head]) {
       if (side.source === 'git' && side.sha && !(await commitExists(m.root.path, side.sha))) {
         void vscode.window.showErrorMessage(
-          `Local Review: commit ${side.sha.slice(0, 7)} no longer exists (rewritten by a rebase?), so the original diff cannot be opened.`,
+          `silykat: commit ${side.sha.slice(0, 7)} no longer exists (rewritten by a rebase?), so the original diff cannot be opened.`,
         );
         return false;
       }
@@ -642,12 +642,12 @@ export class ReviewController implements vscode.Disposable {
       }
     } catch (err) {
       this.log.error(`Failed to set thread status to ${status}`, err);
-      void vscode.window.showErrorMessage(`Local Review: the thread could not be updated (${String(err)}).`);
+      void vscode.window.showErrorMessage(`silykat: the thread could not be updated (${String(err)}).`);
     }
   }
 
   /** "Edit" on one of the user's comments: switches it to an inline editor. */
-  editComment(comment: LrComment): void {
+  editComment(comment: SlkComment): void {
     const managed = this.managed.get(comment.threadId);
     if (!managed || !comment.isUserComment || managed.state.readOnly) return;
     comment.startEditing();
@@ -655,12 +655,12 @@ export class ReviewController implements vscode.Disposable {
   }
 
   /** "Save" under a comment being edited. VS Code has put the edited text in `comment.body`. */
-  async saveEdit(comment: LrComment): Promise<void> {
+  async saveEdit(comment: SlkComment): Promise<void> {
     const managed = this.managed.get(comment.threadId);
     if (!managed || !comment.isUserComment) return;
     const text = bodyText(comment.body).trim();
     if (text === '') {
-      void vscode.window.showWarningMessage('Local Review: a comment cannot be empty. Delete it instead.');
+      void vscode.window.showWarningMessage('silykat: a comment cannot be empty. Delete it instead.');
       return;
     }
     try {
@@ -674,11 +674,11 @@ export class ReviewController implements vscode.Disposable {
       comment.mode = vscode.CommentMode.Editing;
       managed.thread.comments = [...managed.thread.comments];
       this.log.error('Failed to save the edit', err);
-      void vscode.window.showErrorMessage(`Local Review: the edit could not be saved (${String(err)}).`);
+      void vscode.window.showErrorMessage(`silykat: the edit could not be saved (${String(err)}).`);
     }
   }
 
-  cancelEdit(comment: LrComment): void {
+  cancelEdit(comment: SlkComment): void {
     const managed = this.managed.get(comment.threadId);
     if (!managed) return;
     comment.restore();
@@ -686,7 +686,7 @@ export class ReviewController implements vscode.Disposable {
   }
 
   /** "Delete" on one of the user's comments. The last comment takes the thread with it. */
-  async deleteComment(comment: LrComment): Promise<void> {
+  async deleteComment(comment: SlkComment): Promise<void> {
     const managed = this.managed.get(comment.threadId);
     if (!managed || !comment.isUserComment || managed.state.readOnly) return;
     const isLast = managed.state.comments.length === 1;
@@ -718,7 +718,7 @@ export class ReviewController implements vscode.Disposable {
         });
     } catch (err) {
       this.log.error('Failed to delete the comment', err);
-      void vscode.window.showErrorMessage(`Local Review: the comment could not be deleted (${String(err)}).`);
+      void vscode.window.showErrorMessage(`silykat: the comment could not be deleted (${String(err)}).`);
     }
   }
 
@@ -751,13 +751,13 @@ export class ReviewController implements vscode.Disposable {
         });
     } catch (err) {
       this.log.error('Failed to delete the thread', err);
-      void vscode.window.showErrorMessage(`Local Review: the thread could not be deleted (${String(err)}).`);
+      void vscode.window.showErrorMessage(`silykat: the thread could not be deleted (${String(err)}).`);
     }
   }
 
   /**
    * "Archive Thread" in the thread header: the thread leaves the editor, and stays in the history
-   * (`lr history`, retros). "Show Archived Threads" brings it back.
+   * (`slk review history`, retros). "Show Archived Threads" brings it back.
    */
   async archiveThread(thread: vscode.CommentThread): Promise<void> {
     const threadId = this.byThread.get(thread);
@@ -767,11 +767,11 @@ export class ReviewController implements vscode.Disposable {
       await managed.root.store.archiveThread(threadId);
       this.forget(threadId);
       void vscode.window.showInformationMessage(
-        'Local Review: thread archived. It stays in the history; Local Review: Show Archived Threads brings it back.',
+        'silykat: thread archived. It stays in the history; silykat: Show Archived Threads brings it back.',
       );
     } catch (err) {
       this.log.error('Failed to archive the thread', err);
-      void vscode.window.showErrorMessage(`Local Review: the thread could not be archived (${String(err)}).`);
+      void vscode.window.showErrorMessage(`silykat: the thread could not be archived (${String(err)}).`);
     }
   }
 
@@ -1400,7 +1400,7 @@ export class ReviewController implements vscode.Disposable {
 
   /**
    * Once per worktree: a linked git worktree with comments loses them when it is removed (`git
-   * worktree remove` deletes its `.local-review/`). Say so, and how to keep them.
+   * worktree remove` deletes its `.silykat/`). Say so, and how to keep them.
    */
   async warnIfWorktree(path: string): Promise<void> {
     if (this.worktreeWarnings.has(path)) return;
@@ -1411,9 +1411,9 @@ export class ReviewController implements vscode.Disposable {
     if (!info?.linked || this.worktreeWarnings.has(path)) return;
     this.worktreeWarnings.add(path);
     const choice = await this.choose(
-      `Local Review: ${basename(info.worktree)} is a git worktree with comments. Removing it (git worktree remove) ` +
-        'deletes them with it: save its threads to the main repository first, with "Local Review: Save Worktree ' +
-        'Threads" (or lr worktree save). They then stay in the history and in retros.',
+      `silykat: ${basename(info.worktree)} is a git worktree with comments. Removing it (git worktree remove) ` +
+        'deletes them with it: save its threads to the main repository first, with "silykat: Save Worktree ' +
+        'Threads" (or slk worktree save). They then stay in the history and in retros.',
       [SAVE_THREADS],
     );
     if (choice === SAVE_THREADS) await this.saveWorktreeThreads(vscode.Uri.file(path));
@@ -1442,7 +1442,7 @@ export class ReviewController implements vscode.Disposable {
       if (!dir) {
         if (linked.length === 0)
           void vscode.window.showInformationMessage(
-            'Local Review: none of the open folders is a linked git worktree. Only those are deleted by git worktree remove: the comments of a main repository are safe.',
+            'silykat: none of the open folders is a linked git worktree. Only those are deleted by git worktree remove: the comments of a main repository are safe.',
           );
         return undefined;
       }
@@ -1452,28 +1452,28 @@ export class ReviewController implements vscode.Disposable {
       const where = saved.branch ? `${basename(saved.worktree)} (${saved.branch})` : basename(saved.worktree);
       void vscode.window.showInformationMessage(
         saved.published === 0
-          ? `Local Review: no comment in ${where}, nothing to save.`
-          : `Local Review: ${saved.published} thread${saved.published === 1 ? '' : 's'} of ${where} saved to ${saved.main}. ` +
-              'They stay in the history (lr history) and in retros after the worktree is removed.',
+          ? `silykat: no comment in ${where}, nothing to save.`
+          : `silykat: ${saved.published} thread${saved.published === 1 ? '' : 's'} of ${where} saved to ${saved.main}. ` +
+              'They stay in the history (slk review history) and in retros after the worktree is removed.',
       );
       this.log.info(`${dir}: ${saved.threads} thread journal(s) saved to ${saved.main}`);
       return saved;
     } catch (err) {
       this.log.error(`${dir}: failed to save the worktree's threads`, err);
-      void vscode.window.showErrorMessage(`Local Review: the threads could not be saved (${String(err)}).`);
+      void vscode.window.showErrorMessage(`silykat: the threads could not be saved (${String(err)}).`);
       return undefined;
     }
   }
 
   /**
-   * Once per folder: some of its comments were written by a newer version of Local Review (a newer
+   * Once per folder: some of its comments were written by a newer version of silykat (a newer
    * format), so they cannot be changed here.
    */
   private warnIfNewer(root: Root, state: ThreadState): void {
     if (!state.readOnly || this.warnedNewer.has(root.path)) return;
     this.warnedNewer.add(root.path);
     void this.choose(
-      `Local Review: some comments in ${root.path} were written by a newer version of Local Review. Update the extension to reply to them or change them.`,
+      `silykat: some comments in ${root.path} were written by a newer version of silykat. Update the extension to reply to them or change them.`,
       [],
     );
   }
@@ -1527,9 +1527,9 @@ export class ReviewController implements vscode.Disposable {
 
   private async excludeFromGit(root: Root): Promise<void> {
     if (!root.isGit || this.excludedRoots.has(root.path)) return;
-    if (!vscode.workspace.getConfiguration('localReview').get<boolean>('excludeFromGit', true)) return;
+    if (!vscode.workspace.getConfiguration('silykat').get<boolean>('excludeFromGit', true)) return;
     try {
-      if (await ensureExcluded(root.path)) this.log.info(`${root.path}: added .local-review/ to .git/info/exclude`);
+      if (await ensureExcluded(root.path)) this.log.info(`${root.path}: added .silykat/ to .git/info/exclude`);
       this.excludedRoots.add(root.path);
     } catch (err) {
       this.log.warn(`${root.path}: could not update .git/info/exclude`, err);
@@ -1537,7 +1537,7 @@ export class ReviewController implements vscode.Disposable {
   }
 
   private async resolveUserName(): Promise<string> {
-    const configured = vscode.workspace.getConfiguration('localReview').get<string>('userName', '').trim();
+    const configured = vscode.workspace.getConfiguration('silykat').get<string>('userName', '').trim();
     if (configured) return configured;
     const first = this.roots.all()[0];
     const fromGit = first ? await gitUserName(first.path) : null;

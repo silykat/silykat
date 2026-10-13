@@ -1,24 +1,24 @@
 ---
 name: review
-description: Address the user's Local Review comments, i.e. the code review threads they left in VS Code with the Local Review extension. Read the threads with `lr`, change the code, and reply in each thread. Use when the user asks you to handle, address, fix or answer their review comments, says their review is ready, or when a Local Review channel message says they published comments. Also use it when the user asks to see the history of their review comments (resolved, deleted, every repository of the project), or to archive, export or clean up old comments.
-allowed-tools: Bash(lr:*)
+description: Address the user's silykat comments, i.e. the code review threads they left in VS Code with the silykat extension. Read the threads with `slk`, change the code, and reply in each thread. Use when the user asks you to handle, address, fix or answer their review comments, says their review is ready, or when a silykat channel message says they published comments. Also use it when the user asks to see the history of their review comments (resolved, deleted, every repository of the project), or to archive, export or clean up old comments.
+allowed-tools: Bash(slk:*)
 ---
 
-# Address the Local Review comments
+# Address the silykat comments
 
-The user reviews your code in VS Code and leaves comments in threads, like on a GitHub pull request. You answer in those threads with the `lr` command (it is on your PATH). Each reply shows up live in their editor.
+The user reviews your code in VS Code and leaves comments in threads, like on a GitHub pull request. You answer in those threads with the `slk` command (it is on your PATH). Each reply shows up live in their editor.
 
-Asked for the **history** of the comments rather than to handle them? Skip to section 5 and run `lr history` yourself. Asked to **archive**, **export** or **clean up** old comments? See section 6.
+Asked for the **history** of the comments rather than to handle them? Skip to section 5 and run `slk review history` yourself. Asked to **archive**, **export** or **clean up** old comments? See section 6.
 
 ## 1. See what is waiting
 
-**Started by a Local Review channel message** (`<channel source="…local-review…" store="<folder>" threads="<ids>">`): the user just published comments in that folder, and expects you to handle them without being asked. Add `--root <folder>` to every `lr` command below, and list only the threads of the message (`lr list --root <folder> --thread <id> --thread <id>…`): the other threads waiting in that folder may be for another session. When you were busy with another task, finish or pause it at a sensible point first, then handle the comments, then go back to it.
+**Started by a silykat channel message** (`<channel source="…silykat…" store="<folder>" threads="<ids>">`): the user just published comments in that folder, and expects you to handle them without being asked. Add `--root <folder>` to every `slk` command below, and list only the threads of the message (`slk review list --root <folder> --thread <id> --thread <id>…`): the other threads waiting in that folder may be for another session. When you were busy with another task, finish or pause it at a sensible point first, then handle the comments, then go back to it.
 
-Run `lr status`. If no thread waits for you, tell the user and stop.
+Run `slk review status`. If no thread waits for you, tell the user and stop.
 
-If `lr` says there is **no Local Review store** here but lists **stores below this folder** (you were started in a parent folder of several repositories or worktrees), handle each listed store in turn by adding `--root <dir>` to every `lr` command (`lr status --root <dir>`, `lr list --root <dir>`, `lr reply <thread-id> --root <dir> …`). If it lists none, tell the user that nothing has been commented in this folder yet. Comments on files **outside any folder open in the editor** (e.g. a spec you wrote in a parent folder) are in the machine store: add `--root /`.
+If `slk` says there is **no silykat store** here but lists **stores below this folder** (you were started in a parent folder of several repositories or worktrees), handle each listed store in turn by adding `--root <dir>` to every `slk` command (`slk review status --root <dir>`, `slk review list --root <dir>`, `slk review reply <thread-id> --root <dir> …`). If it lists none, tell the user that nothing has been commented in this folder yet. Comments on files **outside any folder open in the editor** (e.g. a spec you wrote in a parent folder) are in the machine store: add `--root /`.
 
-Otherwise, run `lr list`. It prints the threads where the user spoke last, **on the branches (or paths) this session is subscribed to** (see section 4; `--any-topic` lists them all, e.g. when the user asks you to look at another branch), with:
+Otherwise, run `slk review list`. It prints the threads where the user spoke last, **on the branches (or paths) this session is subscribed to** (see section 4; `--any-topic` lists them all, e.g. when the user asks you to look at another branch), with:
 
 - the file and the **current** lines of the commented code (threads follow the code as the file changes);
 - the conversation so far;
@@ -30,21 +30,21 @@ Read the current code around the thread's lines before deciding. Then do exactly
 
 - **Apply the request.** Change the code, then reply briefly with what you did, marking the thread addressed:
   ```bash
-  lr reply <thread-id> --agent Claude --rev <version> --status addressed --body - <<'EOF'
+  slk review reply <thread-id> --agent Claude --rev <version> --status addressed --body - <<'EOF'
   Done: `find` now throws `NotFoundError` instead of returning null.
   EOF
   ```
 - **Ask for a precision**, when the request is ambiguous or several options are reasonable. Do **not** change the code; ask one precise question:
   ```bash
-  lr reply <thread-id> --agent Claude --rev <version> --status needs-info --body - <<'EOF'
+  slk review reply <thread-id> --agent Claude --rev <version> --status needs-info --body - <<'EOF'
   Should it throw `NotFoundError` or return a `Result`? Other callers of `find` expect null today.
   EOF
   ```
 - **Disagree**, when you think the request is not a good idea. Explain why in a few sentences, also with `--status needs-info`, and do not change the code.
 
-Always pass `--rev` with the **version** `lr list` showed for the thread ("Version: …"): the user may edit or delete comments while you work.
+Always pass `--rev` with the **version** `slk review list` showed for the thread ("Version: …"): the user may edit or delete comments while you work.
 
-- **Exit code 3**: the user changed the thread since you read it. `lr` prints it as it is now: adapt your work to the new request (e.g. a rename to another name), then reply again with the new version.
+- **Exit code 3**: the user changed the thread since you read it. `slk` prints it as it is now: adapt your work to the new request (e.g. a rename to another name), then reply again with the new version.
 - **Exit code 2**, "deleted by the user": stop working on that thread and go on with the others. If you already changed code for it, ask the user in the chat whether to undo those changes; never undo them on your own.
 
 Always pass the body on stdin with `--body -` and a quoted heredoc as above, so that Markdown and quotes need no escaping. Reply in the language of the user's comment. Keep replies short, and quote code when it helps.
@@ -59,32 +59,32 @@ Always pass the body on stdin with `--body -` and a quoted heredoc as above, so 
 
 ## 4. Subscriptions: which comments come to you
 
-Local Review publishes each comment to the sessions **subscribed** to its branch (or, outside git, its file or folder). This session is subscribed automatically when it was started in a git worktree, and when it modifies a file (you are then told so: pass it on to the user). The user may also ask you:
+silykat publishes each comment to the sessions **subscribed** to its branch (or, outside git, its file or folder). This session is subscribed automatically when it was started in a git worktree, and when it modifies a file (you are then told so: pass it on to the user). The user may also ask you:
 
-- "subscribe to this branch / this repo / this folder" → `lr subscribe [<folder or file>]` (`--path` for a folder or file rather than its branch);
-- "unsubscribe" → `lr unsubscribe [<folder or file>]`, or `lr unsubscribe --all`;
-- "what are you subscribed to?" → `lr subscriptions`.
+- "subscribe to this branch / this repo / this folder" → `slk subscribe [<folder or file>]` (`--path` for a folder or file rather than its branch);
+- "unsubscribe" → `slk unsubscribe [<folder or file>]`, or `slk unsubscribe --all`;
+- "what are you subscribed to?" → `slk subscriptions`.
 
 Whenever a subscription changes, say so in your reply, in one short sentence. Being subscribed does not mean doing everything: a comment may also go to other sessions (e.g. a reviewer); do what fits your role in this session.
 
 ## 5. The history of the comments
 
-When the user asks for the **history** of their review comments (e.g. "show me this week's comments", "what did I comment on lately?"), run `lr history` yourself right away (never ask the user to run it), with `--since <date>` for a period (`2026-10-01`, or `7d` for the last 7 days). It reads the whole project, from the current folder (or `--root <dir>`): its subfolders, every repository in it, and their git worktrees, even those kept outside the folder. It shows **every** thread, whatever its state (open, addressed, resolved, deleted; archived ones too), with its whole conversation, after a summary per state and per comment store. A deleted thread says why: **removed by the user**, or **its branch was deleted** (the work was done, not a comment withdrawn). Threads of a git worktree removed since are there too, once saved (store "saved from a worktree"). Use `--format json` to process it. Then answer from what it printed: the counts, and the threads that matter for the question. It only reads: never reply in these threads unless the user asks.
+When the user asks for the **history** of their review comments (e.g. "show me this week's comments", "what did I comment on lately?"), run `slk review history` yourself right away (never ask the user to run it), with `--since <date>` for a period (`2026-10-01`, or `7d` for the last 7 days). It reads the whole project, from the current folder (or `--root <dir>`): its subfolders, every repository in it, and their git worktrees, even those kept outside the folder. It shows **every** thread, whatever its state (open, addressed, resolved, deleted; archived ones too), with its whole conversation, after a summary per state and per comment store. A deleted thread says why: **removed by the user**, or **its branch was deleted** (the work was done, not a comment withdrawn). Threads of a git worktree removed since are there too, once saved (store "saved from a worktree"). Use `--format json` to process it. Then answer from what it printed: the counts, and the threads that matter for the question. It only reads: never reply in these threads unless the user asks.
 
 ## 6. Archive and clean up (only when the user asks)
 
-The user may ask you to tidy their comments: run these yourself, on the same project as `lr history` (current folder, or `--root <dir>`). Never do it on your own initiative.
+The user may ask you to tidy their comments: run these yourself, on the same project as `slk review history` (current folder, or `--root <dir>`). Never do it on your own initiative.
 
-- "archive the resolved comments of last month" → `lr archive --resolved-before <date>` (`2026-10-01`, or `30d` for 30 days ago); one thread → `lr archive <thread-id>`. Archived threads leave VS Code and `lr list`, and stay in `lr history` and retros.
-- "which threads are archived?" → `lr archive --list`; "bring it back" → `lr unarchive <thread-id>`.
-- "export my comments" → `lr history --format json --out <file>` (every thread, archived ones included).
-- "stop keeping what I delete" → `lr config set keep-history off`: deleting a thread then erases it, and nothing is saved when you remove a worktree. It says how much history is already kept here; to erase that too, `lr purge --history` (shows what, deletes nothing), then, after the user's yes, `lr purge --history --yes` (Claude Code asks them once more). `lr config set keep-history on` keeps the history again, from then on.
-- "delete the old comments for good" → first `lr purge --before <date>`, which deletes nothing: it says how many finished threads (resolved, archived or deleted) would go, and which; threads still in progress are kept, and so are those a retro has not read yet (in a project that had a retro). **Tell the user that number and ask them to confirm**, suggesting an export first, then stop and wait for their answer. Only after their yes, run the command it printed (`… --yes --count <n>`): Claude Code asks them once more to allow it. Report how many were deleted.
+- "archive the resolved comments of last month" → `slk review archive --resolved-before <date>` (`2026-10-01`, or `30d` for 30 days ago); one thread → `slk review archive <thread-id>`. Archived threads leave VS Code and `slk review list`, and stay in `slk review history` and retros.
+- "which threads are archived?" → `slk review archive --list`; "bring it back" → `slk review unarchive <thread-id>`.
+- "export my comments" → `slk review history --format json --out <file>` (every thread, archived ones included).
+- "stop keeping what I delete" → `slk config set keep-history off`: deleting a thread then erases it, and nothing is saved when you remove a worktree. It says how much history is already kept here; to erase that too, `slk review purge --history` (shows what, deletes nothing), then, after the user's yes, `slk review purge --history --yes` (Claude Code asks them once more). `slk config set keep-history on` keeps the history again, from then on.
+- "delete the old comments for good" → first `slk review purge --before <date>`, which deletes nothing: it says how many finished threads (resolved, archived or deleted) would go, and which; threads still in progress are kept, and so are those a retro has not read yet (in a project that had a retro). **Tell the user that number and ask them to confirm**, suggesting an export first, then stop and wait for their answer. Only after their yes, run the command it printed (`… --yes --count <n>`): Claude Code asks them once more to allow it. Report how many were deleted.
 
 ## 7. Git worktrees
 
-Removing a git worktree (`git worktree remove`, `rm -r` of it) deletes the user's comments in it. Before you remove one, the plugin's hook saves its threads to the main repository's store and tells you: pass it on to the user in one short sentence. If it says the history is not kept (keep-history off), tell the user that the comments will be lost, and offer `lr worktree save <worktree>` first. When the user asks to keep or save the comments of a worktree, run `lr worktree save <worktree>` yourself.
+Removing a git worktree (`git worktree remove`, `rm -r` of it) deletes the user's comments in it. Before you remove one, the plugin's hook saves its threads to the main repository's store and tells you: pass it on to the user in one short sentence. If it says the history is not kept (keep-history off), tell the user that the comments will be lost, and offer `slk worktree save <worktree>` first. When the user asks to keep or save the comments of a worktree, run `slk worktree save <worktree>` yourself.
 
 ## 8. Finish
 
-Run `lr status` to check that nothing is left, then give the user a short summary: threads addressed, questions asked, files changed.
+Run `slk review status` to check that nothing is left, then give the user a short summary: threads addressed, questions asked, files changed.

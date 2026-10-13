@@ -4,5 +4,5 @@
 **/dist/
 **/out/
 coverage/
-.local-review/
+.silykat/
 *.vsix

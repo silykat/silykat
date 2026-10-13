@@ -2,18 +2,11 @@ import * as assert from 'node:assert/strict';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import {
-  localReviewHome,
-  SessionRegistry,
-  topicOf,
-  type Delivery,
-  type SessionRecord,
-  type Topic,
-} from '@local-review/core';
-import type { LocalReviewApi } from '../../src/extension';
+import { silykatHome, SessionRegistry, topicOf, type Delivery, type SessionRecord, type Topic } from '@silykat/core';
+import type { SilykatApi } from '../../src/extension';
 import { WAIT_MS } from './timing';
 
-const EXTENSION_ID = 'local.local-review';
+const EXTENSION_ID = 'silykat.silykat';
 
 async function waitFor<T>(what: string, probe: () => Promise<T | undefined>, timeoutMs = WAIT_MS): Promise<T> {
   const start = Date.now();
@@ -26,7 +19,7 @@ async function waitFor<T>(what: string, probe: () => Promise<T | undefined>, tim
 }
 
 describe('Published comments go to the subscribed agent sessions', () => {
-  let api: LocalReviewApi;
+  let api: SilykatApi;
   let ws: string;
   let uri: vscode.Uri;
   let branch: Topic;
@@ -59,23 +52,19 @@ describe('Published comments go to the subscribed agent sessions', () => {
     });
   const idOf = (thread: vscode.CommentThread) => api.listThreads().find((t) => t.thread === thread)?.id;
 
-  async function comment(
-    text: string,
-    line: number,
-    command = 'localReview.submitComment',
-  ): Promise<string | undefined> {
+  async function comment(text: string, line: number, command = 'silykat.submitComment'): Promise<string | undefined> {
     const thread = api.controller.createCommentThread(uri, new vscode.Range(line, 0, line, 0), []);
     await vscode.commands.executeCommand(command, { thread, text });
     return idOf(thread);
   }
 
   before(async () => {
-    const ext = vscode.extensions.getExtension<LocalReviewApi>(EXTENSION_ID)!;
+    const ext = vscode.extensions.getExtension<SilykatApi>(EXTENSION_ID)!;
     api = await ext.activate();
     ws = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
     uri = vscode.Uri.file(join(ws, 'sample.ts'));
     branch = await topicOf(uri.fsPath);
-    registry = new SessionRegistry(localReviewHome());
+    registry = new SessionRegistry(silykatHome());
     api.setSummaryPrompt(async () => '');
     api.setDeliveryWarner(async (message, ...actions) => {
       warnings.push(`${message} [${actions.join('|')}]`);
@@ -89,7 +78,7 @@ describe('Published comments go to the subscribed agent sessions', () => {
 
   beforeEach(async () => {
     rmSync(registry.dir, { recursive: true, force: true });
-    rmSync(join(ws, '.local-review'), { recursive: true, force: true });
+    rmSync(join(ws, '.silykat'), { recursive: true, force: true });
     await api.reload();
     warnings = [];
     click = undefined;
@@ -124,7 +113,7 @@ describe('Published comments go to the subscribed agent sessions', () => {
     await subscribed('claude-1');
     const id = (await comment('Rename this', 1))!;
     const thread = api.listThreads().find((t) => t.id === id)!.thread;
-    await vscode.commands.executeCommand('localReview.reply', { thread, text: 'Also add a test' });
+    await vscode.commands.executeCommand('silykat.reply', { thread, text: 'Also add a test' });
     const d = await delivered(2);
     assert.deepEqual(
       d.map((x) => [x.kind, x.threadIds]),
@@ -137,12 +126,12 @@ describe('Published comments go to the subscribed agent sessions', () => {
 
   it('sends nothing for drafts, and the whole review once submitted', async () => {
     await subscribed('claude-1');
-    const a = await comment('First', 1, 'localReview.addToReview');
-    const b = await comment('Second', 3, 'localReview.addToReview');
+    const a = await comment('First', 1, 'silykat.addToReview');
+    const b = await comment('Second', 3, 'silykat.addToReview');
     await new Promise((r) => setTimeout(r, 200));
     assert.deepEqual(await inbox(), []);
 
-    await vscode.commands.executeCommand('localReview.submitReview');
+    await vscode.commands.executeCommand('silykat.submitReview');
     const [d] = await delivered(1);
     assert.equal(d!.kind, 'review');
     assert.deepEqual([...d!.threadIds].sort(), [a, b].sort());
@@ -187,10 +176,10 @@ describe('Published comments go to the subscribed agent sessions', () => {
 
   it('keeps the drafts when a review nobody is subscribed to is cancelled', async () => {
     answer = 'Publish';
-    await comment('Draft', 1, 'localReview.addToReview'); // drafts are never asked about
+    await comment('Draft', 1, 'silykat.addToReview'); // drafts are never asked about
     assert.deepEqual(asked, []);
     answer = undefined;
-    assert.equal(await vscode.commands.executeCommand<number>('localReview.submitReview'), 0);
+    assert.equal(await vscode.commands.executeCommand<number>('silykat.submitReview'), 0);
     assert.match(asked[0]!, /Publish this comment anyway/);
     assert.equal(api.reviewsInProgress().length, 1, 'still in progress');
   });
@@ -203,7 +192,7 @@ describe('Published comments go to the subscribed agent sessions', () => {
     await delivered(1); // still delivered: the agent sees it when asked
     await waitFor('the warning', async () => (warnings.length > 0 ? true : undefined));
     assert.deepEqual(warnings, [
-      "Local Review: Claude claude-1 won't see your comments until you ask it, as its session can't be notified. To fix it, relaunch it with: agent --notify [Copy Command]",
+      "silykat: Claude claude-1 won't see your comments until you ask it, as its session can't be notified. To fix it, relaunch it with: agent --notify [Copy Command]",
     ]);
     assert.equal(await vscode.env.clipboard.readText(), 'agent --notify');
 

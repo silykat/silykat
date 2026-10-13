@@ -3,9 +3,9 @@ import { join } from 'node:path';
 
 /**
  * Threads saved from a git worktree before it is removed (`git worktree remove` deletes the
- * worktree's `.local-review/` with it). They are copied to the store of the repository's main
+ * worktree's `.silykat/` with it). They are copied to the store of the repository's main
  * worktree, in `saved/<slot>/` (one slot per store of the worktree): its `threads/` and `reviews/`
- * journals as they were, and `origin.json`, where they come from. Older versions of Local Review
+ * journals as they were, and `origin.json`, where they come from. Older versions of silykat
  * ignore this folder; the editor never shows these copies, the history and the retro read them.
  */
 export const SAVED_DIR = 'saved';
@@ -24,11 +24,11 @@ export interface SavedOrigin {
 }
 
 export interface SavedStore extends SavedOrigin {
-  /** The folder of the copy: `<main>/.local-review/saved/<slot>/`. */
+  /** The folder of the copy: `<main>/.silykat/saved/<slot>/`. */
   dir: string;
 }
 
-/** The threads saved from worktrees into the store kept in `storeDir` (a `.local-review/` folder). */
+/** The threads saved from worktrees into the store kept in `storeDir` (a `.silykat/` folder). */
 export async function savedStores(storeDir: string): Promise<SavedStore[]> {
   let slots: string[];
   try {

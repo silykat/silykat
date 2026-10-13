@@ -18,7 +18,7 @@ export function relevantSessions(sessions: readonly Session[], folders: readonly
 
 /**
  * The sessions a comment on `file` (whose own topic is `topic`) is published to: every session
- * subscribed to that topic. Local Review publishes; what each session does with it is up to it.
+ * subscribed to that topic. silykat publishes; what each session does with it is up to it.
  */
 export function subscribersOf(sessions: readonly Session[], file: string, topic: Topic): Session[] {
   return sessions.filter((s) => s.subscriptions.some((sub) => topicCovers(sub.topic, topic, file)));

@@ -2,7 +2,7 @@ import { createReadStream } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
-import type { SetupUsage, ToolUsage, UsageWindow } from '@local-review/core';
+import type { SetupUsage, ToolUsage, UsageWindow } from '@silykat/core';
 import { projectTranscripts, type ProjectTranscript } from './retroInsights';
 import { subagentFiles } from './sessionAnalytics';
 import type { SetupTool } from './retroSetup';

@@ -1,10 +1,10 @@
 import { readFile } from 'node:fs/promises';
-import { FEEDBACK_CATEGORIES, jevKeyStatus, type ThreadLabel } from '@local-review/core';
+import { FEEDBACK_CATEGORIES, jevKeyStatus, type ThreadLabel } from '@silykat/core';
 
 /**
  * Classification of a retro's threads by Jev (jevtypesafeai.com), when the user has a key: one
  * decision per thread, with the category of the feedback and two yes/no detectors. It is the only
- * network call of Local Review, made only here, at the user's request, and the key goes nowhere
+ * network call of silykat, made only here, at the user's request, and the key goes nowhere
  * else: it is never printed, logged or written.
  */
 export const JEV_URL = 'https://jevtypesafeai.com/api/v1/decide';
@@ -35,7 +35,7 @@ export async function readJevKey(env: Record<string, string | undefined> = proce
   const fromEnv = env.JEV_API_KEY?.trim();
   if (fromEnv) return fromEnv;
   const s = await jevKeyStatus(env);
-  if (!s.exists) throw new Error(`no Jev key: ${s.path} does not exist (lr retro key tells how to add one)`);
+  if (!s.exists) throw new Error(`no Jev key: ${s.path} does not exist (slk retro key tells how to add one)`);
   if (!s.ok) throw new Error(`the Jev key file is not safe, fix it first: ${s.fixes.join('; ')}`);
   const key = (await readFile(s.path, 'utf8')).trim();
   if (!key) throw new Error(`the Jev key file ${s.path} is empty`);

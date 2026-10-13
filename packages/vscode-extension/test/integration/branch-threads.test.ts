@@ -3,14 +3,14 @@ import { execFileSync } from 'node:child_process';
 import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import { buildAnchorContext, Store } from '@local-review/core';
-import type { LocalReviewApi } from '../../src/extension';
+import { buildAnchorContext, Store } from '@silykat/core';
+import type { SilykatApi } from '../../src/extension';
 import { WAIT_MS } from './timing';
 
-const EXTENSION_ID = 'local.local-review';
+const EXTENSION_ID = 'silykat.silykat';
 
 describe('Threads belong to their git branch', () => {
-  let api: LocalReviewApi;
+  let api: SilykatApi;
   let ws: string;
   let uri: vscode.Uri;
   let home: string; // the branch the workspace was on
@@ -29,14 +29,14 @@ describe('Threads belong to their git branch', () => {
   const hidden = (id: string) => api.hiddenThreads().includes(id);
   const stateOf = async (id: string) => (await new Store(ws).loadThread(id)).state;
 
-  async function comment(text: string, line: number, command = 'localReview.submitComment', file = uri) {
+  async function comment(text: string, line: number, command = 'silykat.submitComment', file = uri) {
     const thread = api.controller.createCommentThread(file, new vscode.Range(line, 0, line, 0), []);
     await vscode.commands.executeCommand(command, { thread, text });
     return api.listThreads().find((t) => t.thread === thread)!.id;
   }
 
   before(async () => {
-    const ext = vscode.extensions.getExtension<LocalReviewApi>(EXTENSION_ID)!;
+    const ext = vscode.extensions.getExtension<SilykatApi>(EXTENSION_ID)!;
     api = await ext.activate();
     ws = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
     uri = vscode.Uri.file(join(ws, 'sample.ts'));
@@ -51,7 +51,7 @@ describe('Threads belong to their git branch', () => {
   });
 
   beforeEach(async () => {
-    rmSync(join(ws, '.local-review'), { recursive: true, force: true });
+    rmSync(join(ws, '.silykat'), { recursive: true, force: true });
     await checkout(home);
     await api.reload();
   });
@@ -78,9 +78,9 @@ describe('Threads belong to their git branch', () => {
   });
 
   it('has one review per branch, submitted apart', async () => {
-    await comment('Draft here', 1, 'localReview.addToReview');
+    await comment('Draft here', 1, 'silykat.addToReview');
     await checkout('-b', 'other-2');
-    await comment('Draft there', 3, 'localReview.addToReview');
+    await comment('Draft there', 3, 'silykat.addToReview');
     const reviews = api.reviewsInProgress();
     assert.equal(reviews.length, 2);
     assert.deepEqual(
@@ -89,7 +89,7 @@ describe('Threads belong to their git branch', () => {
     );
 
     await vscode.window.showTextDocument(uri); // the review of the active editor's branch
-    assert.equal(await vscode.commands.executeCommand<number>('localReview.submitReview'), 1);
+    assert.equal(await vscode.commands.executeCommand<number>('silykat.submitReview'), 1);
     assert.deepEqual(
       api.reviewsInProgress().map((r) => r.review.branch?.branch),
       [home],
@@ -106,7 +106,7 @@ describe('Threads belong to their git branch', () => {
     };
     await vscode.window.showTextDocument(uri);
     assert.deepEqual(await waitHere(false), { active: false, here: false });
-    await comment('Draft here', 1, 'localReview.addToReview');
+    await comment('Draft here', 1, 'silykat.addToReview');
     assert.deepEqual(await waitHere(true), { active: true, here: true });
 
     await checkout('-b', 'other-4'); // the review stays on the home branch
@@ -126,7 +126,7 @@ describe('Threads belong to their git branch', () => {
 
     await checkout('-b', 'to-delete');
     const gone = await comment('Goes with its branch', 1);
-    await comment('A draft too', 3, 'localReview.addToReview');
+    await comment('A draft too', 3, 'silykat.addToReview');
     await checkout(home);
     git('branch', '-D', 'to-delete');
     await api.refreshBranches();
@@ -143,11 +143,11 @@ describe('Threads belong to their git branch', () => {
   });
 
   it('keeps showing threads of files ignored by git, which do not change with the branch', async () => {
-    writeFileSync(join(ws, '.git', 'info', 'exclude'), '.local-review/\nnotes.md\n');
+    writeFileSync(join(ws, '.git', 'info', 'exclude'), '.silykat/\nnotes.md\n');
     writeFileSync(join(ws, 'notes.md'), 'my notes\nsecond line\n');
     const notes = vscode.Uri.file(join(ws, 'notes.md'));
     await vscode.workspace.openTextDocument(notes);
-    const id = await comment('A note', 0, 'localReview.submitComment', notes);
+    const id = await comment('A note', 0, 'silykat.submitComment', notes);
     assert.equal((await stateOf(id))?.branch, null);
     await checkout('-b', 'other-3');
     assert.equal(shown(id), true);

@@ -3,11 +3,11 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import { buildAnchorContext, Store } from '@local-review/core';
-import type { LocalReviewApi } from '../../src/extension';
+import { buildAnchorContext, Store } from '@silykat/core';
+import type { SilykatApi } from '../../src/extension';
 import { WAIT_MS } from './timing';
 
-const EXTENSION_ID = 'local.local-review';
+const EXTENSION_ID = 'silykat.silykat';
 const LINES = Array.from({ length: 30 }, (_, i) => `const v${i + 1} = ${i + 1};`);
 
 async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs = WAIT_MS): Promise<T> {
@@ -21,7 +21,7 @@ async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs = 
 }
 
 describe('The comment follows the code when the file changes', () => {
-  let api: LocalReviewApi;
+  let api: SilykatApi;
   let ws: string;
   let n = 0;
 
@@ -31,7 +31,7 @@ describe('The comment follows the code when the file changes', () => {
     return [r.start.line, r.end.line];
   };
   const journal = (id: string) => {
-    const file = join(ws, '.local-review', 'threads', `${id}.jsonl`);
+    const file = join(ws, '.silykat', 'threads', `${id}.jsonl`);
     return existsSync(file)
       ? readFileSync(file, 'utf8')
           .trimEnd()
@@ -54,7 +54,7 @@ describe('The comment follows the code when the file changes', () => {
   /** Thread on 1-based lines 20-22. */
   async function commentLines20to22(uri: vscode.Uri): Promise<string> {
     const thread = api.controller.createCommentThread(uri, new vscode.Range(19, 0, 21, 5), []);
-    await vscode.commands.executeCommand('localReview.submitComment', { thread, text: 'Why a constant here?' });
+    await vscode.commands.executeCommand('silykat.submitComment', { thread, text: 'Why a constant here?' });
     return api.listThreads().find((t) => t.thread === thread)!.id;
   }
 
@@ -65,13 +65,13 @@ describe('The comment follows the code when the file changes', () => {
   }
 
   before(async () => {
-    const ext = vscode.extensions.getExtension<LocalReviewApi>(EXTENSION_ID)!;
+    const ext = vscode.extensions.getExtension<SilykatApi>(EXTENSION_ID)!;
     api = await ext.activate();
     ws = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
   });
 
   beforeEach(async () => {
-    rmSync(join(ws, '.local-review'), { recursive: true, force: true });
+    rmSync(join(ws, '.silykat'), { recursive: true, force: true });
     await api.reload();
   });
 

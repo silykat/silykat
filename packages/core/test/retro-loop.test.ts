@@ -31,11 +31,11 @@ import {
 } from '../src/index';
 
 let base: string;
-const env = () => ({ LOCAL_REVIEW_HOME: join(base, 'machine'), HOME: join(base, 'home') });
+const env = () => ({ SILYKAT_HOME: join(base, 'machine'), HOME: join(base, 'home') });
 const DAY = 86_400_000;
 
 beforeEach(async () => {
-  base = await realpath(await mkdtemp(join(tmpdir(), 'lr-retro-loop-')));
+  base = await realpath(await mkdtemp(join(tmpdir(), 'slk-retro-loop-')));
 });
 afterEach(async () => {
   await rm(base, { recursive: true, force: true });

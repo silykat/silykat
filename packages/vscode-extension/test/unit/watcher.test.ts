@@ -25,8 +25,8 @@ const seenThread = async () => {
 };
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'lr-watch-'));
-  store = join(root, '.local-review');
+  root = mkdtempSync(join(tmpdir(), 'slk-watch-'));
+  store = join(root, '.silykat');
   seen = [];
 });
 

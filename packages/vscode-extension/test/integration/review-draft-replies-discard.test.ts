@@ -2,9 +2,9 @@ import * as assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import type { LocalReviewApi } from '../../src/extension';
+import type { SilykatApi } from '../../src/extension';
 
-const EXTENSION_ID = 'local.local-review';
+const EXTENSION_ID = 'silykat.silykat';
 
 async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs = 2000): Promise<T> {
   const start = Date.now();
@@ -17,7 +17,7 @@ async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs = 
 }
 
 describe('Discard a review, and draft replies', () => {
-  let api: LocalReviewApi;
+  let api: SilykatApi;
   let ws: string;
   let uri: vscode.Uri;
   let confirmations: string[];
@@ -25,7 +25,7 @@ describe('Discard a review, and draft replies', () => {
 
   const managed = (id: string) => api.listThreads().find((t) => t.id === id);
   const reviewEvents = () => {
-    const dir = join(ws, '.local-review', 'reviews');
+    const dir = join(ws, '.silykat', 'reviews');
     return existsSync(dir)
       ? readdirSync(dir).flatMap((f) =>
           readFileSync(join(dir, f), 'utf8')
@@ -44,8 +44,8 @@ describe('Discard a review, and draft replies', () => {
 
   /** A published thread where the agent asked a question. */
   async function questionThread(line: number): Promise<string> {
-    const id = await onNewThread('localReview.submitComment', line, 'Why null?');
-    await vscode.commands.executeCommand('localReview.dev.simulateAgentReply', {
+    const id = await onNewThread('silykat.submitComment', line, 'Why null?');
+    await vscode.commands.executeCommand('silykat.dev.simulateAgentReply', {
       threadId: id,
       body: 'Which error then?',
       status: 'needs-info',
@@ -55,7 +55,7 @@ describe('Discard a review, and draft replies', () => {
   }
 
   before(async () => {
-    const ext = vscode.extensions.getExtension<LocalReviewApi>(EXTENSION_ID)!;
+    const ext = vscode.extensions.getExtension<SilykatApi>(EXTENSION_ID)!;
     api = await ext.activate();
     ws = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
     uri = vscode.Uri.file(join(ws, 'sample.ts'));
@@ -63,7 +63,7 @@ describe('Discard a review, and draft replies', () => {
   });
 
   beforeEach(async () => {
-    rmSync(join(ws, '.local-review'), { recursive: true, force: true });
+    rmSync(join(ws, '.silykat'), { recursive: true, force: true });
     await api.reload();
     confirmations = [];
     answer = true;
@@ -81,8 +81,8 @@ describe('Discard a review, and draft replies', () => {
 
   it('adds a draft reply to a published thread; the agent still sees the old messages only', async () => {
     const id = await questionThread(3);
-    await vscode.commands.executeCommand('localReview.startReview');
-    await vscode.commands.executeCommand('localReview.addToReview', {
+    await vscode.commands.executeCommand('silykat.startReview');
+    await vscode.commands.executeCommand('silykat.addToReview', {
       thread: managed(id)!.thread,
       text: 'A NotFoundError',
     });
@@ -93,19 +93,19 @@ describe('Discard a review, and draft replies', () => {
       [false, false, true],
     );
     assert.equal(t.thread.comments[2]!.label, 'Pending');
-    assert.equal(t.thread.contextValue, 'lr needs-info', 'still a published thread');
+    assert.equal(t.thread.contextValue, 'slk needs-info', 'still a published thread');
     assert.equal(t.thread.label, '❓ Claude is waiting for your reply', 'nothing changes for the agent yet');
     assert.equal(api.reviewStatusText(), '$(comment-draft) Review · 1');
   });
 
   it('publishes the draft reply on submit and hands the thread back to the agent', async () => {
     const id = await questionThread(4);
-    await vscode.commands.executeCommand('localReview.startReview');
-    await vscode.commands.executeCommand('localReview.addToReview', {
+    await vscode.commands.executeCommand('silykat.startReview');
+    await vscode.commands.executeCommand('silykat.addToReview', {
       thread: managed(id)!.thread,
       text: 'A NotFoundError',
     });
-    await vscode.commands.executeCommand('localReview.submitReview');
+    await vscode.commands.executeCommand('silykat.submitReview');
 
     await waitFor('the thread to be open again', () => (managed(id)!.state.status === 'open' ? true : undefined));
     assert.equal(managed(id)!.state.comments[2]!.isDraft, false);
@@ -114,22 +114,22 @@ describe('Discard a review, and draft replies', () => {
 
   it('can still reply right away during a review ("Reply Now")', async () => {
     const id = await questionThread(5);
-    await vscode.commands.executeCommand('localReview.startReview');
-    await vscode.commands.executeCommand('localReview.replyNow', { thread: managed(id)!.thread, text: 'now' });
+    await vscode.commands.executeCommand('silykat.startReview');
+    await vscode.commands.executeCommand('silykat.replyNow', { thread: managed(id)!.thread, text: 'now' });
     assert.equal(managed(id)!.state.comments[2]!.isDraft, false);
     assert.equal(managed(id)!.state.status, 'open');
   });
 
   it('discards the review: drafts and draft-only threads go, published threads stay', async () => {
     const published = await questionThread(6);
-    const draftOnly = await onNewThread('localReview.startReview', 8, 'draft thread');
-    await vscode.commands.executeCommand('localReview.addToReview', {
+    const draftOnly = await onNewThread('silykat.startReview', 8, 'draft thread');
+    await vscode.commands.executeCommand('silykat.addToReview', {
       thread: managed(published)!.thread,
       text: 'draft reply',
     });
     assert.equal(api.reviewStatusText(), '$(comment-draft) Review · 2');
 
-    const dropped = await vscode.commands.executeCommand<number>('localReview.discardReview');
+    const dropped = await vscode.commands.executeCommand<number>('silykat.discardReview');
     assert.equal(dropped, 2);
     assert.deepEqual(confirmations, ['Delete 2 pending comments?']);
     assert.equal(managed(draftOnly), undefined, 'the draft-only thread disappeared');
@@ -147,16 +147,16 @@ describe('Discard a review, and draft replies', () => {
   });
 
   it('keeps everything when the discard is not confirmed', async () => {
-    const id = await onNewThread('localReview.startReview', 3, 'keep me');
+    const id = await onNewThread('silykat.startReview', 3, 'keep me');
     answer = false;
-    assert.equal(await vscode.commands.executeCommand<number>('localReview.discardReview'), 0);
+    assert.equal(await vscode.commands.executeCommand<number>('silykat.discardReview'), 0);
     assert.equal(managed(id)!.state.comments[0]!.isDraft, true);
     assert.equal(api.reviewStatusText(), '$(comment-draft) Review · 1');
   });
 
   it('says there is nothing to submit when the review holds no draft', async () => {
-    await vscode.commands.executeCommand('localReview.startReview');
-    assert.equal(await vscode.commands.executeCommand<number>('localReview.submitReview'), 0);
+    await vscode.commands.executeCommand('silykat.startReview');
+    assert.equal(await vscode.commands.executeCommand<number>('silykat.submitReview'), 0);
     assert.equal(api.reviewsInProgress().length, 1);
   });
 });

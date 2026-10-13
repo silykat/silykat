@@ -3,10 +3,10 @@ import { execFileSync } from 'node:child_process';
 import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import type { LocalReviewApi } from '../../src/extension';
+import type { SilykatApi } from '../../src/extension';
 import { WAIT_MS } from './timing';
 
-const EXTENSION_ID = 'local.local-review';
+const EXTENSION_ID = 'silykat.silykat';
 const ORIGINAL = Array.from({ length: 10 }, (_, i) => `const v${i + 1} = ${i + 1};`);
 
 interface GitApi {
@@ -25,7 +25,7 @@ async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs = 
 }
 
 describe('Comment in the diff of changes (Source Control)', () => {
-  let api: LocalReviewApi;
+  let api: SilykatApi;
   let gitApi: GitApi;
   let ws: string;
   let n = 0;
@@ -75,7 +75,7 @@ describe('Comment in the diff of changes (Source Control)', () => {
     });
   }
 
-  async function commentOn(uri: vscode.Uri, line: number, text: string, command = 'localReview.submitComment') {
+  async function commentOn(uri: vscode.Uri, line: number, text: string, command = 'silykat.submitComment') {
     await vscode.workspace.openTextDocument(uri); // what the diff editor has done already
     const known = new Set(api.listThreads().map((t) => t.id));
     const thread = api.controller.createCommentThread(uri, new vscode.Range(line, 0, line, 0), []);
@@ -84,7 +84,7 @@ describe('Comment in the diff of changes (Source Control)', () => {
   }
 
   before(async () => {
-    const ext = vscode.extensions.getExtension<LocalReviewApi>(EXTENSION_ID)!;
+    const ext = vscode.extensions.getExtension<SilykatApi>(EXTENSION_ID)!;
     api = await ext.activate();
     ws = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
     const gitExt = vscode.extensions.getExtension<{ getAPI(v: 1): GitApi }>('vscode.git')!;
@@ -93,7 +93,7 @@ describe('Comment in the diff of changes (Source Control)', () => {
   });
 
   beforeEach(async () => {
-    rmSync(join(ws, '.local-review'), { recursive: true, force: true });
+    rmSync(join(ws, '.silykat'), { recursive: true, force: true });
     await api.reload();
   });
 
@@ -188,14 +188,14 @@ describe('Comment in the diff of changes (Source Control)', () => {
   it('works in review mode and with the agent', async () => {
     const file = await changedFile();
     const diff = await openChanges(file);
-    const id = await commentOn(diff.original, 2, 'Draft on the old code', 'localReview.startReview');
+    const id = await commentOn(diff.original, 2, 'Draft on the old code', 'silykat.startReview');
     assert.equal(managed(id).state.comments[0]!.isDraft, true);
     assert.equal(managed(id).thread.label, 'Index · Pending');
     api.setSummaryPrompt(async () => '');
-    await vscode.commands.executeCommand('localReview.submitReview');
+    await vscode.commands.executeCommand('silykat.submitReview');
     api.setSummaryPrompt(undefined);
 
-    await vscode.commands.executeCommand('localReview.dev.simulateAgentReply', {
+    await vscode.commands.executeCommand('silykat.dev.simulateAgentReply', {
       threadId: id,
       body: 'Why?',
       status: 'needs-info',

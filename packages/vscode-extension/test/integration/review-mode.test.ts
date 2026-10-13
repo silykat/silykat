@@ -3,13 +3,13 @@ import { fork } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import type { LocalReviewApi } from '../../src/extension';
+import type { SilykatApi } from '../../src/extension';
 import { WAIT_MS } from './timing';
 
-const EXTENSION_ID = 'local.local-review';
+const EXTENSION_ID = 'silykat.silykat';
 
 describe('Review mode: drafts, then submit', () => {
-  let api: LocalReviewApi;
+  let api: SilykatApi;
   let ws: string;
   let uri: vscode.Uri;
   let extensionPath: string;
@@ -17,7 +17,7 @@ describe('Review mode: drafts, then submit', () => {
   const managed = (id: string) => api.listThreads().find((t) => t.id === id)!;
   const byThread = (thread: vscode.CommentThread) => api.listThreads().find((t) => t.thread === thread)!;
   const reviewJournals = () => {
-    const dir = join(ws, '.local-review', 'reviews');
+    const dir = join(ws, '.silykat', 'reviews');
     return existsSync(dir)
       ? readdirSync(dir).map((f) =>
           readFileSync(join(dir, f), 'utf8')
@@ -36,7 +36,7 @@ describe('Review mode: drafts, then submit', () => {
   }
 
   before(async () => {
-    const ext = vscode.extensions.getExtension<LocalReviewApi>(EXTENSION_ID)!;
+    const ext = vscode.extensions.getExtension<SilykatApi>(EXTENSION_ID)!;
     api = await ext.activate();
     extensionPath = ext.extensionPath;
     ws = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
@@ -45,7 +45,7 @@ describe('Review mode: drafts, then submit', () => {
   });
 
   beforeEach(async () => {
-    rmSync(join(ws, '.local-review'), { recursive: true, force: true });
+    rmSync(join(ws, '.silykat'), { recursive: true, force: true });
     await api.reload();
     api.setSummaryPrompt(async () => '');
   });
@@ -54,13 +54,13 @@ describe('Review mode: drafts, then submit', () => {
 
   it('"Start Review" saves the comment as a draft and shows "Review · 1"', async () => {
     assert.equal(api.reviewStatusText(), undefined, 'no review yet');
-    const id = await onNewThread('localReview.startReview', 3, 'First remark');
+    const id = await onNewThread('silykat.startReview', 3, 'First remark');
 
     const t = managed(id);
     assert.equal(t.state.comments[0]!.isDraft, true);
     assert.equal(t.thread.comments[0]!.label, 'Pending');
     assert.equal(t.thread.label, 'Pending');
-    assert.equal(t.thread.contextValue, 'lr draft open');
+    assert.equal(t.thread.contextValue, 'slk draft open');
     // The status bar follows the review of the active editor, computed in the background.
     for (let i = 0; i < WAIT_MS / 25 && api.reviewStatusText() === undefined; i++)
       await new Promise((r) => setTimeout(r, 25));
@@ -72,9 +72,9 @@ describe('Review mode: drafts, then submit', () => {
   });
 
   it('adds to the review, or comments now, while it is in progress', async () => {
-    await onNewThread('localReview.startReview', 3, 'draft 1');
-    const draft = await onNewThread('localReview.addToReview', 5, 'draft 2');
-    const direct = await onNewThread('localReview.commentNow', 7, 'right now');
+    await onNewThread('silykat.startReview', 3, 'draft 1');
+    const draft = await onNewThread('silykat.addToReview', 5, 'draft 2');
+    const direct = await onNewThread('silykat.commentNow', 7, 'right now');
     assert.equal(managed(draft).state.comments[0]!.isDraft, true);
     assert.equal(managed(direct).state.comments[0]!.isDraft, false);
     assert.equal(managed(direct).thread.label, 'Waiting for Claude');
@@ -82,8 +82,8 @@ describe('Review mode: drafts, then submit', () => {
   });
 
   it('adds a draft reply to a draft thread', async () => {
-    const id = await onNewThread('localReview.startReview', 3, 'draft');
-    await vscode.commands.executeCommand('localReview.addToReview', { thread: managed(id).thread, text: 'and more' });
+    const id = await onNewThread('silykat.startReview', 3, 'draft');
+    await vscode.commands.executeCommand('silykat.addToReview', { thread: managed(id).thread, text: 'and more' });
     assert.deepEqual(
       managed(id).state.comments.map((c) => c.isDraft),
       [true, true],
@@ -92,18 +92,18 @@ describe('Review mode: drafts, then submit', () => {
   });
 
   it('keeps the counter in line with the drafts', async () => {
-    await onNewThread('localReview.startReview', 3, 'one');
-    const two = await onNewThread('localReview.addToReview', 5, 'two');
+    await onNewThread('silykat.startReview', 3, 'one');
+    const two = await onNewThread('silykat.addToReview', 5, 'two');
     assert.equal(api.reviewStatusText(), '$(comment-draft) Review · 2');
     // Deleting a draft needs no confirmation: it was never seen by anyone.
-    await vscode.commands.executeCommand('localReview.deleteThread', managed(two).thread);
+    await vscode.commands.executeCommand('silykat.deleteThread', managed(two).thread);
     assert.equal(api.reviewStatusText(), '$(comment-draft) Review · 1');
   });
 
   it('goes to a pending comment', async () => {
-    const id = await onNewThread('localReview.startReview', 12, 'look here');
+    const id = await onNewThread('silykat.startReview', 12, 'look here');
     await vscode.commands.executeCommand('workbench.action.closeAllEditors');
-    await vscode.commands.executeCommand('localReview.revealThread', id);
+    await vscode.commands.executeCommand('silykat.revealThread', id);
     const editor = vscode.window.activeTextEditor!;
     assert.equal(editor.document.uri.fsPath, uri.fsPath);
     assert.equal(editor.selection.active.line, 12);
@@ -111,17 +111,17 @@ describe('Review mode: drafts, then submit', () => {
   });
 
   it('submits the review with a summary: drafts are published', async () => {
-    const a = await onNewThread('localReview.startReview', 3, 'one');
-    const b = await onNewThread('localReview.addToReview', 5, 'two');
+    const a = await onNewThread('silykat.startReview', 3, 'one');
+    const b = await onNewThread('silykat.addToReview', 5, 'two');
     api.setSummaryPrompt(async () => '  Looks good overall  ');
-    const n = await vscode.commands.executeCommand<number>('localReview.submitReview');
+    const n = await vscode.commands.executeCommand<number>('silykat.submitReview');
 
     assert.equal(n, 2);
     for (const id of [a, b]) {
       assert.equal(managed(id).state.comments[0]!.isDraft, false);
       assert.equal(managed(id).thread.comments[0]!.label, undefined);
       assert.equal(managed(id).thread.label, 'Waiting for Claude');
-      assert.equal(managed(id).thread.contextValue, 'lr open');
+      assert.equal(managed(id).thread.contextValue, 'slk open');
     }
     const [events] = reviewJournals();
     assert.deepEqual(
@@ -135,15 +135,15 @@ describe('Review mode: drafts, then submit', () => {
   });
 
   it('cancels the submission when the summary is dismissed with Esc', async () => {
-    const id = await onNewThread('localReview.startReview', 3, 'one');
+    const id = await onNewThread('silykat.startReview', 3, 'one');
     api.setSummaryPrompt(async () => undefined);
-    assert.equal(await vscode.commands.executeCommand<number>('localReview.submitReview'), 0);
+    assert.equal(await vscode.commands.executeCommand<number>('silykat.submitReview'), 0);
     assert.equal(managed(id).state.comments[0]!.isDraft, true);
     assert.equal(api.reviewStatusText(), '$(comment-draft) Review · 1');
   });
 
   it('keeps the review and its drafts after a restart', async () => {
-    const id = await onNewThread('localReview.startReview', 3, 'survive me');
+    const id = await onNewThread('silykat.startReview', 3, 'survive me');
     await api.reload();
     assert.equal(managed(id).state.comments[0]!.isDraft, true);
     assert.equal(api.reviewStatusText(), '$(comment-draft) Review · 1');
@@ -151,8 +151,8 @@ describe('Review mode: drafts, then submit', () => {
   });
 
   it('hides drafts from the agent until the review is submitted', async () => {
-    const id = await onNewThread('localReview.startReview', 3, 'secret for now');
-    const viaCommand = await vscode.commands.executeCommand('localReview.dev.simulateAgentReply', {
+    const id = await onNewThread('silykat.startReview', 3, 'secret for now');
+    const viaCommand = await vscode.commands.executeCommand('silykat.dev.simulateAgentReply', {
       threadId: id,
       body: 'I saw it',
       status: 'none',
@@ -173,7 +173,7 @@ describe('Review mode: drafts, then submit', () => {
       for (let i = 0; i < WAIT_MS / 25 && !probe(); i++) await new Promise((r) => setTimeout(r, 25));
     };
     const editor = await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri));
-    await onNewThread('localReview.startReview', 3, 'First remark');
+    await onNewThread('silykat.startReview', 3, 'First remark');
     await waitFor(() => api.reviewContext().here);
     assert.equal(api.reviewContext().here, true);
 
@@ -210,13 +210,13 @@ describe('Review mode: drafts, then submit', () => {
       return byThread(thread).id;
     };
     try {
-      const first = await comment('localReview.startReview', a, 'on a');
+      const first = await comment('silykat.startReview', a, 'on a');
       await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(b));
       assert.equal(await waitHere(true), true, 'same folder: "Add to Review"');
-      const second = await comment('localReview.addToReview', b, 'on b');
+      const second = await comment('silykat.addToReview', b, 'on b');
       await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(c));
       assert.equal(await waitHere(false), false, 'the parent folder is another one: "Start Review"');
-      const third = await comment('localReview.startReview', c, 'on c');
+      const third = await comment('silykat.startReview', c, 'on c');
 
       const reviews = api.reviewsInProgress();
       assert.deepEqual(reviews.map((r) => r.review.path).sort(), ['off-branch/specs', 'off-branch/specs/deep']);
@@ -232,9 +232,9 @@ describe('Review mode: drafts, then submit', () => {
   });
 
   it('says so when there is nothing to submit', async () => {
-    await vscode.commands.executeCommand('localReview.startReview'); // from the command palette
+    await vscode.commands.executeCommand('silykat.startReview'); // from the command palette
     assert.equal(api.reviewStatusText(), '$(comment-draft) Review · 0');
-    assert.equal(await vscode.commands.executeCommand<number>('localReview.submitReview'), 0);
+    assert.equal(await vscode.commands.executeCommand<number>('silykat.submitReview'), 0);
     assert.equal(api.reviewsInProgress().length, 1, 'still in progress');
   });
 });

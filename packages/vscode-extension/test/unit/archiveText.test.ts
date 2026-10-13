@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { PurgePlan, ThreadHistory } from '@local-review/core';
+import type { PurgePlan, ThreadHistory } from '@silykat/core';
 import { archiveConfirmation, dayOf, purgeConfirmation, threadItemText } from '../../src/archiveText';
 
 const thread = (over: Partial<ThreadHistory> = {}): ThreadHistory => ({

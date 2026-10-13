@@ -1,15 +1,15 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { localReviewHome } from './sessions';
+import { silykatHome } from './sessions';
 import { STORE_DIR } from './types';
 
 /**
- * Settings of Local Review on this machine, in `<home>/config.json`: read by the agent hooks, which
+ * Settings of silykat on this machine, in `<home>/config.json`: read by the agent hooks, which
  * run outside the editor. A missing file, or a missing setting, means the default.
  */
 export interface MachineConfig {
   /**
-   * Keep the history of what is deleted, for `lr history` and retros (on by default): a deleted
+   * Keep the history of what is deleted, for `slk review history` and retros (on by default): a deleted
    * thread stays in its journal, and before an agent removes a git worktree that has comments, its
    * hook saves the worktree's threads to the main repository's store. Off, deleting a thread erases
    * its journals, and nothing is saved when a worktree is removed.
@@ -79,13 +79,13 @@ export type ConfigSetting =
   | { key: NumberKey; kind: 'number'; help: string }
   | { key: ChoiceKey; kind: 'choice'; choices: readonly string[]; help: string };
 
-/** The settings as `lr config` names them, with how to read a value given on the command line. */
+/** The settings as `slk config` names them, with how to read a value given on the command line. */
 export const CONFIG_KEYS: Record<string, ConfigSetting> = {
   'keep-history': {
     key: 'keepHistory',
     kind: 'boolean',
     help:
-      'on|off — keep deleted threads (for lr history and retros) and save the threads of a worktree before an ' +
+      'on|off — keep deleted threads (for slk review history and retros) and save the threads of a worktree before an ' +
       'agent removes it; off, deleting a thread erases it (default: on)',
   },
   'retro-reminder': {
@@ -144,7 +144,7 @@ export const PROJECT_CONFIG_KEYS: readonly string[] = [
 ];
 
 export const configFile = (env: Record<string, string | undefined> = process.env): string =>
-  join(localReviewHome(env), 'config.json');
+  join(silykatHome(env), 'config.json');
 
 /** A number of days or kilobytes, as a setting takes it: a whole number, 1 or more. */
 export const validSettingNumber = (x: unknown): x is number => typeof x === 'number' && Number.isInteger(x) && x >= 1;
@@ -200,7 +200,7 @@ async function writeConfigNow(
     // missing or invalid: start again
   }
   const next = { ...current, ...change };
-  await mkdir(localReviewHome(env), { recursive: true });
+  await mkdir(silykatHome(env), { recursive: true });
   const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
   await writeFile(tmp, JSON.stringify(next, null, 2) + '\n');
   await rename(tmp, file);
@@ -208,7 +208,7 @@ async function writeConfigNow(
 }
 
 /**
- * A project's own settings, in `<home>/.local-review/config.json` (the folder whose store keeps its
+ * A project's own settings, in `<home>/.silykat/config.json` (the folder whose store keeps its
  * retros): personal, like the rest of the store (git ignores it). Only the settings of
  * `PROJECT_CONFIG_KEYS`; a missing one falls back on the machine's.
  */

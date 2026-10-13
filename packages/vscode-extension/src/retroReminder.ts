@@ -7,7 +7,7 @@ import {
   writeConfig,
   type MachineConfig,
   type RetroCadence,
-} from '@local-review/core';
+} from '@silykat/core';
 import {
   MIRRORED,
   RETRO_COMMAND,
@@ -19,7 +19,7 @@ import {
   type StatusBarMode,
 } from './retroStatus';
 
-const SECTION = 'localReview.retroReminder';
+const SECTION = 'silykat.retroReminder';
 const POLL_MS = 2 * 60_000;
 /** After comments change, or when the window gets the focus back: not more often than this. */
 const SETTLE_MS = 10_000;
@@ -33,11 +33,7 @@ export type ReminderPrompt = (message: string, actions: string[]) => Thenable<st
  * reached. A click explains how to run the retro.
  */
 export class RetroReminderUi implements vscode.Disposable {
-  private readonly statusBar = vscode.window.createStatusBarItem(
-    'localReview.retro',
-    vscode.StatusBarAlignment.Left,
-    97,
-  );
+  private readonly statusBar = vscode.window.createStatusBarItem('silykat.retro', vscode.StatusBarAlignment.Left, 97);
   private readonly disposables: vscode.Disposable[] = [];
   private readonly timer: NodeJS.Timeout;
   private settle: NodeJS.Timeout | undefined;
@@ -47,10 +43,10 @@ export class RetroReminderUi implements vscode.Disposable {
   prompt: ReminderPrompt = (message, actions) => vscode.window.showInformationMessage(message, ...actions);
 
   constructor(onCommentsChanged: vscode.Event<void>) {
-    this.statusBar.name = 'Local Review: retro reminder';
-    this.statusBar.command = 'localReview.showRetroReminder';
+    this.statusBar.name = 'silykat: retro reminder';
+    this.statusBar.command = 'silykat.showRetroReminder';
     this.disposables.push(
-      vscode.commands.registerCommand('localReview.showRetroReminder', () => this.show()),
+      vscode.commands.registerCommand('silykat.showRetroReminder', () => this.show()),
       onCommentsChanged(() => this.refreshSoon()),
       vscode.window.onDidChangeWindowState((s) => {
         if (s.focused && Date.now() - this.lastRefresh > SETTLE_MS) this.refreshSoon(0);
@@ -107,7 +103,7 @@ export class RetroReminderUi implements vscode.Disposable {
 
   /**
    * The reminder settings in force: a value set in VS Code (user, workspace or folder settings),
-   * else the machine setting (`lr config`), else the default.
+   * else the machine setting (`slk config`), else the default.
    */
   async settings(): Promise<MachineConfig> {
     const machine = await readConfig();

@@ -2,10 +2,10 @@ import * as assert from 'node:assert/strict';
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import type { LocalReviewApi } from '../../src/extension';
+import type { SilykatApi } from '../../src/extension';
 import { WAIT_MS } from './timing';
 
-const EXTENSION_ID = 'local.local-review';
+const EXTENSION_ID = 'silykat.silykat';
 
 async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs = WAIT_MS): Promise<T> {
   const start = Date.now();
@@ -18,7 +18,7 @@ async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs = 
 }
 
 describe('Comment on a whole file', () => {
-  let api: LocalReviewApi;
+  let api: SilykatApi;
   let ws: string;
   let uri: vscode.Uri;
   let n = 0;
@@ -26,7 +26,7 @@ describe('Comment on a whole file', () => {
   const managed = (id: string) => api.listThreads().find((t) => t.id === id)!;
 
   /** What VS Code hands us for "Comment on File": a new thread without a range. */
-  async function commentOnFile(text: string, command = 'localReview.submitComment'): Promise<string> {
+  async function commentOnFile(text: string, command = 'silykat.submitComment'): Promise<string> {
     const known = new Set(api.listThreads().map((t) => t.id));
     const thread = api.controller.createCommentThread(uri, undefined as unknown as vscode.Range, []);
     await vscode.commands.executeCommand(command, { thread, text });
@@ -34,7 +34,7 @@ describe('Comment on a whole file', () => {
   }
 
   before(async () => {
-    const ext = vscode.extensions.getExtension<LocalReviewApi>(EXTENSION_ID)!;
+    const ext = vscode.extensions.getExtension<SilykatApi>(EXTENSION_ID)!;
     api = await ext.activate();
     ws = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
   });
@@ -43,7 +43,7 @@ describe('Comment on a whole file', () => {
     uri = vscode.Uri.file(join(ws, `whole-file-${++n}.ts`));
     writeFileSync(uri.fsPath, 'export const a = 1;\nexport const b = 2;\n');
     await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri));
-    rmSync(join(ws, '.local-review'), { recursive: true, force: true });
+    rmSync(join(ws, '.silykat'), { recursive: true, force: true });
     await api.reload();
   });
 
@@ -58,7 +58,7 @@ describe('Comment on a whole file', () => {
 
   it('opens the native file comment input from "Comment on File"', async () => {
     // The input itself is VS Code's UI; the command must run without error on the active file.
-    await vscode.commands.executeCommand('localReview.commentFile', uri);
+    await vscode.commands.executeCommand('silykat.commentFile', uri);
     assert.equal(vscode.window.activeTextEditor?.document.uri.fsPath, uri.fsPath);
   });
 
@@ -70,9 +70,7 @@ describe('Comment on a whole file', () => {
     assert.equal(t.thread.range, undefined, 'no line');
     assert.equal(t.uris[0], uri.toString());
 
-    const created = JSON.parse(
-      readFileSync(join(ws, '.local-review', 'threads', `${id}.jsonl`), 'utf8').split('\n')[0]!,
-    );
+    const created = JSON.parse(readFileSync(join(ws, '.silykat', 'threads', `${id}.jsonl`), 'utf8').split('\n')[0]!);
     assert.equal(created.anchor.range, null);
 
     await api.reload();
@@ -82,19 +80,19 @@ describe('Comment on a whole file', () => {
 
   it('works like any other thread: reply, resolve, review, agent', async () => {
     const id = await commentOnFile('Split it');
-    await vscode.commands.executeCommand('localReview.dev.simulateAgentReply', {
+    await vscode.commands.executeCommand('silykat.dev.simulateAgentReply', {
       threadId: id,
       body: 'Where?',
       status: 'needs-info',
     });
     await waitFor('the agent reply', () => (managed(id).state.comments.length === 2 ? true : undefined));
     assert.equal(managed(id).thread.label, '❓ Claude is waiting for your reply');
-    await vscode.commands.executeCommand('localReview.reply', { thread: managed(id).thread, text: 'Into two modules' });
+    await vscode.commands.executeCommand('silykat.reply', { thread: managed(id).thread, text: 'Into two modules' });
     assert.equal(managed(id).state.status, 'open');
-    await vscode.commands.executeCommand('localReview.resolveThread', managed(id).thread);
+    await vscode.commands.executeCommand('silykat.resolveThread', managed(id).thread);
     assert.equal(managed(id).state.status, 'resolved');
 
-    const draft = await commentOnFile('A draft on the whole file', 'localReview.startReview');
+    const draft = await commentOnFile('A draft on the whole file', 'silykat.startReview');
     assert.equal(managed(draft).state.comments[0]!.isDraft, true);
     assert.equal(managed(draft).thread.range, undefined);
   });

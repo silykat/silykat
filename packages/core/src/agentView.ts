@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, realpathSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import type { CommentState, ThreadState } from './types';
-import { localReviewHome } from './sessions';
+import { silykatHome } from './sessions';
 import { STORE_DIR } from './types';
 
 /** What an agent sees of a thread: published comments only (drafts belong to the user until submitted). */
@@ -50,14 +50,14 @@ export function agentView(thread: ThreadState): AgentThreadView | null {
 }
 
 /**
- * Whether `dir/.local-review/` is a store of comments. It must look like one (a schema version or
- * threads), and must not be Local Review's per-machine folder: that one is also `~/.local-review/`
+ * Whether `dir/.silykat/` is a store of comments. It must look like one (a schema version or
+ * threads), and must not be silykat's per-machine folder: that one is also `~/.silykat/`
  * by default, but only holds the registry of agent sessions.
  */
 export function isStoreRoot(dir: string, env: Record<string, string | undefined> = process.env): boolean {
   const store = join(dir, STORE_DIR);
   if (!existsSync(join(store, 'schema-version')) && !existsSync(join(store, 'threads'))) return false;
-  return realpath(store) !== realpath(localReviewHome(env));
+  return realpath(store) !== realpath(silykatHome(env));
 }
 
 /** The directory holding a store, looking in `fromDir` and its parents. */

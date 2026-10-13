@@ -14,7 +14,7 @@ import {
   type Topic,
   type WorktreeInfo,
   type WorktreeSave,
-} from '@local-review/core';
+} from '@silykat/core';
 import { hasChannel, LAUNCH_WITH_CHANNEL } from './channelFlag';
 import { isPrintMode } from './sessionLog';
 
@@ -65,7 +65,7 @@ export interface HookDeps {
    * machine setting). Given up after `reminderTimeoutMs`: a session never waits for it.
    */
   retroCadence?(cwd: string): Promise<RetroCadence | null>;
-  /** Records the session in Local Review's log of agent sessions, which the cadence of retros counts. */
+  /** Records the session in silykat's log of agent sessions, which the cadence of retros counts. */
   recordSession?(session: { id: string; cwd: string; startedAt: string }): Promise<void>;
   reminderTimeoutMs?: number;
   /** The user's home folder, for `cd ~` in a command. */
@@ -147,7 +147,7 @@ export async function handleHook(input: HookInput, deps: HookDeps): Promise<stri
         : undefined;
     }
     case 'PostToolUseFailure': {
-      // A command that failed (e.g. `lr reply` refused) gets this event instead of PostToolUse:
+      // A command that failed (e.g. `slk review reply` refused) gets this event instead of PostToolUse:
       // forget its notes all the same, or a stale call could be taken for a later reply's.
       if (input.tool_name !== 'Bash') return undefined;
       const call = replyCall(input);
@@ -179,16 +179,16 @@ async function retroReminder(cwd: string, deps: HookDeps): Promise<string | unde
   );
   if (!cadence?.due) return undefined;
   return (
-    `Local Review: a retro is due for this project (${cadence.root}): ${cadenceSummary(cadence)};` +
+    `silykat: a retro is due for this project (${cadence.root}): ${cadenceSummary(cadence)};` +
     ` ${dueReasons(cadence).join('; ')}.` +
-    ' In your first reply of this session, tell the user so in one short sentence and suggest `/local-review:retro`' +
+    ' In your first reply of this session, tell the user so in one short sentence and suggest `/silykat:retro`' +
     ' (a retro looks back at their review feedback and their sessions with you, to improve your setup with them).' +
     ' Say it once only, and do not start the retro unless they ask.'
   );
 }
 
 /**
- * A shell command running `lr reply`: the tool call is the message of the conversation that writes
+ * A shell command running `slk review reply`: the tool call is the message of the conversation that writes
  * the reply. `null` for any other command, or a tool call id that cannot name a note.
  */
 export function replyCall(input: HookInput): { message: string; command: string } | null {
@@ -196,14 +196,14 @@ export function replyCall(input: HookInput): { message: string; command: string 
   const message = input.tool_use_id ?? '';
   if (typeof command !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(message)) return null;
   const replies = shellSegments(command).some((words) => {
-    const i = words.findIndex((w) => basename(w) === 'lr');
-    return i >= 0 && words[i + 1] === 'reply';
+    const i = words.findIndex((w) => basename(w) === 'slk');
+    return i >= 0 && words[i + 1] === 'review' && words[i + 2] === 'reply';
   });
   return replies ? { message, command } : null;
 }
 
 /**
- * A shell command deleting threads for good (`lr purge … --yes`): Claude Code asks the user to
+ * A shell command deleting threads for good (`slk review purge … --yes`): Claude Code asks the user to
  * allow it, whatever the permission rules, with the number announced (`--count`) when given. The
  * user confirms the deletion themselves, not only through what Claude says. `null` for any other
  * command.
@@ -212,12 +212,12 @@ export function purgeConfirmation(input: HookInput, now = Date.now()): string | 
   const command = input.tool_input?.command;
   if (input.tool_name !== 'Bash' || typeof command !== 'string') return null;
   for (const words of shellSegments(command)) {
-    const i = words.findIndex((w) => basename(w) === 'lr');
-    if (i < 0 || words[i + 1] !== 'purge' || !words.includes('--yes')) continue;
+    const i = words.findIndex((w) => basename(w) === 'slk');
+    if (i < 0 || words[i + 1] !== 'review' || words[i + 2] !== 'purge' || !words.includes('--yes')) continue;
     const ask = ' It runs only if the user allows it; if they refuse, nothing is deleted.';
     if (words.includes('--history'))
       return (
-        'Local Review: this erases for good the review history kept for retros: the deleted comment threads, ' +
+        'silykat: this erases for good the review history kept for retros: the deleted comment threads, ' +
         'and the threads saved from git worktrees.' +
         ask
       );
@@ -227,7 +227,7 @@ export function purgeConfirmation(input: HookInput, now = Date.now()): string | 
     const date = before ? parseDateArg(before, now) : null;
     const what = count === null ? 'old comment threads' : `${plural(count, 'comment thread')}`;
     return (
-      `Local Review: this deletes ${what} for good` +
+      `silykat: this deletes ${what} for good` +
       (before ? ` (finished, with no activity since ${date ? dateArgLabel(before, date) : before})` : '') +
       ': gone from the history and from retros.' +
       ask
@@ -236,7 +236,7 @@ export function purgeConfirmation(input: HookInput, now = Date.now()): string | 
   return null;
 }
 
-/** Before `lr reply` runs: note its tool call, which `lr` records with the reply (for retros). */
+/** Before `slk review reply` runs: note its tool call, which `slk` records with the reply (for retros). */
 async function noteReply(id: string, input: HookInput, deps: HookDeps): Promise<void> {
   const call = replyCall(input);
   if (call) await deps.registry.startCall(id, { ...call, at: deps.now().toISOString() });
@@ -277,23 +277,23 @@ async function beforeWorktreeRemoval(input: HookInput, deps: HookDeps): Promise<
       const saved = await wt.save(info.worktree).catch((err: unknown) => {
         // The removal goes on anyway: say so, rather than lose the comments in silence.
         messages.push(
-          `Local Review: this command removes the git worktree ${name}, but its comment threads could not be saved first ` +
+          `silykat: this command removes the git worktree ${name}, but its comment threads could not be saved first ` +
             `(${err instanceof Error ? err.message : String(err)}): they may be lost with it. Tell the user before going on.`,
         );
         return null;
       });
       if (saved && saved.published > 0)
         messages.push(
-          `Local Review: before this command removes the git worktree ${name}, its comment threads (${saved.published}) ` +
+          `silykat: before this command removes the git worktree ${name}, its comment threads (${saved.published}) ` +
             `were saved to the store of ${saved.main}: the user's review history and retros keep them. Tell the user in one short sentence.`,
         );
     } else {
       const n = await wt.threadCount(info.worktree);
       if (n > 0)
         messages.push(
-          `Local Review: this command removes the git worktree ${name}, which holds ${plural(n, 'comment thread')} of the user's review, ` +
+          `silykat: this command removes the git worktree ${name}, which holds ${plural(n, 'comment thread')} of the user's review, ` +
             'and they are lost with it (the history is not kept on this machine: keep-history is off). Tell the user; to keep them, ' +
-            `they can run \`lr worktree save ${info.worktree}\` before the removal.`,
+            `they can run \`slk worktree save ${info.worktree}\` before the removal.`,
         );
     }
   }
@@ -430,7 +430,7 @@ async function afterShellCommand(id: string, input: HookInput, deps: HookDeps): 
 }
 
 const subscribed = (topic: Topic, why: string) =>
-  `Local Review: this session is now subscribed to ${topicLabel(topic)} (${why}): the comments the user publishes ` +
+  `silykat: this session is now subscribed to ${topicLabel(topic)} (${why}): the comments the user publishes ` +
   'there will come to you. Tell the user in one short sentence.';
 
 /** One note per shell command, as several may run at once. */

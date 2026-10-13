@@ -16,7 +16,7 @@ import {
 
 let base: string;
 beforeEach(async () => {
-  base = await realpath(await mkdtemp(join(tmpdir(), 'lr-retro-sessions-')));
+  base = await realpath(await mkdtemp(join(tmpdir(), 'slk-retro-sessions-')));
 });
 afterEach(async () => {
   await rm(base, { recursive: true, force: true });
@@ -52,7 +52,7 @@ describe("the agent's sessions of a retro", () => {
       ],
       { costUsd: 0.7, durationMs: 53_000 },
     );
-    expect(file).toBe(join(base, '.local-review', 'retros', r.id, SESSIONS_FILE));
+    expect(file).toBe(join(base, '.silykat', 'retros', r.id, SESSIONS_FILE));
     expect((await book.get(r.id)).sessions).toEqual({
       source: 'Claude Code /insights',
       list: [
@@ -74,7 +74,7 @@ describe("the agent's sessions of a retro", () => {
     expect(await readRetroSessions(book, r.id)).toEqual([]);
     expect(
       JSON.parse(
-        await readFile(join(base, '.local-review', 'retros', `${r.id}.jsonl`), 'utf8').then((t) => t.split('\n')[1]!),
+        await readFile(join(base, '.silykat', 'retros', `${r.id}.jsonl`), 'utf8').then((t) => t.split('\n')[1]!),
       ),
     ).toMatchObject({
       v: 1,

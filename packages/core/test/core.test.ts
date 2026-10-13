@@ -188,7 +188,7 @@ describe('foldThread', () => {
 describe('Store', () => {
   let root: string;
   beforeEach(async () => {
-    root = await mkdtemp(join(tmpdir(), 'lr-core-'));
+    root = await mkdtemp(join(tmpdir(), 'slk-core-'));
   });
   afterEach(async () => {
     await rm(root, { recursive: true, force: true });
@@ -211,7 +211,7 @@ describe('Store', () => {
     expect(lines.map((l) => l.type)).toEqual(['thread.created', 'comment.added']);
     expect(lines[0].anchor.range).toEqual({ startLine: 10, endLine: 12 });
     expect(lines[1]).toMatchObject({ by: 'user', body: 'Hello **world**', reviewId: null });
-    expect(await readFile(join(root, '.local-review', 'schema-version'), 'utf8')).toBe('2\n');
+    expect(await readFile(join(root, '.silykat', 'schema-version'), 'utf8')).toBe('2\n');
   });
 
   it('reloads what it wrote', async () => {
@@ -245,7 +245,7 @@ describe('Store — replies and statuses', () => {
   let root: string;
   let store: Store;
   beforeEach(async () => {
-    root = await mkdtemp(join(tmpdir(), 'lr-core-'));
+    root = await mkdtemp(join(tmpdir(), 'slk-core-'));
     store = new Store(root);
   });
   afterEach(async () => {
@@ -377,7 +377,7 @@ describe('Store — user replies', () => {
   let root: string;
   let store: Store;
   beforeEach(async () => {
-    root = await mkdtemp(join(tmpdir(), 'lr-core-'));
+    root = await mkdtemp(join(tmpdir(), 'slk-core-'));
     store = new Store(root);
   });
   afterEach(async () => {
@@ -452,7 +452,7 @@ describe('Store — edit and delete', () => {
   let root: string;
   let store: Store;
   beforeEach(async () => {
-    root = await mkdtemp(join(tmpdir(), 'lr-core-'));
+    root = await mkdtemp(join(tmpdir(), 'slk-core-'));
     store = new Store(root);
   });
   afterEach(async () => {
@@ -568,7 +568,7 @@ describe('reanchor', () => {
 describe('Store.updateAnchor', () => {
   let root: string;
   beforeEach(async () => {
-    root = await mkdtemp(join(tmpdir(), 'lr-core-'));
+    root = await mkdtemp(join(tmpdir(), 'slk-core-'));
   });
   afterEach(async () => {
     await rm(root, { recursive: true, force: true });
@@ -626,7 +626,7 @@ describe('Store — review mode', () => {
   let root: string;
   let store: Store;
   beforeEach(async () => {
-    root = await mkdtemp(join(tmpdir(), 'lr-core-'));
+    root = await mkdtemp(join(tmpdir(), 'slk-core-'));
     store = new Store(root);
   });
   afterEach(async () => {
@@ -709,7 +709,7 @@ describe('Store — discard and draft replies', () => {
   let root: string;
   let store: Store;
   beforeEach(async () => {
-    root = await mkdtemp(join(tmpdir(), 'lr-core-'));
+    root = await mkdtemp(join(tmpdir(), 'slk-core-'));
     store = new Store(root);
   });
   afterEach(async () => {
@@ -764,7 +764,7 @@ describe('agent view', () => {
   let root: string;
   let store: Store;
   beforeEach(async () => {
-    root = await mkdtemp(join(tmpdir(), 'lr-core-'));
+    root = await mkdtemp(join(tmpdir(), 'slk-core-'));
     store = new Store(root);
   });
   afterEach(async () => {
@@ -807,13 +807,13 @@ describe('agent view', () => {
     expect(findStoreRoot(tmpdir())).toBeNull();
   });
 
-  it('never takes the per-machine folder (~/.local-review, sessions only) for a store', async () => {
+  it('never takes the per-machine folder (~/.silykat, sessions only) for a store', async () => {
     // A home holding the session registry, a project below it without any store.
     const home = join(root, 'home');
-    const machine = join(home, '.local-review');
+    const machine = join(home, '.silykat');
     await mkdir(join(machine, 'sessions'), { recursive: true });
     await mkdir(join(home, 'projects', 'app'), { recursive: true });
-    const env = { LOCAL_REVIEW_HOME: machine };
+    const env = { SILYKAT_HOME: machine };
     expect(findStoreRoot(join(home, 'projects', 'app'), env)).toBeNull();
 
     // Even if it happened to hold threads: it is still the machine folder.
@@ -821,9 +821,9 @@ describe('agent view', () => {
     expect(findStoreRoot(join(home, 'projects', 'app'), env)).toBeNull();
   });
 
-  it('does not take an empty .local-review folder for a store', async () => {
-    await mkdir(join(root, 'other', '.local-review'), { recursive: true });
-    expect(findStoreRoot(join(root, 'other'), { LOCAL_REVIEW_HOME: join(root, 'nowhere') })).toBeNull();
+  it('does not take an empty .silykat folder for a store', async () => {
+    await mkdir(join(root, 'other', '.silykat'), { recursive: true });
+    expect(findStoreRoot(join(root, 'other'), { SILYKAT_HOME: join(root, 'nowhere') })).toBeNull();
   });
 
   it('finds the stores below a parent folder', async () => {
@@ -831,8 +831,8 @@ describe('agent view', () => {
     for (const repo of ['a', 'b/nested']) {
       await new Store(join(parent, repo)).createThread(anchor(), { author: 'user', body: 'q', reviewId: null });
     }
-    await mkdir(join(parent, 'node_modules', 'x', '.local-review', 'threads'), { recursive: true });
-    const env = { LOCAL_REVIEW_HOME: join(root, 'nowhere') };
+    await mkdir(join(parent, 'node_modules', 'x', '.silykat', 'threads'), { recursive: true });
+    const env = { SILYKAT_HOME: join(root, 'nowhere') };
     expect(findStoresBelow(parent, 3, env)).toEqual([join(parent, 'a'), join(parent, 'b', 'nested')]);
   });
 });
@@ -843,7 +843,7 @@ describe('Store — branches', () => {
   const A = { repo: '/r/.git', branch: 'a', worktree: '/r' };
   const B = { repo: '/r/.git', branch: 'b', worktree: '/r/wt-b' };
   beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), 'lr-branch-'));
+    dir = await mkdtemp(join(tmpdir(), 'slk-branch-'));
     store = new Store(dir);
   });
   afterEach(async () => {
@@ -902,7 +902,7 @@ describe('Changes to what the user asked', () => {
   let dir: string;
   let store: Store;
   beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), 'lr-rev-'));
+    dir = await mkdtemp(join(tmpdir(), 'slk-rev-'));
     store = new Store(dir);
   });
   afterEach(async () => {

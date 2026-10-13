@@ -35,5 +35,5 @@ npm-debug.log*
 CLAUDE.local.md
 
 
-# local-review data when dogfooding the extension on this repository
-.local-review/
+# silykat data when dogfooding the extension on this repository
+.silykat/

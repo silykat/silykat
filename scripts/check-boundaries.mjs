@@ -6,9 +6,9 @@ import { join, relative, resolve, sep } from 'node:path';
 const repo = resolve(new URL('..', import.meta.url).pathname);
 const ALLOWED = {
   'packages/core': [],
-  'packages/cli': ['@local-review/core'],
-  'packages/vscode-extension': ['@local-review/core'],
-  adapters: ['@local-review/core', '@local-review/cli'],
+  'packages/cli': ['@silykat/core'],
+  'packages/vscode-extension': ['@silykat/core'],
+  adapters: ['@silykat/core', '@silykat/cli'],
 };
 
 function* sources(dir) {
@@ -33,7 +33,7 @@ for (const [area, allowed] of Object.entries(ALLOWED)) {
     const text = readFileSync(file, 'utf8');
     for (const [, spec] of text.matchAll(/(?:from|import|require\()\s*['"]([^'"]+)['"]/g)) {
       const rel = relative(repo, file);
-      if (spec.startsWith('@local-review/') && !allowed.includes(spec)) {
+      if (spec.startsWith('@silykat/') && !allowed.includes(spec)) {
         problems.push(`${rel}: imports ${spec}, not allowed in ${area}`);
       }
       if (spec.startsWith('.')) {

@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promi
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buildAnchorContext, RetroBook, Store, type Anchor } from '@local-review/core';
+import { buildAnchorContext, RetroBook, Store, type Anchor } from '@silykat/core';
 import type { Runner } from '../src/retroAudit';
 import { runRetroCli } from '../src/retroCli';
 import {
@@ -19,10 +19,10 @@ import {
 let base: string;
 let home: string;
 let usage: string;
-const env = () => ({ HOME: home, LOCAL_REVIEW_HOME: join(base, 'machine') });
+const env = () => ({ HOME: home, SILYKAT_HOME: join(base, 'machine') });
 
 beforeEach(async () => {
-  base = await realpath(await mkdtemp(join(tmpdir(), 'lr-retro-insights-')));
+  base = await realpath(await mkdtemp(join(tmpdir(), 'slk-retro-insights-')));
   home = join(base, 'home');
   usage = join(home, '.claude', 'usage-data');
   await mkdir(join(usage, 'session-meta'), { recursive: true });
@@ -169,7 +169,7 @@ describe("the sessions of a project, from Claude Code's /insights", () => {
 
     // A new format learnt while the machine folder cannot be written: still read this time.
     await writeFile(join(usage, 'session-meta', 's-new.json'), JSON.stringify({ sid: 's-new', dir: root, at: at(22) }));
-    const blocked = { HOME: home, LOCAL_REVIEW_HOME: join(base, 'repo', 'a.txt') };
+    const blocked = { HOME: home, SILYKAT_HOME: join(base, 'repo', 'a.txt') };
     const { runner } = fakeClaude(done(), { session_id: 'sid', project_path: 'dir', start_time: 'at' });
     expect((await projectSessions(usage, root, period, blocked, runner)).read).toBe(3);
   });
@@ -234,7 +234,7 @@ describe("the sessions of a project, from Claude Code's /insights", () => {
   });
 });
 
-describe('lr-retro sessions and lr-retro insights', () => {
+describe('slk-retro sessions and slk-retro insights', () => {
   const anchor = (): Anchor => ({
     path: 'a.txt',
     source: 'worktree',
@@ -281,10 +281,10 @@ describe('lr-retro sessions and lr-retro insights', () => {
     await session('s-other', join(base, 'other'), 20, FACET);
     const r = await run(['insights', id, '--root', root], fakeClaude(done(0.7, 53_000)).runner);
     expect(r).toMatchObject({ code: 0, err: '' });
-    const file = join(root, '.local-review', 'retros', id, 'sessions.json');
+    const file = join(root, '.silykat', 'retros', id, 'sessions.json');
     expect(r.out).toBe(
       `Written: ${file}\n2 Claude Code sessions of this project in the period, 1 with a summary by /insights: ` +
-        'lr retro input --for analysis includes them.\n',
+        'slk retro input --for analysis includes them.\n',
     );
     const state = await book.get(id);
     expect(state.sessions).toEqual({
@@ -320,7 +320,7 @@ describe('lr-retro sessions and lr-retro insights', () => {
     const r = await run(['insights', id, '--root', root], fakeClaude(done(), {}).runner);
     expect(r.code).toBe(1);
     expect(r.err).toContain('none could be read: its format changed');
-    expect(r.err).toContain('report it as a bug of Local Review');
+    expect(r.err).toContain('report it as a bug of silykat');
   });
 
   it('counts the sessions of the next retro', async () => {

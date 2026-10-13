@@ -49,7 +49,7 @@ const added: ThreadEvent = {
 };
 
 let base: string;
-const env = () => ({ LOCAL_REVIEW_HOME: join(base, 'home'), HOME: join(base, 'user') });
+const env = () => ({ SILYKAT_HOME: join(base, 'home'), HOME: join(base, 'user') });
 const git = (cwd: string, ...args: string[]) =>
   execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@e', ...args], { cwd, stdio: 'pipe' });
 const comment = (root: string, body: string) =>
@@ -67,7 +67,7 @@ async function backdate(store: Store, id: string, day: number): Promise<void> {
 }
 
 beforeEach(async () => {
-  base = await realpath(await mkdtemp(join(tmpdir(), 'lr-archive-')));
+  base = await realpath(await mkdtemp(join(tmpdir(), 'slk-archive-')));
 });
 
 afterEach(async () => {
@@ -322,7 +322,7 @@ describe('managing the threads of a project', () => {
     expect(saved.threads[0]).toMatchObject({ savedFrom: { worktree: wt, branch: 'feat' } });
 
     git(main, 'worktree', 'add', '-q', wt, 'feat');
-    await mkdir(join(wt, '.local-review', 'threads'), { recursive: true });
+    await mkdir(join(wt, '.silykat', 'threads'), { recursive: true });
     await writeFile(inWt.threadFile(t.id), await readFile(copy!.threadFile(t.id), 'utf8'));
 
     // A purge deletes every journal of the thread, copies included.

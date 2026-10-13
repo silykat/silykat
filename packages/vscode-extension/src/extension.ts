@@ -7,12 +7,12 @@ import { ReviewController, type ChooseHandler, type ConfirmHandler } from './con
 import { simulateAgentReply, type SimulateArgs } from './dev/simulateAgentReply';
 import { DeliveriesUi, type NoSubscriberPrompt, type Warner } from './deliveries';
 import { createLog } from './log';
-import type { LrComment } from './render';
+import type { SlkComment } from './render';
 import { RetroReminderUi, type ReminderPrompt } from './retroReminder';
 import { ReviewUi, type SummaryPrompt } from './review';
 import { SessionsUi } from './sessions';
 
-export interface LocalReviewApi {
+export interface SilykatApi {
   readonly controller: vscode.CommentController;
   reload(): Promise<void>;
   listThreads: ReviewController['listThreads'];
@@ -63,7 +63,7 @@ export interface LocalReviewApi {
   lastEraseOffer(): Promise<number | undefined>;
 }
 
-export async function activate(context: vscode.ExtensionContext): Promise<LocalReviewApi> {
+export async function activate(context: vscode.ExtensionContext): Promise<SilykatApi> {
   const log = createLog();
   const review = new ReviewController(log, context.extensionUri);
   const reviewUi = new ReviewUi(review);
@@ -88,56 +88,56 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('localReview.commentSelection', () =>
+    vscode.commands.registerCommand('silykat.commentSelection', () =>
       // The native command opens a new thread on the current selection through our controller.
       vscode.commands.executeCommand('workbench.action.addComment'),
     ),
-    vscode.commands.registerCommand('localReview.commentFile', async (uri?: vscode.Uri) => {
+    vscode.commands.registerCommand('silykat.commentFile', async (uri?: vscode.Uri) => {
       // From a tab's context menu, `uri` is that tab's file: bring it to the front first.
       if (uri instanceof vscode.Uri) await vscode.window.showTextDocument(uri, { preview: false });
       // The native command opens a new file-level thread (no line) through our controller.
       await vscode.commands.executeCommand('workbench.action.addComment', { fileComment: true });
     }),
-    vscode.commands.registerCommand('localReview.submitComment', (reply: vscode.CommentReply) =>
+    vscode.commands.registerCommand('silykat.submitComment', (reply: vscode.CommentReply) =>
       review.submitNewComment(reply),
     ),
-    vscode.commands.registerCommand('localReview.commentNow', (reply: vscode.CommentReply) =>
+    vscode.commands.registerCommand('silykat.commentNow', (reply: vscode.CommentReply) =>
       review.submitNewComment(reply),
     ),
-    vscode.commands.registerCommand('localReview.reply', (reply: vscode.CommentReply) => review.reply(reply)),
-    vscode.commands.registerCommand('localReview.replyNow', (reply: vscode.CommentReply) => review.reply(reply)),
-    vscode.commands.registerCommand('localReview.resolveThread', (thread: vscode.CommentThread) =>
+    vscode.commands.registerCommand('silykat.reply', (reply: vscode.CommentReply) => review.reply(reply)),
+    vscode.commands.registerCommand('silykat.replyNow', (reply: vscode.CommentReply) => review.reply(reply)),
+    vscode.commands.registerCommand('silykat.resolveThread', (thread: vscode.CommentThread) =>
       review.setThreadStatus(thread, 'resolved'),
     ),
-    vscode.commands.registerCommand('localReview.reopenThread', (thread: vscode.CommentThread) =>
+    vscode.commands.registerCommand('silykat.reopenThread', (thread: vscode.CommentThread) =>
       review.setThreadStatus(thread, 'open'),
     ),
-    vscode.commands.registerCommand('localReview.openOriginalDiff', (thread: vscode.CommentThread) =>
+    vscode.commands.registerCommand('silykat.openOriginalDiff', (thread: vscode.CommentThread) =>
       review.openOriginalDiff(thread),
     ),
-    vscode.commands.registerCommand('localReview.editComment', (c: LrComment) => review.editComment(c)),
-    vscode.commands.registerCommand('localReview.saveEdit', (c: LrComment) => review.saveEdit(c)),
-    vscode.commands.registerCommand('localReview.cancelEdit', (c: LrComment) => review.cancelEdit(c)),
-    vscode.commands.registerCommand('localReview.deleteComment', (c: LrComment) => review.deleteComment(c)),
-    vscode.commands.registerCommand('localReview.deleteThread', (t: vscode.CommentThread) => review.deleteThread(t)),
-    vscode.commands.registerCommand('localReview.cancelNewThread', (reply: vscode.CommentReply) =>
+    vscode.commands.registerCommand('silykat.editComment', (c: SlkComment) => review.editComment(c)),
+    vscode.commands.registerCommand('silykat.saveEdit', (c: SlkComment) => review.saveEdit(c)),
+    vscode.commands.registerCommand('silykat.cancelEdit', (c: SlkComment) => review.cancelEdit(c)),
+    vscode.commands.registerCommand('silykat.deleteComment', (c: SlkComment) => review.deleteComment(c)),
+    vscode.commands.registerCommand('silykat.deleteThread', (t: vscode.CommentThread) => review.deleteThread(t)),
+    vscode.commands.registerCommand('silykat.cancelNewThread', (reply: vscode.CommentReply) =>
       review.cancelNewThread(reply),
     ),
-    vscode.commands.registerCommand('localReview.saveWorktreeThreads', (target?: vscode.Uri) =>
+    vscode.commands.registerCommand('silykat.saveWorktreeThreads', (target?: vscode.Uri) =>
       review.saveWorktreeThreads(target instanceof vscode.Uri ? target : undefined),
     ),
-    vscode.commands.registerCommand('localReview.dev.simulateAgentReply', (args?: SimulateArgs) =>
+    vscode.commands.registerCommand('silykat.dev.simulateAgentReply', (args?: SimulateArgs) =>
       simulateAgentReply(review, context.extensionUri, args),
     ),
     review.trackDocuments(),
     review.trackBranches(),
     vscode.workspace.onDidChangeWorkspaceFolders(() => review.reload()),
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration('localReview.userName')) void review.reload();
+      if (e.affectsConfiguration('silykat.userName')) void review.reload();
     }),
   );
 
-  review.worktreeWarnings = rememberedSet(context.globalState, 'localReview.warnedWorktrees');
+  review.worktreeWarnings = rememberedSet(context.globalState, 'silykat.warnedWorktrees');
   const defaultConfirm = review.confirm;
   const defaultChoose = review.choose;
   const defaultSummaryPrompt = reviewUi.promptSummary;
@@ -153,7 +153,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
     inform: archive.inform,
   };
   await review.reload();
-  log.info('Local Review activated');
+  log.info('silykat activated');
 
   return {
     controller: review.controller,
@@ -203,7 +203,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<LocalR
     },
     lastEraseOffer: () => history.offered,
     warnIfWorktree: (path) => review.warnIfWorktree(path),
-    forgetWorktreeWarnings: () => Promise.resolve(context.globalState.update('localReview.warnedWorktrees', undefined)),
+    forgetWorktreeWarnings: () => Promise.resolve(context.globalState.update('silykat.warnedWorktrees', undefined)),
     shownSessions: () => sessions.sessions.relevant.map((s) => s.id),
     refreshSessions: async () => {
       await sessions.refresh();

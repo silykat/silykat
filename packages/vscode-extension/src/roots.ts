@@ -1,6 +1,6 @@
 import { mkdir, realpath } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { localReviewHome, LOOSE_ROOT, looseStore, STORE_DIR, Store } from '@local-review/core';
+import { silykatHome, LOOSE_ROOT, looseStore, STORE_DIR, Store } from '@silykat/core';
 import { git } from './git';
 
 export interface Root {
@@ -62,8 +62,8 @@ export class Roots {
   isCommentable(fsPath: string): boolean {
     const root = this.forFile(fsPath);
     if (!root) return false;
-    // Local Review's own machine folder (sessions, the machine store) is not reviewed code.
-    const home = localReviewHome();
+    // silykat's own machine folder (sessions, the machine store) is not reviewed code.
+    const home = silykatHome();
     if (root.loose && (fsPath === home || fsPath.startsWith(home + sep))) return false;
     const storeDir = join(root.path, STORE_DIR);
     return fsPath !== storeDir && !fsPath.startsWith(storeDir + sep);

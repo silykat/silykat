@@ -2,7 +2,7 @@ import { access, mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, write
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { readSessionReport, RetroBook, writeConfig, writeSessionReport, type SessionReport } from '@local-review/core';
+import { readSessionReport, RetroBook, writeConfig, writeSessionReport, type SessionReport } from '@silykat/core';
 import type { Runner } from '../src/retroAudit';
 import { runRetroCli } from '../src/retroCli';
 import { analyseSession, mask, normCommand } from '../src/sessionAnalytics';
@@ -24,10 +24,10 @@ let base: string;
 let home: string;
 let root: string;
 let projects: string;
-const env = () => ({ HOME: home, LOCAL_REVIEW_HOME: join(base, 'machine') });
+const env = () => ({ HOME: home, SILYKAT_HOME: join(base, 'machine') });
 
 beforeEach(async () => {
-  base = await realpath(await mkdtemp(join(tmpdir(), 'lr-session-reports-')));
+  base = await realpath(await mkdtemp(join(tmpdir(), 'slk-session-reports-')));
   home = join(base, 'home');
   root = join(base, 'work');
   projects = join(home, '.claude', 'projects', '-work');
@@ -98,7 +98,7 @@ async function richSession(id = 's-rich') {
       line('attachment', {
         attachment: { type: 'instructions', files: [{ path: '/w/CLAUDE.md', type: 'Project', content: 'Rules' }] },
       }),
-      prompt('<command-name>/local-review:review</command-name>'),
+      prompt('<command-name>/silykat:review</command-name>'),
       prompt('Fix the dates, token=abcd1234secret'),
       toolUse('t1', 'Bash', { command: 'cd /w && source ~/.nvm/nvm.sh >/dev/null && npm test' }),
       toolResult('t1', 'FAIL', { is_error: true }),
@@ -122,7 +122,7 @@ async function richSession(id = 's-rich') {
       line('pr-link', { prNumber: 7, prRepository: 'me/app' }),
       line('system', { subtype: 'compact_boundary', compactMetadata: { trigger: 'auto', preTokens: 100 } }),
       line('attachment', { attachment: { type: 'queued_command', prompt: 'also the docs' } }),
-      prompt('<channel source="local-review">2 comments</channel>', { origin: { kind: 'channel' } }),
+      prompt('<channel source="silykat">2 comments</channel>', { origin: { kind: 'channel' } }),
       line('ai-title', { aiTitle: 'Fix the dates' }),
       'not json' as unknown as object,
     ],
@@ -166,9 +166,9 @@ describe('the analytics of a Claude Code session (without a model)', () => {
     expect(s.tools?.repeated_failures).toEqual([{ command: 'npm test', failures: 2, uuids: ['u6', 'u8'] }]);
     expect(s.delivery?.git?.map((o) => o.operation)).toEqual(['git commit']);
     expect(s.delivery?.pull_requests).toEqual([expect.objectContaining({ pr: 7, repo: 'me/app', links: 2 })]);
-    expect(s.delivery?.local_review_messages).toHaveLength(1);
+    expect(s.delivery?.silykat_messages).toHaveLength(1);
     expect(s.setup?.skills?.map((o) => [o.kind, o.skill])).toEqual([
-      ['typed_by_user', 'local-review:review'],
+      ['typed_by_user', 'silykat:review'],
       ['called_by_agent', 'deploy'],
     ]);
     expect(s.setup?.subagents?.map((o) => o.kind)).toEqual(['launched', 'result']);
@@ -197,10 +197,10 @@ describe('the analytics of a Claude Code session (without a model)', () => {
       line('attachment', { attachment: { type: 'nested_memory', path: '/w/api/CLAUDE.md', content: { a: 1 } } }),
       line('attachment', { attachment: { type: 'instructions', files: [{ path: '/w/x.md', content: ['list'] }] } }),
       line('attachment', {
-        attachment: { type: 'hook_success', hookName: 'lr', hookEvent: 'PostToolUse', exitCode: 0, stdout: 'ok' },
+        attachment: { type: 'hook_success', hookName: 'slk', hookEvent: 'PostToolUse', exitCode: 0, stdout: 'ok' },
       }),
-      line('attachment', { attachment: { type: 'hook_non_blocking_error', hookName: 'lr', stderr: 'boom' } }),
-      line('attachment', { attachment: { type: 'hook_additional_context', hookName: 'lr', content: { x: 1 } } }),
+      line('attachment', { attachment: { type: 'hook_non_blocking_error', hookName: 'slk', stderr: 'boom' } }),
+      line('attachment', { attachment: { type: 'hook_additional_context', hookName: 'slk', content: { x: 1 } } }),
       line('attachment', { attachment: { type: 'hook_additional_context', content: 'Retro due' } }),
       line('attachment', { attachment: { type: 'plan_mode' } }),
       line('attachment', { attachment: { type: 'queued_command', prompt: { complex: true } } }),
@@ -291,7 +291,7 @@ describe('the analytics of a Claude Code session (without a model)', () => {
     expect(s.delivery?.pull_requests).toEqual([expect.objectContaining({ pr: null, links: 1 })]);
     const { transcripts } = await renderSession(file);
     const text = transcripts[0]!.text;
-    expect(text).toContain('(hook lr: {"x":1})');
+    expect(text).toContain('(hook slk: {"x":1})');
     expect(text).toContain('(message sent while the agent worked: {"complex":true})');
     expect(text).toContain('USER (human): From a list');
     expect(text).toContain('← REFUSED (user-rejected) No!');
@@ -561,7 +561,7 @@ describe('the reports of a retro', () => {
   });
 });
 
-describe('lr-retro sessions and lr-retro reports', () => {
+describe('slk-retro sessions and slk-retro reports', () => {
   async function run(args: string[], runner?: Runner, own?: string) {
     let out = '';
     let err = '';
@@ -580,11 +580,11 @@ describe('lr-retro sessions and lr-retro reports', () => {
     clock = 0;
     await session('s1', [prompt('Fix the dates'), prompt('Again')]);
     await session('s2', [prompt('<command-name>/insights</command-name>')]);
-    await session('s-own', [prompt('/local-review:retro please')]);
+    await session('s-own', [prompt('/silykat:retro please')]);
     const scope = await run(['sessions', '--root', root, '--since', '2026-09-10'], undefined, 's-own');
     expect(scope.err).toBe('');
     expect(scope.out).toMatch(
-      /^3 Claude Code sessions in this project since 2026-09-10\.\nReports on them: 1 to write \(about 1 min with 4 at once, and about \$0\.13 at the API list price: on a subscription, tokens counted against the usage limits, not a bill\), 0 already written, 1 without any prompt typed by the user \(not analysed\), and this session \(not analysed\)\.\nThe retro reads them through these reports \(setting retro-sessions: reports; Claude Code's \/insights is cheaper: lr config set retro-sessions insights\)\.\n$/,
+      /^3 Claude Code sessions in this project since 2026-09-10\.\nReports on them: 1 to write \(about 1 min with 4 at once, and about \$0\.13 at the API list price: on a subscription, tokens counted against the usage limits, not a bill\), 0 already written, 1 without any prompt typed by the user \(not analysed\), and this session \(not analysed\)\.\nThe retro reads them through these reports \(setting retro-sessions: reports; Claude Code's \/insights is cheaper: slk config set retro-sessions insights\)\.\n$/,
     );
 
     const book = new RetroBook(root);
@@ -594,7 +594,7 @@ describe('lr-retro sessions and lr-retro reports', () => {
     expect(done).toMatchObject({ code: 0, err: '' });
     expect(done.out).toBe(
       'Reports on the 1 Claude Code session of this project in the period: 1 written, 0 kept from before, in 1 min ' +
-        '(about $0.40 at the API list price). lr retro input --for analysis includes them.\n',
+        '(about $0.40 at the API list price). slk retro input --for analysis includes them.\n',
     );
     expect((await book.get(r.id)).reports).toMatchObject({
       source: 'Claude Code session records',
@@ -604,7 +604,7 @@ describe('lr-retro sessions and lr-retro reports', () => {
     });
     // Without a period asked for: the figures of every period to choose from.
     const periods = await run(['sessions', '--root', root], undefined, 's-own');
-    expect(periods.out).toContain('Periods to choose from (as lr retro scope lists them):');
+    expect(periods.out).toContain('Periods to choose from (as slk retro scope lists them):');
     expect(periods.out).toMatch(/- last 7 days \(--since 7d, proposed\): \d+ sessions?, \d+ reports? to write/);
     expect(periods.out).toContain('- whole history (--all): 3 sessions, 0 reports to write, 1 already written');
 
@@ -613,7 +613,7 @@ describe('lr-retro sessions and lr-retro reports', () => {
     const insights = await run(['sessions', '--root', root, '--since', '2026-09-10'], undefined, 's-own');
     expect(insights.out).toBe(
       '2 Claude Code sessions in this project since 2026-09-10 (this session left out).\n' +
-        "The retro reads them through Claude Code's /insights (setting retro-sessions: insights; a report on each session is finer: lr config set retro-sessions reports). No report is written.\n",
+        "The retro reads them through Claude Code's /insights (setting retro-sessions: insights; a report on each session is finer: slk config set retro-sessions reports). No report is written.\n",
     );
     const insightsPeriods = await run(['sessions', '--root', root], undefined, 's-own');
     expect(insightsPeriods.out).toContain('- whole history (--all): 2 sessions, read by /insights (about a minute)');
@@ -739,7 +739,7 @@ describe('the reports, in edge cases', () => {
   it('knows the retro session from the registered session of its parent processes', async () => {
     expect(await currentSession(env())).toBeUndefined();
     await writeFile(join(base, 'not-a-folder'), '');
-    expect(await currentSession({ ...env(), LOCAL_REVIEW_HOME: join(base, 'not-a-folder') })).toBeUndefined();
+    expect(await currentSession({ ...env(), SILYKAT_HOME: join(base, 'not-a-folder') })).toBeUndefined();
   });
 
   it('skips a session deleted meanwhile, and survives a Claude Code that crashes', async () => {
@@ -830,8 +830,8 @@ describe('the reports, in edge cases', () => {
     await writeSessionReport(book, report('s1', { v: 99 }));
     const plan = await planReports(book, [{ id: 's1', file, cwd: root, start: at(20) }]);
     expect(plan.candidates[0]!.action).toBe('keep');
-    await mkdir(join(root, '.local-review', 'retros', 'sessions'), { recursive: true });
-    await writeFile(join(root, '.local-review', 'retros', 'sessions', 'junk.json'), 'nope');
+    await mkdir(join(root, '.silykat', 'retros', 'sessions'), { recursive: true });
+    await writeFile(join(root, '.silykat', 'retros', 'sessions', 'junk.json'), 'nope');
     await writeSessionReport(book, report('s2', { run: { costUsd: 1, durationMs: 1000, tokens: 1 } }));
     const est = await estimateReports(book, [0]);
     expect(est.costUsd).toBeCloseTo(1); // scaled on the report s2 alone (no prompt count known: the base)
@@ -923,7 +923,7 @@ describe('sessions too long to analyse', () => {
     expect((await estimateReports(book, [2, 2, 2, 2, 30])).ms).toBe((await estimateReports(book, [30, 2, 2, 2, 2])).ms);
   });
 
-  it('are announced with a warning by lr-retro sessions, and left out by lr-retro reports', async () => {
+  it('are announced with a warning by slk-retro sessions, and left out by slk-retro reports', async () => {
     clock = 0;
     await session('s-big', many(200));
     await session('s-big2', many(220));

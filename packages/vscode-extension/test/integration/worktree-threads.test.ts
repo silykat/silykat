@@ -4,13 +4,13 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import { buildAnchorContext, projectHistory, Store, type WorktreeSave } from '@local-review/core';
-import type { LocalReviewApi } from '../../src/extension';
+import { buildAnchorContext, projectHistory, Store, type WorktreeSave } from '@silykat/core';
+import type { SilykatApi } from '../../src/extension';
 
-const EXTENSION_ID = 'local.local-review';
+const EXTENSION_ID = 'silykat.silykat';
 
 describe('Threads of git worktrees', () => {
-  let api: LocalReviewApi;
+  let api: SilykatApi;
   let parent: string;
   let main: string;
   let wt: string;
@@ -38,7 +38,7 @@ describe('Threads of git worktrees', () => {
   const warnings = () => shown.filter((m) => m.includes('is a git worktree with comments'));
 
   before(async () => {
-    const ext = vscode.extensions.getExtension<LocalReviewApi>(EXTENSION_ID)!;
+    const ext = vscode.extensions.getExtension<SilykatApi>(EXTENSION_ID)!;
     api = await ext.activate();
     api.setChooseHandler(async (message) => {
       shown.push(message);
@@ -50,7 +50,7 @@ describe('Threads of git worktrees', () => {
     shown = [];
     answer = undefined;
     await api.forgetWorktreeWarnings();
-    parent = realpathSync(mkdtempSync(join(tmpdir(), 'lr-wt-')));
+    parent = realpathSync(mkdtempSync(join(tmpdir(), 'slk-wt-')));
     main = join(parent, 'main');
     wt = join(parent, 'feature-wt');
     mkdirSync(main);
@@ -72,7 +72,7 @@ describe('Threads of git worktrees', () => {
 
   it('saves the threads of a worktree to the main repository, where the history keeps them', async () => {
     const t = await commentIn(wt, 'Keep me after the worktree is gone');
-    const saved = (await vscode.commands.executeCommand('localReview.saveWorktreeThreads', vscode.Uri.file(wt))) as
+    const saved = (await vscode.commands.executeCommand('silykat.saveWorktreeThreads', vscode.Uri.file(wt))) as
       WorktreeSave | undefined;
     assert.equal(saved?.published, 1);
     assert.equal(saved?.main, main);
@@ -92,10 +92,10 @@ describe('Threads of git worktrees', () => {
     await api.warnIfWorktree(wt);
     assert.equal(warnings().length, 1);
     assert.match(warnings()[0]!, /git worktree remove/);
-    assert.match(warnings()[0]!, /Local Review: Save Worktree Threads/);
-    assert.match(warnings()[0]!, /lr worktree save/);
+    assert.match(warnings()[0]!, /silykat: Save Worktree Threads/);
+    assert.match(warnings()[0]!, /slk worktree save/);
     assert.equal((await projectHistory(main)).stores.filter((s) => s.origin === 'saved').length, 0); // still live: no duplicate
-    rmSync(join(wt, '.local-review'), { recursive: true, force: true });
+    rmSync(join(wt, '.silykat'), { recursive: true, force: true });
     assert.equal((await projectHistory(main)).stores.filter((s) => s.origin === 'saved').length, 1);
 
     await api.warnIfWorktree(wt);
@@ -105,6 +105,6 @@ describe('Threads of git worktrees', () => {
   it('never warns about the main worktree, and finds no worktree to save among the open folders', async () => {
     await api.warnIfWorktree(main);
     assert.equal(warnings().length, 0);
-    assert.equal(await vscode.commands.executeCommand('localReview.saveWorktreeThreads'), undefined);
+    assert.equal(await vscode.commands.executeCommand('silykat.saveWorktreeThreads'), undefined);
   });
 });

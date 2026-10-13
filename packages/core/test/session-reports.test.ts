@@ -19,7 +19,7 @@ let base: string;
 let book: RetroBook;
 
 beforeEach(async () => {
-  base = await realpath(await mkdtemp(join(tmpdir(), 'lr-session-reports-')));
+  base = await realpath(await mkdtemp(join(tmpdir(), 'slk-session-reports-')));
   book = new RetroBook(base);
 });
 afterEach(async () => {
@@ -64,8 +64,8 @@ const report = (session: string, over: Partial<SessionReport> = {}): SessionRepo
 describe("the reports on the agent's sessions", () => {
   it('are kept per project, next to the retros, and read back', async () => {
     const file = await writeSessionReport(book, report('s1'));
-    expect(file).toBe(join(base, '.local-review', 'retros', 'sessions', 's1.json'));
-    expect(reportsDir(book)).toBe(join(base, '.local-review', 'retros', 'sessions'));
+    expect(file).toBe(join(base, '.silykat', 'retros', 'sessions', 's1.json'));
+    expect(reportsDir(book)).toBe(join(base, '.silykat', 'retros', 'sessions'));
     expect(await readSessionReport(book, 's1')).toEqual(report('s1'));
     await writeSessionReport(book, report('s1', { covered: { lines: 80 } }));
     expect((await readSessionReport(book, 's1'))?.covered.lines).toBe(80);

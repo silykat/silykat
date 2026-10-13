@@ -18,8 +18,8 @@ var topicKey = (t) => t.kind === "branch" ? `branch:${t.repo}#${t.branch}` : `pa
 var CURSOR_HEAD_BYTES = 256;
 var CALL_NOTE = "call-";
 var CALL_MAX_AGE_MS = 15 * 6e4;
-function localReviewHome(env = process.env) {
-  return env.LOCAL_REVIEW_HOME?.trim() || (0, import_node_path.join)((0, import_node_os.homedir)(), ".local-review");
+function silykatHome(env = process.env) {
+  return env.SILYKAT_HOME?.trim() || (0, import_node_path.join)((0, import_node_os.homedir)(), ".silykat");
 }
 var SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/;
 function isProcessAlive(pid) {
@@ -31,7 +31,7 @@ function isProcessAlive(pid) {
   }
 }
 var SessionRegistry = class {
-  constructor(home = localReviewHome(), isAlive = isProcessAlive) {
+  constructor(home = silykatHome(), isAlive = isProcessAlive) {
     this.isAlive = isAlive;
     this.dir = (0, import_node_path.join)(home, "sessions");
   }
@@ -77,7 +77,7 @@ var SessionRegistry = class {
     }
   }
   /**
-   * Notes a command an agent starts (e.g. `lr reply …`), written by its adapter before it runs: `lr`
+   * Notes a command an agent starts (e.g. `slk review reply …`), written by its adapter before it runs: `slk`
    * then knows which message of the agent's conversation runs it. Removed by `endCall`, or with the
    * session.
    */
@@ -287,14 +287,14 @@ var STOPWORDS = new Set(
 var BATCH_MS = 1500;
 var SUPPORTED_PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 var INSTRUCTIONS = [
-  "Local Review is the local code review tool the user works with in VS Code.",
-  'When the user publishes comments there (or edits or deletes some), they arrive as <channel source="...local-review..." store="<folder>" threads="<ids>">.',
-  "Process them right away, without waiting to be asked: follow the local-review review skill",
-  "(/local-review:review), passing `--root <folder>` (the store attribute) to every `lr` command, and listing only",
-  "those threads (`lr list --root <folder> --thread <id> --thread <id>\u2026`): others may be for another session.",
-  "Answer in the threads with `lr reply`; nothing needs to be sent back through the channel."
+  "silykat is the local code review tool the user works with in VS Code.",
+  'When the user publishes comments there (or edits or deletes some), they arrive as <channel source="...silykat..." store="<folder>" threads="<ids>">.',
+  "Process them right away, without waiting to be asked: follow the silykat review skill",
+  "(/silykat:review), passing `--root <folder>` (the store attribute) to every `slk` command, and listing only",
+  "those threads (`slk review list --root <folder> --thread <id> --thread <id>\u2026`): others may be for another session.",
+  "Answer in the threads with `slk review reply`; nothing needs to be sent back through the channel."
 ].join(" ");
-var LocalReviewChannel = class {
+var SilykatChannel = class {
   constructor(deps) {
     this.deps = deps;
   }
@@ -315,7 +315,7 @@ var LocalReviewChannel = class {
         this.respond(message, {
           protocolVersion: typeof requested === "string" && SUPPORTED_PROTOCOLS.includes(requested) ? requested : SUPPORTED_PROTOCOLS[0],
           capabilities: { experimental: { "claude/channel": {} } },
-          serverInfo: { name: "local-review", version: this.deps.version },
+          serverInfo: { name: "silykat", version: this.deps.version },
           instructions: INSTRUCTIONS
         });
         return;
@@ -401,18 +401,18 @@ function describe(root, deliveries) {
       count(of("reply").length, "reply", "replies")
     ].filter((x) => x !== "");
     parts.push(
-      `The user published ${joinList(what)} in Local Review (${count(ids.length, "thread")}), in ${root}. Process them now with the local-review review skill, running every lr command with --root ${at}, and listing only these threads: lr list --root ${at} ${ids.map((id) => `--thread ${id}`).join(" ")}`
+      `The user published ${joinList(what)} in silykat (${count(ids.length, "thread")}), in ${root}. Process them now with the silykat review skill, running every slk command with --root ${at}, and listing only these threads: slk review list --root ${at} ${ids.map((id) => `--thread ${id}`).join(" ")}`
     );
   }
   const edited = threadIds(of("edit"));
   if (edited.length > 0)
     parts.push(
-      `The user edited comments of ${edited.length === 1 ? "thread" : "threads"} ${edited.join(", ")} in Local Review (${root}). Read ${edited.length === 1 ? "it" : "them"} again (lr show <id> --root ${at}): if you already worked on the old version, adapt your work to the new one, then reply.`
+      `The user edited comments of ${edited.length === 1 ? "thread" : "threads"} ${edited.join(", ")} in silykat (${root}). Read ${edited.length === 1 ? "it" : "them"} again (slk review show <id> --root ${at}): if you already worked on the old version, adapt your work to the new one, then reply.`
     );
   const deleted = threadIds(of("delete"));
   if (deleted.length > 0)
     parts.push(
-      `The user deleted comments of ${deleted.length === 1 ? "thread" : "threads"} ${deleted.join(", ")} in Local Review (${root}). Check with lr show <id> --root ${at}: a thread that no longer exists was deleted, so stop working on it; if you already changed code for it, ask the user whether to undo those changes (never undo them on your own).`
+      `The user deleted comments of ${deleted.length === 1 ? "thread" : "threads"} ${deleted.join(", ")} in silykat (${root}). Check with slk review show <id> --root ${at}: a thread that no longer exists was deleted, so stop working on it; if you already changed code for it, ask the user whether to undo those changes (never undo them on your own).`
     );
   return parts.join("\n\n");
 }
@@ -425,7 +425,7 @@ var import_node_child_process = require("node:child_process");
 var import_node_path2 = require("node:path");
 
 // src/channelFlag.ts
-var CHANNEL = "plugin:local-review@local-review";
+var CHANNEL = "plugin:silykat@silykat";
 var LAUNCH_WITH_CHANNEL = `claude --dangerously-load-development-channels ${CHANNEL}`;
 
 // src/retroAudit.ts
@@ -468,8 +468,8 @@ function pluginVersion() {
 }
 var POLL_MS = 500;
 async function main() {
-  const channel = new LocalReviewChannel({
-    registry: new SessionRegistry(localReviewHome()),
+  const channel = new SilykatChannel({
+    registry: new SessionRegistry(silykatHome()),
     claudePid: await findClaudePid(process.ppid),
     send: (message) => process.stdout.write(JSON.stringify(message) + "\n"),
     now: () => Date.now(),
@@ -481,7 +481,7 @@ async function main() {
     try {
       channel.handle(JSON.parse(line));
     } catch (err) {
-      process.stderr.write(`local-review channel: ignored a message: ${String(err)}
+      process.stderr.write(`silykat channel: ignored a message: ${String(err)}
 `);
     }
   });
@@ -490,7 +490,7 @@ async function main() {
   setInterval(() => {
     if (polling) return;
     polling = true;
-    channel.poll().catch((err) => process.stderr.write(`local-review channel: ${String(err)}
+    channel.poll().catch((err) => process.stderr.write(`silykat channel: ${String(err)}
 `)).finally(() => polling = false);
   }, POLL_MS);
 }

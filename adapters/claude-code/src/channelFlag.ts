@@ -1,7 +1,7 @@
-// How a Claude Code session gets the Local Review channel, and how to tell whether it has it.
+// How a Claude Code session gets the silykat channel, and how to tell whether it has it.
 
 /** The channel, as named on Claude Code's command line: the plugin, from its marketplace. */
-export const CHANNEL = 'plugin:local-review@local-review';
+export const CHANNEL = 'plugin:silykat@silykat';
 
 /** Command to launch Claude Code with the channel on, while channels are a research preview. */
 export const LAUNCH_WITH_CHANNEL = `claude --dangerously-load-development-channels ${CHANNEL}`;
@@ -9,7 +9,7 @@ export const LAUNCH_WITH_CHANNEL = `claude --dangerously-load-development-channe
 const CHANNEL_FLAGS = ['--dangerously-load-development-channels', '--channels'];
 
 /**
- * Whether a `claude` command line turns the Local Review channel on. Claude Code tells a channel
+ * Whether a `claude` command line turns the silykat channel on. Claude Code tells a channel
  * server nothing about it: its command line is the only way to know.
  */
 export function hasChannel(commandLine: string): boolean {
@@ -26,4 +26,4 @@ export function hasChannel(commandLine: string): boolean {
   return false;
 }
 
-const isOurChannel = (value: string) => value === CHANNEL || /^plugin:local-review@[\w.-]+$/.test(value);
+const isOurChannel = (value: string) => value === CHANNEL || /^plugin:silykat@[\w.-]+$/.test(value);

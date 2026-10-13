@@ -7,8 +7,8 @@ import { Store } from './store';
 
 /**
  * Managing the threads of a project (see `projectStores`): archive or unarchive them, find the old
- * ones, and delete them for good. The editor and `lr` share these functions, so that both act on
- * the same threads as `lr history` shows.
+ * ones, and delete them for good. The editor and `slk` share these functions, so that both act on
+ * the same threads as `slk review history` shows.
  */
 
 /** A thread of a project, once, with every store that holds its journal. */
@@ -196,7 +196,7 @@ export function historySummary(deleted: number, saved: number): string | null {
 
 /**
  * Erases a thread just deleted in `store`, when the history is not kept: its journal, and its
- * copies saved from worktrees. Nothing is left of it, not even in `lr history`.
+ * copies saved from worktrees. Nothing is left of it, not even in `slk review history`.
  */
 export async function eraseThread(store: Store, id: string, env: Env = process.env): Promise<void> {
   await store.purgeThread(id);

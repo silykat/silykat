@@ -1,6 +1,6 @@
 import { basename } from 'node:path';
 import * as vscode from 'vscode';
-import type { ReviewState } from '@local-review/core';
+import type { ReviewState } from '@silykat/core';
 import type { ReviewController } from './controller';
 import type { Root } from './roots';
 
@@ -37,30 +37,24 @@ const inputBoxSummary: SummaryPrompt = () =>
 
 /** Review mode UI: status bar item, submit, pending comments. */
 export class ReviewUi implements vscode.Disposable {
-  private readonly statusBar = vscode.window.createStatusBarItem(
-    'localReview.review',
-    vscode.StatusBarAlignment.Left,
-    100,
-  );
+  private readonly statusBar = vscode.window.createStatusBarItem('silykat.review', vscode.StatusBarAlignment.Left, 100);
   private readonly subscriptions: vscode.Disposable[] = [];
   promptSummary: SummaryPrompt = inputBoxSummary;
 
   constructor(private readonly review: ReviewController) {
-    this.statusBar.name = 'Local Review';
-    this.statusBar.command = 'localReview.reviewMenu';
+    this.statusBar.name = 'silykat';
+    this.statusBar.command = 'silykat.reviewMenu';
     this.subscriptions.push(
       review.onDidChange(() => this.update()),
       // The review shown is the one of the active editor's branch.
       vscode.window.onDidChangeActiveTextEditor(() => this.update()),
-      vscode.commands.registerCommand('localReview.startReview', (reply?: vscode.CommentReply) => this.start(reply)),
-      vscode.commands.registerCommand('localReview.addToReview', (reply: vscode.CommentReply) =>
-        review.addToReview(reply),
-      ),
-      vscode.commands.registerCommand('localReview.submitReview', () => this.submit()),
-      vscode.commands.registerCommand('localReview.discardReview', () => this.discard()),
-      vscode.commands.registerCommand('localReview.showPendingComments', () => this.showPending()),
-      vscode.commands.registerCommand('localReview.reviewMenu', () => this.menu()),
-      vscode.commands.registerCommand('localReview.revealThread', (threadId: string) => review.reveal(threadId)),
+      vscode.commands.registerCommand('silykat.startReview', (reply?: vscode.CommentReply) => this.start(reply)),
+      vscode.commands.registerCommand('silykat.addToReview', (reply: vscode.CommentReply) => review.addToReview(reply)),
+      vscode.commands.registerCommand('silykat.submitReview', () => this.submit()),
+      vscode.commands.registerCommand('silykat.discardReview', () => this.discard()),
+      vscode.commands.registerCommand('silykat.showPendingComments', () => this.showPending()),
+      vscode.commands.registerCommand('silykat.reviewMenu', () => this.menu()),
+      vscode.commands.registerCommand('silykat.revealThread', (threadId: string) => review.reveal(threadId)),
     );
     this.update();
   }
@@ -90,8 +84,8 @@ export class ReviewUi implements vscode.Disposable {
       : `$(comment-draft) ${inProgress.length} reviews · ${drafts}`;
     this.statusBar.tooltip =
       inProgress.length === 1
-        ? `Local Review: review in progress (${reviewLabel(inProgress[0]!)}), ${drafts} pending comment${drafts === 1 ? '' : 's'}. Click to submit it or see them.`
-        : `Local Review: reviews in progress, one per branch (or folder, off any branch): ${inProgress.map((r) => `${reviewLabel(r)} (${r.drafts})`).join(', ')}.`;
+        ? `silykat: review in progress (${reviewLabel(inProgress[0]!)}), ${drafts} pending comment${drafts === 1 ? '' : 's'}. Click to submit it or see them.`
+        : `silykat: reviews in progress, one per branch (or folder, off any branch): ${inProgress.map((r) => `${reviewLabel(r)} (${r.drafts})`).join(', ')}.`;
     this.statusBar.show();
   }
 
@@ -110,10 +104,10 @@ export class ReviewUi implements vscode.Disposable {
     try {
       await this.review.ensureReview();
       void vscode.window.showInformationMessage(
-        'Local Review: review started. New comments are pending until you submit it.',
+        'silykat: review started. New comments are pending until you submit it.',
       );
     } catch (err) {
-      void vscode.window.showErrorMessage(`Local Review: could not start a review (${String(err)}).`);
+      void vscode.window.showErrorMessage(`silykat: could not start a review (${String(err)}).`);
     }
   }
 
@@ -124,7 +118,7 @@ export class ReviewUi implements vscode.Disposable {
         { label: '$(list-unordered) Show Pending Comments', run: () => this.showPending() },
         { label: '$(trash) Discard Review', run: () => this.discard() },
       ],
-      { title: 'Local Review: review in progress' },
+      { title: 'silykat: review in progress' },
     );
     await pick?.run();
   }
@@ -135,7 +129,7 @@ export class ReviewUi implements vscode.Disposable {
     if (!target) return 0;
     const { root, review } = target;
     if (this.review.draftCount(review) === 0) {
-      void vscode.window.showInformationMessage('Local Review: no pending comments to submit.');
+      void vscode.window.showInformationMessage('silykat: no pending comments to submit.');
       return 0;
     }
     const files = this.review.pendingThreads(review).flatMap((t) => this.review.threadFile(t.id) ?? []);
@@ -144,10 +138,10 @@ export class ReviewUi implements vscode.Disposable {
     if (summary === undefined) return 0; // cancelled: the drafts stay drafts
     try {
       const n = await this.review.submitReview(root, review, summary);
-      void vscode.window.showInformationMessage(`Local Review: review submitted (${n} comment${n === 1 ? '' : 's'}).`);
+      void vscode.window.showInformationMessage(`silykat: review submitted (${n} comment${n === 1 ? '' : 's'}).`);
       return n;
     } catch (err) {
-      void vscode.window.showErrorMessage(`Local Review: the review could not be submitted (${String(err)}).`);
+      void vscode.window.showErrorMessage(`silykat: the review could not be submitted (${String(err)}).`);
       return 0;
     }
   }
@@ -168,11 +162,11 @@ export class ReviewUi implements vscode.Disposable {
     try {
       const dropped = await this.review.discardReview(target.root, target.review);
       void vscode.window.showInformationMessage(
-        `Local Review: review discarded (${dropped} pending comment${dropped === 1 ? '' : 's'} deleted).`,
+        `silykat: review discarded (${dropped} pending comment${dropped === 1 ? '' : 's'} deleted).`,
       );
       return dropped;
     } catch (err) {
-      void vscode.window.showErrorMessage(`Local Review: the review could not be discarded (${String(err)}).`);
+      void vscode.window.showErrorMessage(`silykat: the review could not be discarded (${String(err)}).`);
       return 0;
     }
   }
@@ -191,7 +185,7 @@ export class ReviewUi implements vscode.Disposable {
         };
       });
     if (items.length === 0) {
-      void vscode.window.showInformationMessage('Local Review: no pending comments.');
+      void vscode.window.showInformationMessage('silykat: no pending comments.');
       return;
     }
     const pick = await vscode.window.showQuickPick(items, {

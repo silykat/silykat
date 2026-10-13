@@ -17,7 +17,7 @@ import {
   type BatchResult,
   type ProjectThread,
   type PurgePlan,
-} from '@local-review/core';
+} from '@silykat/core';
 import { parse, str, UsageError } from './args';
 import type { Io } from './cli';
 
@@ -25,31 +25,33 @@ import type { Io } from './cli';
 const OK = 0;
 const ERROR = 1;
 
-export const ARCHIVE_USAGE = `Archive and clean up (on the project, as lr history: the folder, its subfolders, its worktrees).
-Archived threads leave the editor and lr list, and stay in lr history and in retros. Only do this
+export const ARCHIVE_USAGE = `Archive and clean up (on the project, as slk review history: the folder, its subfolders, its worktrees).
+Archived threads leave the editor and slk review list, and stay in slk review history and in retros. Only do this
 when the user asks:
-  lr archive <thread-id>…                 Archive these threads
-  lr archive --resolved-before <date>     Archive every thread resolved before a date (2026-10-01,
+  slk review archive <thread-id>…         Archive these threads
+  slk review archive --resolved-before <date>
+                                          Archive every thread resolved before a date (2026-10-01,
                                           or 30d for 30 days ago)
-  lr archive --list [--format md|json]    The archived threads
-  lr unarchive <thread-id>…               Bring archived threads back to the editor
-  lr purge --before <date> [--yes [--count <n>]] [--format md|json]
+  slk review archive --list [--format md|json]
+                                          The archived threads
+  slk review unarchive <thread-id>…       Bring archived threads back to the editor
+  slk review purge --before <date> [--yes [--count <n>]] [--format md|json]
                                           Delete for good the finished threads (resolved, archived
                                           or deleted) with nothing published since a date. Without
                                           --yes, only says how many and which: show the user, and
                                           run it again with --yes once they confirm (--count: the
                                           number announced; refused if it changed). Threads still
                                           in progress are kept, and so are those a retro has not
-                                          read yet. Keep a copy first: lr history --format json
+                                          read yet. Keep a copy first: slk review history --format json
                                           --out <file>
-  lr purge --history [--yes] [--format md|json]
+  slk review purge --history [--yes] [--format md|json]
                                           Erase the history kept for retros: the deleted threads,
                                           and the threads saved from worktrees (when the user no
-                                          longer keeps it: lr config set keep-history off)`;
+                                          longer keeps it: slk config set keep-history off)`;
 
 type DateOption = (value: string, flag: string) => Date;
 
-/** `lr archive`: by id, every thread resolved before a date, or the list of archived threads. */
+/** `slk review archive`: by id, every thread resolved before a date, or the list of archived threads. */
 export async function archive(rest: string[], io: Io, dateOption: DateOption): Promise<number> {
   const { values, positionals } = parse(rest, {
     'resolved-before': { type: 'string' },
@@ -61,7 +63,7 @@ export async function archive(rest: string[], io: Io, dateOption: DateOption): P
   const resolvedOption = str(values['resolved-before']);
   const modes = [positionals.length > 0, resolvedOption !== undefined, values.list === true].filter(Boolean).length;
   if (modes !== 1)
-    throw new UsageError('lr archive takes thread ids, or --resolved-before <date>, or --list (one of them)');
+    throw new UsageError('slk review archive takes thread ids, or --resolved-before <date>, or --list (one of them)');
   const threads = await projectThreads([root], io.env);
 
   if (values.list === true) {
@@ -79,7 +81,7 @@ export async function archive(rest: string[], io: Io, dateOption: DateOption): P
         archived.length === 0
           ? `No archived thread in ${root}.`
           : [
-              `${plural(archived.length, 'archived thread')} in ${root} (lr unarchive <id> brings one back):`,
+              `${plural(archived.length, 'archived thread')} in ${root} (slk review unarchive <id> brings one back):`,
               ...archived.map((t) => `  ${threadLine(t, root)}`),
             ].join('\n'),
       );
@@ -94,13 +96,13 @@ export async function archive(rest: string[], io: Io, dateOption: DateOption): P
       ? `No resolved thread to archive: none was resolved before ${dateArgLabel(resolvedOption!, date)} in ${root}.`
       : 'Nothing to archive.',
     done: (n) =>
-      `Archived ${plural(n, 'thread')}: ${n === 1 ? 'it is' : 'they are'} no longer shown in the editor nor in lr list, ` +
-      `and ${n === 1 ? 'stays' : 'stay'} in lr history and in retros (lr unarchive <id> brings one back).`,
+      `Archived ${plural(n, 'thread')}: ${n === 1 ? 'it is' : 'they are'} no longer shown in the editor nor in slk review list, ` +
+      `and ${n === 1 ? 'stays' : 'stay'} in slk review history and in retros (slk review unarchive <id> brings one back).`,
     unchanged: (n) => `${plural(n, 'thread')} ${n === 1 ? 'was' : 'were'} already archived.`,
   });
 }
 
-/** `lr unarchive <id>…`: archived threads come back to the editor. */
+/** `slk review unarchive <id>…`: archived threads come back to the editor. */
 export async function unarchive(rest: string[], io: Io): Promise<number> {
   const { values, positionals } = parse(rest, { format: { type: 'string' } });
   const format = formatOf(str(values.format));
@@ -110,12 +112,12 @@ export async function unarchive(rest: string[], io: Io): Promise<number> {
   const result = await unarchiveThreads(selected);
   return report(io, format, result, selected, root, {
     none: 'Nothing to unarchive.',
-    done: (n) => `Unarchived ${plural(n, 'thread')}: back in the editor and in lr list.`,
+    done: (n) => `Unarchived ${plural(n, 'thread')}: back in the editor and in slk review list.`,
     unchanged: (n) => `${plural(n, 'thread')} ${n === 1 ? 'was' : 'were'} not archived: nothing to do.`,
   });
 }
 
-/** `lr purge --before <date>`: says what would go; deletes for good with `--yes`. */
+/** `slk review purge --before <date>`: says what would go; deletes for good with `--yes`. */
 export async function purge(rest: string[], io: Io, dateOption: DateOption): Promise<number> {
   const { values, positionals } = parse(rest, {
     before: { type: 'string' },
@@ -124,16 +126,16 @@ export async function purge(rest: string[], io: Io, dateOption: DateOption): Pro
     count: { type: 'string' },
     format: { type: 'string' },
   });
-  if (positionals.length > 0) throw new UsageError(`lr purge takes no argument: "${positionals[0]}"`);
+  if (positionals.length > 0) throw new UsageError(`slk review purge takes no argument: "${positionals[0]}"`);
   const format = formatOf(str(values.format));
   const root = resolve(io.cwd, str(values.root) ?? '.');
   const beforeOption = str(values.before);
   if (values.history === true) {
     if (beforeOption !== undefined || values.count !== undefined)
-      throw new UsageError('lr purge --history takes neither --before nor --count');
+      throw new UsageError('slk review purge --history takes neither --before nor --count');
     return purgeHistory(root, values.yes === true, format, io);
   }
-  if (beforeOption === undefined) throw new UsageError('lr purge needs --before <date> (or --history)');
+  if (beforeOption === undefined) throw new UsageError('slk review purge needs --before <date> (or --history)');
   const date = dateOption(beforeOption, '--before');
   const since = dateArgLabel(beforeOption, date);
   const count = str(values.count);
@@ -171,17 +173,17 @@ export async function purge(rest: string[], io: Io, dateOption: DateOption): Pro
             ...plan.threads.map((t) => `  ${threadLine(t, root)}`),
           ].join('\n') +
             kept +
-            `\nNothing is deleted yet: they stay in lr history and in retros until then. Keep a copy first with ` +
-            `lr history --format json --out <file>. To delete ${n === 1 ? 'it' : 'these ' + n} for good: ` +
-            `lr purge --before ${beforeOption} --yes --count ${n}`,
+            `\nNothing is deleted yet: they stay in slk review history and in retros until then. Keep a copy first with ` +
+            `slk review history --format json --out <file>. To delete ${n === 1 ? 'it' : 'these ' + n} for good: ` +
+            `slk review purge --before ${beforeOption} --yes --count ${n}`,
     );
     return OK;
   }
 
   if (count !== undefined && Number(count) !== n) {
     io.err(
-      `lr: ${plural(n, 'thread')} now match${n === 1 ? 'es' : ''}, not ${count}: the threads changed since. ` +
-        `Nothing was deleted: run lr purge --before ${beforeOption} again to see them.`,
+      `slk: ${plural(n, 'thread')} now match${n === 1 ? 'es' : ''}, not ${count}: the threads changed since. ` +
+        `Nothing was deleted: run slk review purge --before ${beforeOption} again to see them.`,
     );
     return ERROR;
   }
@@ -201,7 +203,7 @@ function retroNote(plan: PurgePlan): string {
     : `\n${plural(k, 'finished thread')} as old ${k === 1 ? 'is' : 'are'} not read by a retro yet: kept for the next one.`;
 }
 
-/** `lr purge --history`: says what history is kept; erases it with `--yes`. */
+/** `slk review purge --history`: says what history is kept; erases it with `--yes`. */
 async function purgeHistory(root: string, yes: boolean, format: 'md' | 'json', io: Io): Promise<number> {
   const plan = await historyPlan([root], io.env);
   const summary = historySummary(plan.deleted.length, plan.saved.length);
@@ -218,8 +220,8 @@ async function purgeHistory(root: string, yes: boolean, format: 'md' | 'json', i
       io.out(
         summary === null
           ? `No history kept in ${root}: nothing to erase.`
-          : `History kept in ${root}: ${summary}. Nothing is erased yet. To erase it for good (gone from lr history ` +
-              `and from retros): lr purge --history --yes`,
+          : `History kept in ${root}: ${summary}. Nothing is erased yet. To erase it for good (gone from slk review history ` +
+              `and from retros): slk review purge --history --yes`,
       );
     return OK;
   }

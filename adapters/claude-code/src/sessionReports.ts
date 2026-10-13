@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import {
   citedMoments,
-  localReviewHome,
+  silykatHome,
   processAncestors,
   readSessionReport,
   RetroBook,
@@ -14,7 +14,7 @@ import {
   writeSessionReport,
   type SessionReport,
   type SessionReportRef,
-} from '@local-review/core';
+} from '@silykat/core';
 import { runProcess, type Runner } from './retroAudit';
 import type { ProjectTranscript } from './retroInsights';
 import { analyseSession, mask, type SessionAnalytics } from './sessionAnalytics';
@@ -90,9 +90,9 @@ export interface ReportPlan {
   oversized?: OversizedSession[];
 }
 
-/** The session this command runs in, when Local Review knows it (the retro's own session). */
+/** The session this command runs in, when silykat knows it (the retro's own session). */
 export async function currentSession(env: Env): Promise<string | undefined> {
-  const sessions = await new SessionRegistry(localReviewHome(env)).list().catch(() => []);
+  const sessions = await new SessionRegistry(silykatHome(env)).list().catch(() => []);
   return sessionOfProcess(sessions, await processAncestors())?.id;
 }
 
@@ -318,12 +318,12 @@ export async function writeReport(
   run: Runner = runProcess,
   timeoutMs = REPORT_TIMEOUT_MS,
 ): Promise<ReportOutcome> {
-  const work = await mkdtemp(join(tmpdir(), 'lr-session-report-'));
+  const work = await mkdtemp(join(tmpdir(), 'slk-session-report-'));
   try {
     const { transcripts, uuids } = await renderSession(c.transcript.file);
     await writeFile(join(work, 'analytics.json'), JSON.stringify(c.analytics, null, 1));
     for (const t of transcripts) await writeFile(join(work, t.name), t.text);
-    const claude = env.LR_CLAUDE_BIN?.trim() || 'claude';
+    const claude = env.SLK_CLAUDE_BIN?.trim() || 'claude';
     const r = await run(claude, reportArgs(reportPrompt(c.transcript.id, transcripts.length)), {
       cwd: work,
       env,

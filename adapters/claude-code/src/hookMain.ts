@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import {
   filesChangedSince,
   gitWorktreeOf,
-  localReviewHome,
+  silykatHome,
   readConfig,
   resolveWorktree,
   retroCadence,
@@ -13,7 +13,7 @@ import {
   topicOf,
   worktreeInfo,
   worktreeThreadCount,
-} from '@local-review/core';
+} from '@silykat/core';
 import { commandLine, findClaudePid, gitBranch, handleHook, purgeConfirmation, type HookInput } from './hook';
 import { recordClaudeSession } from './sessionLog';
 
@@ -28,7 +28,7 @@ async function main(): Promise<void> {
   // if the rest of the hook fails.
   const ask = input.hook_event_name === 'PreToolUse' ? purgeConfirmation(input) : null;
   const message = await handleHook(input, {
-    registry: new SessionRegistry(localReviewHome()),
+    registry: new SessionRegistry(silykatHome()),
     claudePid: () => findClaudePid(),
     commandLine,
     gitBranch,

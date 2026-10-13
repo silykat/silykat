@@ -7,10 +7,10 @@ import {
   readConfig,
   writeConfig,
   type HistoryPlan,
-} from '@local-review/core';
+} from '@silykat/core';
 import type { Log } from './log';
 
-const SECTION = 'localReview';
+const SECTION = 'silykat';
 const SETTING = 'keepHistory';
 
 /** Asks whether to erase the history already kept (`undefined` = dismissed). Replaceable in tests. */
@@ -18,7 +18,7 @@ export type ErasePrompt = (message: string, actions: string[]) => Thenable<strin
 
 /**
  * Whether the history of what is deleted is kept: the VS Code user setting, else the machine
- * setting (`lr config set keep-history`), on by default.
+ * setting (`slk config set keep-history`), on by default.
  */
 export async function keepHistory(): Promise<boolean> {
   const set = vscode.workspace.getConfiguration(SECTION).inspect<boolean>(SETTING)?.globalValue;
@@ -26,7 +26,7 @@ export async function keepHistory(): Promise<boolean> {
 }
 
 /**
- * The "Keep history" setting: mirrored in the machine settings, for `lr` and the agent hooks, which
+ * The "Keep history" setting: mirrored in the machine settings, for `slk` and the agent hooks, which
  * run outside VS Code. When the user turns it off, offers to erase the history already kept in the
  * open folders: deleted threads, and threads saved from worktrees.
  */
@@ -80,7 +80,7 @@ export class HistoryUi implements vscode.Disposable {
     const summary = historySummary(plan.deleted.length, plan.saved.length);
     if (summary === null) return undefined;
     const choice = await this.prompt(
-      `Local Review: deleted threads are no longer kept. The history already kept in your folders stays: ${summary}. ` +
+      `silykat: deleted threads are no longer kept. The history already kept in your folders stays: ${summary}. ` +
         'Erase it for good? It is gone from the history and from retros.',
       ['Erase', 'Keep'],
     );
@@ -88,12 +88,12 @@ export class HistoryUi implements vscode.Disposable {
     try {
       const erased = await eraseHistory(plan);
       void vscode.window.showInformationMessage(
-        `Local Review: erased ${historySummary(erased.threads, erased.saved) ?? 'nothing'}.`,
+        `silykat: erased ${historySummary(erased.threads, erased.saved) ?? 'nothing'}.`,
       );
       return erased.threads;
     } catch (err) {
       this.log.error('Failed to erase the history', err);
-      void vscode.window.showErrorMessage(`Local Review: the history could not be erased (${String(err)}).`);
+      void vscode.window.showErrorMessage(`silykat: the history could not be erased (${String(err)}).`);
       return undefined;
     }
   }

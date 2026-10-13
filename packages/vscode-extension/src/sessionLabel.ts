@@ -1,4 +1,4 @@
-import { topicLabel, type Session } from '@local-review/core';
+import { topicLabel, type Session } from '@silykat/core';
 
 /** A session as the user tells it apart: its agent and short id, e.g. "Claude a1b2c3d4". */
 export const sessionLabel = (s: Session): string => `${s.agent} ${s.id.slice(0, 8)}`;

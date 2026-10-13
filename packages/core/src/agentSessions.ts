@@ -1,7 +1,7 @@
 import { appendFile, mkdir, readFile, realpath } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import { projectStores } from './project';
-import { localReviewHome } from './sessions';
+import { silykatHome } from './sessions';
 import { worktreesOf } from './worktrees';
 
 /**
@@ -27,7 +27,7 @@ type LogLine =
   | { v: number; type: 'imported'; source: string; at: string };
 
 export const agentSessionsFile = (env: Record<string, string | undefined> = process.env): string =>
-  join(localReviewHome(env), 'agent-sessions.jsonl');
+  join(silykatHome(env), 'agent-sessions.jsonl');
 
 export interface AgentSessionLog {
   /** Each session once, with its earliest start. */
@@ -91,7 +91,7 @@ export async function recordAgentSessions(
   if (opts.imported)
     lines.push({ v: LOG_VERSION, type: 'imported', source: opts.imported, at: new Date().toISOString() });
   if (lines.length === 0) return;
-  await mkdir(localReviewHome(env), { recursive: true });
+  await mkdir(silykatHome(env), { recursive: true });
   await appendFile(agentSessionsFile(env), lines.map((l) => JSON.stringify(l) + '\n').join(''));
 }
 

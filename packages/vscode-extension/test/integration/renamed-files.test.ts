@@ -3,10 +3,10 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import type { LocalReviewApi } from '../../src/extension';
+import type { SilykatApi } from '../../src/extension';
 import { WAIT_MS } from './timing';
 
-const EXTENSION_ID = 'local.local-review';
+const EXTENSION_ID = 'silykat.silykat';
 const CODE = Array.from({ length: 8 }, (_, i) => `export const value${i + 1} = ${i + 1};`);
 
 async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs = WAIT_MS): Promise<T> {
@@ -20,7 +20,7 @@ async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs = 
 }
 
 describe('Threads of renamed, moved or deleted files', () => {
-  let api: LocalReviewApi;
+  let api: SilykatApi;
   let ws: string;
   let n = 0;
   let choices: string[];
@@ -45,19 +45,19 @@ describe('Threads of renamed, moved or deleted files', () => {
     const uri = vscode.Uri.file(join(ws, path));
     await vscode.workspace.openTextDocument(uri);
     const thread = api.controller.createCommentThread(uri, new vscode.Range(4, 0, 4, 0), []); // "value4"
-    await vscode.commands.executeCommand('localReview.submitComment', { thread, text: 'Rename this constant' });
+    await vscode.commands.executeCommand('silykat.submitComment', { thread, text: 'Rename this constant' });
     await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     return { id: api.listThreads().find((t) => t.thread === thread)!.id, path };
   }
 
   before(async () => {
-    const ext = vscode.extensions.getExtension<LocalReviewApi>(EXTENSION_ID)!;
+    const ext = vscode.extensions.getExtension<SilykatApi>(EXTENSION_ID)!;
     api = await ext.activate();
     ws = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
   });
 
   beforeEach(async () => {
-    rmSync(join(ws, '.local-review'), { recursive: true, force: true });
+    rmSync(join(ws, '.silykat'), { recursive: true, force: true });
     await api.reload();
     choices = [];
     answer = undefined;
@@ -129,9 +129,7 @@ describe('Threads of renamed, moved or deleted files', () => {
     assert.equal(managed(id)!.outdated, true);
 
     assert.equal(await api.reveal(id), 'missing');
-    assert.deepEqual(choices, [
-      `Local Review: the file of this thread no longer exists (${path}). [Resolve|Delete Thread]`,
-    ]);
+    assert.deepEqual(choices, [`silykat: the file of this thread no longer exists (${path}). [Resolve|Delete Thread]`]);
 
     answer = 'Resolve';
     await api.reveal(id);
@@ -148,7 +146,7 @@ describe('Threads of renamed, moved or deleted files', () => {
     writeFileSync(join(ws, path), 'export {};\n');
     const uri = vscode.Uri.file(join(ws, path));
     const thread = api.controller.createCommentThread(uri, undefined as unknown as vscode.Range, []);
-    await vscode.commands.executeCommand('localReview.submitComment', { thread, text: 'Whole file' });
+    await vscode.commands.executeCommand('silykat.submitComment', { thread, text: 'Whole file' });
     const id = api.listThreads().find((t) => t.thread === thread)!.id;
     unlinkSync(join(ws, path));
     await api.reload();

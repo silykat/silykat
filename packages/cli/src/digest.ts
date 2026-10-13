@@ -1,5 +1,5 @@
 import { extname } from 'node:path';
-import { reanchor, versionTag, type AgentThreadView, type LineRange, type ReviewState } from '@local-review/core';
+import { reanchor, versionTag, type AgentThreadView, type LineRange, type ReviewState } from '@silykat/core';
 
 /** Where a thread's code is now, as the agent should read it. */
 export interface Located {

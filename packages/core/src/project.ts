@@ -19,7 +19,7 @@ import { STORE_DIR } from './types';
 
 /**
  * How a store was found for a project: the project folder itself, a folder below it, the closest
- * store above it (when the folder has none, as the other `lr` commands do), a git worktree of a
+ * store above it (when the folder has none, as the other `slk` commands do), a git worktree of a
  * repository of the project, kept outside the folder (e.g. next to the repository), or the threads
  * of a worktree saved in one of these stores before the worktree was removed.
  */
@@ -28,7 +28,7 @@ export type StoreOrigin = 'root' | 'below' | 'above' | 'worktree' | 'saved';
 export interface ProjectStore {
   /**
    * The folder of the files commented (`/` for the machine store of loose files): it holds the
-   * `.local-review/` store, except for saved threads, whose worktree may be gone.
+   * `.silykat/` store, except for saved threads, whose worktree may be gone.
    */
   root: string;
   origin: StoreOrigin;

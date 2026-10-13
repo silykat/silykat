@@ -3,15 +3,15 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promi
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buildAnchorContext, RetroBook, Store, type Anchor } from '@local-review/core';
+import { buildAnchorContext, RetroBook, Store, type Anchor } from '@silykat/core';
 import { EXIT, parseDateOption, runCli } from '../src/cli';
 
 const CODE = ['export function find(id: string) {', '  const user = db.get(id);', '  if (!user) return null;', '}'];
 
 let base: string;
-const env = () => ({ LOCAL_REVIEW_HOME: join(base, 'machine') });
+const env = () => ({ SILYKAT_HOME: join(base, 'machine') });
 
-async function lr(args: string[], cwd = base) {
+async function slk(args: string[], cwd = base) {
   let out = '';
   let err = '';
   const code = await runCli(args, {
@@ -41,7 +41,7 @@ async function backdate(store: Store, id: string, day: number): Promise<void> {
 }
 
 beforeEach(async () => {
-  base = await realpath(await mkdtemp(join(tmpdir(), 'lr-archive-cli-')));
+  base = await realpath(await mkdtemp(join(tmpdir(), 'slk-archive-cli-')));
 });
 
 afterEach(async () => {
@@ -66,67 +66,69 @@ async function project() {
   return { store, oldResolved, recent, oldOpen, oldDeleted };
 }
 
-describe('lr archive and lr unarchive', () => {
-  it('archives the threads resolved before a date: gone from lr list, still in lr history', async () => {
+describe('slk review archive and slk review unarchive', () => {
+  it('archives the threads resolved before a date: gone from slk review list, still in slk review history', async () => {
     const { oldResolved, recent } = await project();
-    const done = await lr(['archive', '--resolved-before', '2026-09-15', '--root', 'api']);
+    const done = await slk(['review', 'archive', '--resolved-before', '2026-09-15', '--root', 'api']);
     expect(done).toMatchObject({ code: EXIT.OK, err: '' });
-    expect(done.out).toContain('Archived 1 thread: it is no longer shown in the editor nor in lr list');
+    expect(done.out).toContain('Archived 1 thread: it is no longer shown in the editor nor in slk review list');
 
-    const list = await lr(['list', '--all', '--format', 'json', '--root', 'api']);
+    const list = await slk(['review', 'list', '--all', '--format', 'json', '--root', 'api']);
     const listed = (JSON.parse(list.out) as { id: string }[]).map((t) => t.id);
     expect(listed).not.toContain(oldResolved.id);
-    const shown = await lr(['show', oldResolved.id, '--root', 'api']);
+    const shown = await slk(['review', 'show', oldResolved.id, '--root', 'api']);
     expect(shown.code).toBe(EXIT.NOT_FOUND);
     expect(shown.err).toContain('was archived by the user');
 
-    const history = await lr(['history', '--root', 'api']);
+    const history = await slk(['review', 'history', '--root', 'api']);
     expect(history.out).toContain('— 1 archived');
     expect(history.out).toMatch(new RegExp(`${oldResolved.id}[^\\n]*\\n\\nStore: \\. · Archived \\d{4}-`));
-    const json = JSON.parse((await lr(['history', '--root', 'api', '--format', 'json'])).out);
+    const json = JSON.parse((await slk(['review', 'history', '--root', 'api', '--format', 'json'])).out);
     expect(json.summary.archived).toBe(1);
 
-    const archived = await lr(['archive', '--list', '--root', 'api']);
+    const archived = await slk(['review', 'archive', '--list', '--root', 'api']);
     expect(archived.out).toContain('1 archived thread in');
     expect(archived.out).toContain(`${oldResolved.id} · src/find.ts:1 · resolved · archived 20`);
     expect(archived.out).toContain('"Throw here"');
-    const archivedJson = JSON.parse((await lr(['archive', '--list', '--format', 'json', '--root', 'api'])).out);
+    const archivedJson = JSON.parse(
+      (await slk(['review', 'archive', '--list', '--format', 'json', '--root', 'api'])).out,
+    );
     expect(archivedJson).toMatchObject([{ id: oldResolved.id, state: 'resolved', firstComment: 'Throw here' }]);
 
-    const back = await lr(['unarchive', oldResolved.id, '--root', 'api']);
-    expect(back.out).toContain('Unarchived 1 thread: back in the editor and in lr list.');
-    expect((await lr(['archive', '--list', '--root', 'api'])).out).toContain('No archived thread');
-    expect(JSON.parse((await lr(['list', '--all', '--format', 'json', '--root', 'api'])).out)).toHaveLength(
+    const back = await slk(['review', 'unarchive', oldResolved.id, '--root', 'api']);
+    expect(back.out).toContain('Unarchived 1 thread: back in the editor and in slk review list.');
+    expect((await slk(['review', 'archive', '--list', '--root', 'api'])).out).toContain('No archived thread');
+    expect(JSON.parse((await slk(['review', 'list', '--all', '--format', 'json', '--root', 'api'])).out)).toHaveLength(
       listed.length + 0,
     );
     // An explicit id, any state; the agent's view follows.
-    const one = await lr(['archive', recent.id, '--format', 'json'], join(base, 'api'));
+    const one = await slk(['review', 'archive', recent.id, '--format', 'json'], join(base, 'api'));
     expect(JSON.parse(one.out)).toEqual({ done: [recent.id], unchanged: [], failed: [] });
     // Nothing to do: said as such, not as done.
-    const again = await lr(['archive', recent.id], join(base, 'api'));
+    const again = await slk(['review', 'archive', recent.id], join(base, 'api'));
     expect(again).toMatchObject({ code: EXIT.OK, out: '1 thread was already archived.\n' });
-    const notArchived = await lr(['unarchive', oldResolved.id], join(base, 'api'));
+    const notArchived = await slk(['review', 'unarchive', oldResolved.id], join(base, 'api'));
     expect(notArchived.out).toBe('1 thread was not archived: nothing to do.\n');
   });
 
   it('says when nothing matches, and refuses unknown threads and mixed modes', async () => {
     await project();
-    expect((await lr(['archive', '--resolved-before', '2026-09-01', '--root', 'api'])).out).toContain(
+    expect((await slk(['review', 'archive', '--resolved-before', '2026-09-01', '--root', 'api'])).out).toContain(
       'No resolved thread to archive',
     );
-    const unknown = await lr(['archive', 't_01JAAAAAAAAAAAAAAAAAAAAAAA', '--root', 'api']);
+    const unknown = await slk(['review', 'archive', 't_01JAAAAAAAAAAAAAAAAAAAAAAA', '--root', 'api']);
     expect(unknown.code).toBe(EXIT.NOT_FOUND);
     expect(unknown.err).toContain('Thread not found: t_01JAAAAAAAAAAAAAAAAAAAAAAA');
     for (const args of [
-      ['archive'],
-      ['archive', 't_x', '--list'],
-      ['unarchive'],
-      ['archive', '--list', '--format', 'xml'],
+      ['review', 'archive'],
+      ['review', 'archive', 't_x', '--list'],
+      ['review', 'unarchive'],
+      ['review', 'archive', '--list', '--format', 'xml'],
     ]) {
-      const r = await lr([...args, '--root', 'api']);
+      const r = await slk([...args, '--root', 'api']);
       expect(r.code, args.join(' ')).toBe(EXIT.ERROR);
     }
-    expect((await lr(['archive', '--resolved-before', 'last week', '--root', 'api'])).err).toContain(
+    expect((await slk(['review', 'archive', '--resolved-before', 'last week', '--root', 'api'])).err).toContain(
       '--resolved-before must be a date',
     );
   });
@@ -136,17 +138,17 @@ describe('lr archive and lr unarchive', () => {
     await writeFile(store.threadFile(recent.id), '{"v":99,"type":"thread.archived","at":"x","by":"user"}\n', {
       flag: 'a',
     });
-    const r = await lr(['archive', recent.id, '--root', 'api']);
+    const r = await slk(['review', 'archive', recent.id, '--root', 'api']);
     expect(r.code).toBe(EXIT.ERROR);
     expect(r.out).toContain(`Failed: ${recent.id}`);
     expect(r.out).toContain('newer version');
   });
 });
 
-describe('lr purge', () => {
+describe('slk review purge', () => {
   it('says how many and which, deletes nothing without --yes, then deletes exactly those', async () => {
     const { oldResolved, oldDeleted, oldOpen, recent } = await project();
-    const preview = await lr(['purge', '--before', '2026-09-15', '--root', 'api']);
+    const preview = await slk(['review', 'purge', '--before', '2026-09-15', '--root', 'api']);
     expect(preview.code).toBe(EXIT.OK);
     expect(preview.out).toContain('2 threads would be deleted for good');
     expect(preview.out).toContain(oldResolved.id);
@@ -155,27 +157,31 @@ describe('lr purge', () => {
     expect(preview.out).toContain(
       '1 thread as old is still in progress (open, needs-info, addressed, or with a draft reply in your review): kept.',
     );
-    expect(preview.out).toContain('lr purge --before 2026-09-15 --yes --count 2');
+    expect(preview.out).toContain('slk review purge --before 2026-09-15 --yes --count 2');
     expect(preview.out).toContain('No retro in this project yet: no thread is kept for one.');
-    expect((await lr(['history', '--root', 'api', '--format', 'json'])).out).toContain(oldResolved.id);
+    expect((await slk(['review', 'history', '--root', 'api', '--format', 'json'])).out).toContain(oldResolved.id);
 
-    const json = JSON.parse((await lr(['purge', '--before', '2026-09-15', '--root', 'api', '--format', 'json'])).out);
+    const json = JSON.parse(
+      (await slk(['review', 'purge', '--before', '2026-09-15', '--root', 'api', '--format', 'json'])).out,
+    );
     expect(json.threads.map((t: { id: string }) => t.id).sort()).toEqual([oldResolved.id, oldDeleted.id].sort());
     expect(json.inProgress).toEqual([oldOpen.id]);
 
-    const wrong = await lr(['purge', '--before', '2026-09-15', '--yes', '--count', '3', '--root', 'api']);
+    const wrong = await slk(['review', 'purge', '--before', '2026-09-15', '--yes', '--count', '3', '--root', 'api']);
     expect(wrong.code).toBe(EXIT.ERROR);
     expect(wrong.err).toContain('2 threads now match, not 3');
 
-    const done = await lr(['purge', '--before', '2026-09-15', '--yes', '--count', '2', '--root', 'api']);
+    const done = await slk(['review', 'purge', '--before', '2026-09-15', '--yes', '--count', '2', '--root', 'api']);
     expect(done).toMatchObject({ code: EXIT.OK });
     expect(done.out).toContain('Deleted 2 threads for good');
-    const left = JSON.parse((await lr(['history', '--root', 'api', '--format', 'json'])).out);
+    const left = JSON.parse((await slk(['review', 'history', '--root', 'api', '--format', 'json'])).out);
     expect(left.threads.map((t: { id: string }) => t.id).sort()).toEqual([recent.id, oldOpen.id].sort());
 
-    const nothing = await lr(['purge', '--before', '2026-09-15', '--root', 'api']);
+    const nothing = await slk(['review', 'purge', '--before', '2026-09-15', '--root', 'api']);
     expect(nothing.out).toContain('nothing to delete');
-    expect((await lr(['purge', '--before', '2026-09-15', '--yes', '--root', 'api'])).out).toContain('nothing deleted');
+    expect((await slk(['review', 'purge', '--before', '2026-09-15', '--yes', '--root', 'api'])).out).toContain(
+      'nothing deleted',
+    );
   });
 
   it('keeps the threads a retro has not read yet, and says a number of days as a date', async () => {
@@ -191,37 +197,41 @@ describe('lr purge', () => {
       bytes: 1,
     });
     await book.record(r.id, [{ type: 'retro.finished' }]);
-    const preview = await lr(['purge', '--before', '20d', '--root', 'api']);
+    const preview = await slk(['review', 'purge', '--before', '20d', '--root', 'api']);
     expect(preview.out).toContain(
       '1 thread would be deleted for good (finished, nothing published since 2026-09-13 (20 days)',
     );
     expect(preview.out).toContain(oldResolved.id);
     expect(preview.out).toContain('1 finished thread as old is not read by a retro yet: kept for the next one.');
-    const json = JSON.parse((await lr(['purge', '--before', '20d', '--root', 'api', '--format', 'json'])).out);
+    const json = JSON.parse(
+      (await slk(['review', 'purge', '--before', '20d', '--root', 'api', '--format', 'json'])).out,
+    );
     expect(json).toMatchObject({ unreadByRetro: [oldDeleted.id], retro: true });
   });
 
   it('erases the history kept, after showing it', async () => {
     const { oldDeleted, oldResolved } = await project();
-    expect((await lr(['purge', '--history', '--root', 'api'])).out).toBe(
+    expect((await slk(['review', 'purge', '--history', '--root', 'api'])).out).toBe(
       `History kept in ${join(base, 'api')}: 1 deleted thread. Nothing is erased yet. To erase it for good ` +
-        '(gone from lr history and from retros): lr purge --history --yes\n',
+        '(gone from slk review history and from retros): slk review purge --history --yes\n',
     );
-    const json = JSON.parse((await lr(['purge', '--history', '--root', 'api', '--format', 'json'])).out);
+    const json = JSON.parse((await slk(['review', 'purge', '--history', '--root', 'api', '--format', 'json'])).out);
     expect(json).toMatchObject({ deleted: [{ id: oldDeleted.id }], saved: [] });
-    expect((await lr(['purge', '--history', '--yes', '--root', 'api'])).out).toBe(
+    expect((await slk(['review', 'purge', '--history', '--yes', '--root', 'api'])).out).toBe(
       'Erased for good: 1 deleted thread.\n',
     );
-    const left = JSON.parse((await lr(['history', '--root', 'api', '--format', 'json'])).out);
+    const left = JSON.parse((await slk(['review', 'history', '--root', 'api', '--format', 'json'])).out);
     expect(left.threads.map((t: { id: string }) => t.id)).not.toContain(oldDeleted.id);
     expect(left.threads.map((t: { id: string }) => t.id)).toContain(oldResolved.id);
-    expect((await lr(['purge', '--history', '--root', 'api'])).out).toContain('No history kept');
-    expect((await lr(['purge', '--history', '--yes', '--root', 'api', '--format', 'json'])).out).toContain(
+    expect((await slk(['review', 'purge', '--history', '--root', 'api'])).out).toContain('No history kept');
+    expect((await slk(['review', 'purge', '--history', '--yes', '--root', 'api', '--format', 'json'])).out).toContain(
       '"threads": 0',
     );
-    expect((await lr(['purge', '--history', '--yes', '--root', 'api'])).out).toBe('No history kept: nothing erased.\n');
-    expect((await lr(['purge', '--history', '--before', '7d', '--root', 'api'])).err).toContain(
-      'lr purge --history takes neither --before nor --count',
+    expect((await slk(['review', 'purge', '--history', '--yes', '--root', 'api'])).out).toBe(
+      'No history kept: nothing erased.\n',
+    );
+    expect((await slk(['review', 'purge', '--history', '--before', '7d', '--root', 'api'])).err).toContain(
+      'slk review purge --history takes neither --before nor --count',
     );
   });
 
@@ -237,39 +247,39 @@ describe('lr purge', () => {
     git(main, 'commit', '-q', '-m', 'init');
     git(main, 'worktree', 'add', '-q', '-b', 'feat', wt);
     await new Store(wt).createThread(anchor(1), { author: 'user', body: 'In the worktree', reviewId: null });
-    expect((await lr(['worktree', 'save'], wt)).code).toBe(EXIT.OK);
+    expect((await slk(['worktree', 'save'], wt)).code).toBe(EXIT.OK);
     git(main, 'worktree', 'remove', '--force', wt);
 
-    const json = JSON.parse((await lr(['purge', '--history', '--format', 'json'], main)).out);
-    expect(json).toMatchObject({ deleted: [], saved: [expect.stringContaining(join(main, '.local-review', 'saved'))] });
-    expect((await lr(['purge', '--history'], main)).out).toContain(': 1 copy of worktree threads.');
-    expect((await lr(['purge', '--history', '--yes'], main)).out).toBe(
+    const json = JSON.parse((await slk(['review', 'purge', '--history', '--format', 'json'], main)).out);
+    expect(json).toMatchObject({ deleted: [], saved: [expect.stringContaining(join(main, '.silykat', 'saved'))] });
+    expect((await slk(['review', 'purge', '--history'], main)).out).toContain(': 1 copy of worktree threads.');
+    expect((await slk(['review', 'purge', '--history', '--yes'], main)).out).toBe(
       'Erased for good: 1 copy of worktree threads.\n',
     );
-    expect(JSON.parse((await lr(['history', '--format', 'json'], main)).out).threads).toEqual([]);
+    expect(JSON.parse((await slk(['review', 'history', '--format', 'json'], main)).out).threads).toEqual([]);
   });
 
   it('tells what history is kept when the user stops keeping it', async () => {
     await project();
-    const off = await lr(['config', 'set', 'keep-history', 'off'], join(base, 'api'));
+    const off = await slk(['config', 'set', 'keep-history', 'off'], join(base, 'api'));
     expect(off.out).toContain('Deleting a thread now erases it');
     expect(off.out).toContain(
-      `The history already kept stays: 1 deleted thread in ${join(base, 'api')}. To erase it: lr purge --history`,
+      `The history already kept stays: 1 deleted thread in ${join(base, 'api')}. To erase it: slk review purge --history`,
     );
   });
 
   it('needs a date', async () => {
     await project();
-    expect((await lr(['purge', '--root', 'api'])).err).toContain('lr purge needs --before <date>');
-    expect((await lr(['purge', 'x', '--before', '7d', '--root', 'api'])).code).toBe(EXIT.ERROR);
-    expect((await lr(['purge', '--before', '7d', '--count', 'two', '--root', 'api'])).code).toBe(EXIT.ERROR);
+    expect((await slk(['review', 'purge', '--root', 'api'])).err).toContain('slk review purge needs --before <date>');
+    expect((await slk(['review', 'purge', 'x', '--before', '7d', '--root', 'api'])).code).toBe(EXIT.ERROR);
+    expect((await slk(['review', 'purge', '--before', '7d', '--count', 'two', '--root', 'api'])).code).toBe(EXIT.ERROR);
   });
 });
 
-describe('lr history --out', () => {
+describe('slk review history --out', () => {
   it('exports the history to a file', async () => {
     const { oldResolved } = await project();
-    const r = await lr(['history', '--root', 'api', '--format', 'json', '--out', 'threads.json']);
+    const r = await slk(['review', 'history', '--root', 'api', '--format', 'json', '--out', 'threads.json']);
     expect(r.out).toContain(`Wrote the history of 4 threads (json) to ${join(base, 'threads.json')}`);
     const exported = JSON.parse(await readFile(join(base, 'threads.json'), 'utf8'));
     expect(exported.threads.map((t: { id: string }) => t.id)).toContain(oldResolved.id);

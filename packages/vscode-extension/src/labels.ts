@@ -1,4 +1,4 @@
-import type { CommentState, ThreadState } from '@local-review/core';
+import type { CommentState, ThreadState } from '@silykat/core';
 import { versionTag } from './gitUri';
 
 // Pure (no `vscode` import) so that labels can be unit-tested.

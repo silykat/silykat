@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { SessionRegistry, type WorktreeInfo, type WorktreeSave } from '@local-review/core';
+import { SessionRegistry, type WorktreeInfo, type WorktreeSave } from '@silykat/core';
 import { handleHook, shellSegments, worktreeRemovals, type HookDeps, type HookInput } from '../src/hook';
 
 describe('commands that remove a git worktree', () => {
@@ -73,7 +73,7 @@ describe('the hook, before a worktree is removed', () => {
   let published = 2;
 
   beforeEach(async () => {
-    home = await mkdtemp(join(tmpdir(), 'lr-hook-wt-'));
+    home = await mkdtemp(join(tmpdir(), 'slk-hook-wt-'));
     saved = [];
     keepHistory = true;
     published = 2;
@@ -139,7 +139,7 @@ describe('the hook, before a worktree is removed', () => {
     expect(saved).toEqual([]);
     expect(message).toContain('which holds 3 comment threads of the user');
     expect(message).toContain('the history is not kept on this machine: keep-history is off');
-    expect(message).toContain('lr worktree save /work/wt');
+    expect(message).toContain('slk worktree save /work/wt');
   });
 
   it('tells Claude when the threads could not be saved', async () => {

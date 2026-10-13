@@ -37,7 +37,7 @@ For each signal present, judge every occurrence (or a representative sample when
 - **autonomy** (messages sent while the agent worked, plan mode). Relevant when it is a course correction mid-way.
 
 ### cost / delivery
-- **api_errors**, **pull_requests**, **git**, **local_review_messages**: context. No judgement needed, unless something is off.
+- **api_errors**, **pull_requests**, **git**, **silykat_messages**: context. No judgement needed, unless something is off.
 
 ## Answer
 

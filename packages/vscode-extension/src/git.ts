@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { mkdir, readFile, appendFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import { STORE_DIR } from '@local-review/core';
+import { STORE_DIR } from '@silykat/core';
 
 /** Runs git and returns trimmed stdout, or `null` if git is missing or the command fails. */
 export function git(args: string[], cwd: string): Promise<string | null> {
@@ -68,6 +68,6 @@ export async function ensureExcluded(repoRoot: string): Promise<boolean> {
 
   await mkdir(dirname(file), { recursive: true });
   const prefix = content === '' || content.endsWith('\n') ? '' : '\n';
-  await appendFile(file, `${prefix}# local-review (VS Code extension)\n${EXCLUDE_ENTRY}\n`);
+  await appendFile(file, `${prefix}# silykat (VS Code extension)\n${EXCLUDE_ENTRY}\n`);
   return true;
 }

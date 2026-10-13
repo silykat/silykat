@@ -55,7 +55,7 @@ const THREAD_EVENT_TYPES: ReadonlySet<string> = new Set<ThreadEventType>([
 
 /**
  * The format version an event needs, written in its `v`. The events of the first format keep
- * `v: 1`, so that an older version of Local Review still reads every thread that was never archived;
+ * `v: 1`, so that an older version of silykat still reads every thread that was never archived;
  * archiving needs version 2: an older version shows such a thread read-only, and says to update.
  */
 export function eventVersion(type: ThreadEventType | ReviewEvent['type']): number {

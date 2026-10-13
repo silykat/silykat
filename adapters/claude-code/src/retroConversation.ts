@@ -1,6 +1,6 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { ThreadHistory } from '@local-review/core';
+import type { ThreadHistory } from '@silykat/core';
 
 // Claude Code's conversations (transcripts) are an internal format of Claude Code, not a contract:
 // they are only read here, in the adapter, and only to show a retro what the agent did for a thread.
@@ -118,11 +118,11 @@ function isPrompt(e: TranscriptEntry): boolean {
   return bs.some((b) => b.type === 'text') && !bs.some((b) => b.type === 'tool_result');
 }
 
-/** Slack after the reply's time: the tool call starts a moment before `lr reply` writes. */
+/** Slack after the reply's time: the tool call starts a moment before `slk review reply` writes. */
 const LATE_MS = 60_000;
 
 /**
- * Where a reply is in a transcript: the tool call recorded with it, else the latest `lr reply`
+ * Where a reply is in a transcript: the tool call recorded with it, else the latest `slk review reply`
  * naming the thread made before it was written. `-1` when it is not in this transcript.
  */
 export function findReply(entries: readonly TranscriptEntry[], reply: LinkedReply, threadId: string): number {
@@ -136,7 +136,7 @@ export function findReply(entries: readonly TranscriptEntry[], reply: LinkedRepl
     if (Date.parse(e.timestamp ?? '') > until) continue;
     const named = toolUses(e).some((b) => {
       const command = b.input?.command;
-      return typeof command === 'string' && /\blr\b/.test(command) && command.includes(threadId);
+      return typeof command === 'string' && /\bslk\b/.test(command) && command.includes(threadId);
     });
     if (named) return i;
   }
@@ -281,7 +281,7 @@ export async function threadConversations(
   if (replies.length === 0)
     return {
       text:
-        `${head}\n\nNo conversation is linked to this thread: its replies were written before Local Review recorded ` +
+        `${head}\n\nNo conversation is linked to this thread: its replies were written before silykat recorded ` +
         "the agent's session, or by an agent that does not give it. Analyse it from the thread alone.",
       sessions,
       available: false,

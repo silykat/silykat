@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import type { ThreadStatus } from '@local-review/core';
+import type { ThreadStatus } from '@silykat/core';
 import { commentContextValue, threadContextValue } from '../../src/contextValue';
 
 const manifest = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
@@ -35,27 +35,22 @@ describe('thread header actions', () => {
   it('offers Resolve on every unresolved thread, and Reopen only on resolved ones', () => {
     for (const status of STATUSES) {
       const cv = threadContextValue({ status, readOnly: false, onlyDrafts: false });
-      expect(shownFor('localReview.resolveThread', cv), `Resolve on ${status}`).toBe(status !== 'resolved');
-      expect(shownFor('localReview.reopenThread', cv), `Reopen on ${status}`).toBe(status === 'resolved');
+      expect(shownFor('silykat.resolveThread', cv), `Resolve on ${status}`).toBe(status !== 'resolved');
+      expect(shownFor('silykat.reopenThread', cv), `Reopen on ${status}`).toBe(status === 'resolved');
     }
   });
 
   it('offers no write action on read-only threads', () => {
     for (const status of STATUSES) {
       const cv = threadContextValue({ status, readOnly: true, onlyDrafts: false });
-      expect(shownFor('localReview.resolveThread', cv)).toBe(false);
-      expect(shownFor('localReview.reopenThread', cv)).toBe(false);
+      expect(shownFor('silykat.resolveThread', cv)).toBe(false);
+      expect(shownFor('silykat.reopenThread', cv)).toBe(false);
     }
   });
 });
 
 describe('comment actions', () => {
-  const COMMENT_ACTIONS = [
-    'localReview.editComment',
-    'localReview.deleteComment',
-    'localReview.saveEdit',
-    'localReview.cancelEdit',
-  ];
+  const COMMENT_ACTIONS = ['silykat.editComment', 'silykat.deleteComment', 'silykat.saveEdit', 'silykat.cancelEdit'];
 
   it('offers edit and delete on the user’s comments only', () => {
     for (const command of COMMENT_ACTIONS) {
@@ -66,12 +61,12 @@ describe('comment actions', () => {
 
   it('offers Delete Thread on any writable thread, never on read-only ones', () => {
     for (const status of STATUSES) {
-      expect(
-        shownFor('localReview.deleteThread', threadContextValue({ status, readOnly: false, onlyDrafts: false })),
-      ).toBe(true);
-      expect(
-        shownFor('localReview.deleteThread', threadContextValue({ status, readOnly: true, onlyDrafts: false })),
-      ).toBe(false);
+      expect(shownFor('silykat.deleteThread', threadContextValue({ status, readOnly: false, onlyDrafts: false }))).toBe(
+        true,
+      );
+      expect(shownFor('silykat.deleteThread', threadContextValue({ status, readOnly: true, onlyDrafts: false }))).toBe(
+        false,
+      );
     }
   });
 });
@@ -84,21 +79,21 @@ describe('draft-only threads', () => {
       .some((m) => new RegExp(/commentThread =~ \/(.+?)\/(\s|$)/.exec(m.when)![1]!).test(contextValue));
 
   it('are tagged as drafts', () => {
-    expect(threadContextValue({ status: 'open', readOnly: false, onlyDrafts: true })).toBe('lr draft open');
+    expect(threadContextValue({ status: 'open', readOnly: false, onlyDrafts: true })).toBe('slk draft open');
   });
 
   it('can be deleted but not resolved', () => {
     const cv = threadContextValue({ status: 'open', readOnly: false, onlyDrafts: true });
-    expect(shownFor('localReview.deleteThread', cv)).toBe(true);
-    expect(shownFor('localReview.resolveThread', cv)).toBe(false);
+    expect(shownFor('silykat.deleteThread', cv)).toBe(true);
+    expect(shownFor('silykat.resolveThread', cv)).toBe(false);
   });
 
   it('take draft replies ("Add to Review"), never published ones ("Reply")', () => {
     const draft = threadContextValue({ status: 'open', readOnly: false, onlyDrafts: true });
     const published = threadContextValue({ status: 'open', readOnly: false, onlyDrafts: false });
-    expect(regexShown('localReview.addToReview', draft)).toBe(true);
-    expect(regexShown('localReview.reply', draft)).toBe(false);
-    expect(regexShown('localReview.reply', published)).toBe(true);
+    expect(regexShown('silykat.addToReview', draft)).toBe(true);
+    expect(regexShown('silykat.reply', draft)).toBe(false);
+    expect(regexShown('silykat.reply', published)).toBe(true);
   });
 });
 
@@ -110,9 +105,9 @@ describe('buttons of a published thread', () => {
       .filter((m) => m.when.includes('!commentThreadIsEmpty'))
       .filter((m) => new RegExp(/commentThread =~ \/(.+?)\/(\s|$)/.exec(m.when)![1]!).test(contextValue))
       .filter((m) =>
-        m.when.includes('!localReview.reviewActive')
+        m.when.includes('!silykat.reviewActive')
           ? !reviewActive
-          : m.when.includes('localReview.reviewActive')
+          : m.when.includes('silykat.reviewActive')
             ? reviewActive
             : true,
       )
@@ -122,15 +117,15 @@ describe('buttons of a published thread', () => {
   const draftOnly = threadContextValue({ status: 'open', readOnly: false, onlyDrafts: true });
 
   it('offers "Reply" when no review is in progress', () => {
-    expect(buttons(published, false)).toEqual(['localReview.reply']);
+    expect(buttons(published, false)).toEqual(['silykat.reply']);
   });
 
   it('offers "Add to Review" first, then "Reply Now", during a review', () => {
-    expect(buttons(published, true)).toEqual(['localReview.addToReview', 'localReview.replyNow']);
+    expect(buttons(published, true)).toEqual(['silykat.addToReview', 'silykat.replyNow']);
   });
 
   it('only offers "Add to Review" on a draft-only thread', () => {
-    expect(buttons(draftOnly, true)).toEqual(['localReview.addToReview']);
+    expect(buttons(draftOnly, true)).toEqual(['silykat.addToReview']);
   });
 });
 
@@ -151,20 +146,17 @@ describe('threads made in a diff', () => {
     });
 
   it('are tagged "diff" and offer "Open Original Diff"', () => {
-    expect(inDiff()).toBe('lr open diff');
-    expect(shownFor('localReview.openOriginalDiff', inDiff())).toBe(true);
+    expect(inDiff()).toBe('slk open diff');
+    expect(shownFor('silykat.openOriginalDiff', inDiff())).toBe(true);
     expect(
-      shownFor(
-        'localReview.openOriginalDiff',
-        threadContextValue({ status: 'open', readOnly: false, onlyDrafts: false }),
-      ),
+      shownFor('silykat.openOriginalDiff', threadContextValue({ status: 'open', readOnly: false, onlyDrafts: false })),
     ).toBe(false);
   });
 
   it('keep every other action', () => {
-    expect(shownFor('localReview.resolveThread', inDiff())).toBe(true);
-    expect(shownFor('localReview.deleteThread', inDiff({ onlyDrafts: true }))).toBe(true);
-    expect(shownFor('localReview.reopenThread', inDiff({ status: 'resolved' }))).toBe(true);
-    expect(shownFor('localReview.resolveThread', inDiff({ readOnly: true }))).toBe(false);
+    expect(shownFor('silykat.resolveThread', inDiff())).toBe(true);
+    expect(shownFor('silykat.deleteThread', inDiff({ onlyDrafts: true }))).toBe(true);
+    expect(shownFor('silykat.reopenThread', inDiff({ status: 'resolved' }))).toBe(true);
+    expect(shownFor('silykat.resolveThread', inDiff({ readOnly: true }))).toBe(false);
   });
 });

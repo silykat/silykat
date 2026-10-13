@@ -21,7 +21,7 @@ export const FAMILIES = {
   setup: ['skills', 'commands', 'subagents'],
   workflow: ['context_pressure', 'handoff', 'repeated_requests', 'autonomy'],
   cost: ['api_errors'],
-  delivery: ['pull_requests', 'git', 'local_review_messages'],
+  delivery: ['pull_requests', 'git', 'silykat_messages'],
 } as const;
 
 type Json = Record<string, unknown>;
@@ -532,7 +532,7 @@ export async function analyseSession(sessionFile: string): Promise<SessionAnalyt
           !e.isCompactSummary &&
           (origin.kind ?? 'human') === 'human' &&
           !INJECTED.test(text);
-        if (origin.kind === 'channel') add('delivery', 'local_review_messages', at(n, e, { text: cut(text, 200) }));
+        if (origin.kind === 'channel') add('delivery', 'silykat_messages', at(n, e, { text: cut(text, 200) }));
         if (human) {
           const after = [...actionsSincePrompt.reduce((m, a) => bump(m, a), new Map<string, number>())].sort(
             (a, b) => b[1] - a[1],

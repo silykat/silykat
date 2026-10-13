@@ -2,7 +2,7 @@ import { createReadStream } from 'node:fs';
 import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { createInterface } from 'node:readline';
-import { inFolders, localReviewHome, projectFolders, type RetroSession } from '@local-review/core';
+import { inFolders, silykatHome, projectFolders, type RetroSession } from '@silykat/core';
 import { runProcess, type Runner } from './retroAudit';
 
 /**
@@ -49,7 +49,7 @@ export async function runInsights(
   run: Runner = runProcess,
   timeoutMs = INSIGHTS_TIMEOUT_MS,
 ): Promise<InsightsRun> {
-  const claude = env.LR_CLAUDE_BIN?.trim() || 'claude';
+  const claude = env.SLK_CLAUDE_BIN?.trim() || 'claude';
   const r = await run(claude, ['-p', INSIGHTS_COMMAND, '--output-format', 'json'], { cwd: root, env, timeoutMs });
   if (r.timedOut) return { kind: 'failed', reason: `it took more than ${Math.round(timeoutMs / 60_000)} min` };
   let out: { is_error?: unknown; result?: unknown; total_cost_usd?: unknown; duration_ms?: unknown };
@@ -68,7 +68,7 @@ export async function runInsights(
   };
 }
 
-const fieldsFile = (env: Env) => join(localReviewHome(env), FIELDS_FILE);
+const fieldsFile = (env: Env) => join(silykatHome(env), FIELDS_FILE);
 
 /** The formats known on this machine: the known one first, then those learnt (`insights-fields.json`). */
 export async function readFieldMaps(env: Env): Promise<FieldMap[]> {
@@ -87,7 +87,7 @@ export async function readFieldMaps(env: Env): Promise<FieldMap[]> {
 
 async function writeFieldMaps(env: Env, maps: readonly FieldMap[]): Promise<void> {
   const file = fieldsFile(env);
-  await mkdir(localReviewHome(env), { recursive: true });
+  await mkdir(silykatHome(env), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
   await writeFile(tmp, JSON.stringify({ formats: maps.slice(1) }, null, 2) + '\n');
   await rename(tmp, file);
@@ -147,7 +147,7 @@ export async function askFieldMap(
     '',
     JSON.stringify(describeFields(files), null, 2),
   ].join('\n');
-  const claude = env.LR_CLAUDE_BIN?.trim() || 'claude';
+  const claude = env.SLK_CLAUDE_BIN?.trim() || 'claude';
   const r = await run(
     claude,
     [

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { CommentState, ThreadState } from '@local-review/core';
+import type { CommentState, ThreadState } from '@silykat/core';
 import { commentContextValue, threadContextValue } from './contextValue';
 import { DEFAULT_AGENT_NAME, editedAfterAgentReplied, outdatedQuote, threadLabel } from './labels';
 import { toZeroBasedLines } from './range';
@@ -26,7 +26,7 @@ export function bodyText(body: string | vscode.MarkdownString): string {
 }
 
 /** A rendered comment that knows which stored comment it shows. */
-export class LrComment implements vscode.Comment {
+export class SlkComment implements vscode.Comment {
   body: string | vscode.MarkdownString;
   mode = vscode.CommentMode.Preview;
   readonly author: vscode.CommentAuthorInformation;
@@ -100,14 +100,14 @@ export function applyThreadState(
 ): void {
   const editing = new Map(
     thread.comments
-      .filter((c): c is LrComment => c instanceof LrComment && c.mode === vscode.CommentMode.Editing)
+      .filter((c): c is SlkComment => c instanceof SlkComment && c.mode === vscode.CommentMode.Editing)
       .map((c) => [c.commentId, c]),
   );
   const quote = opts.outdated ? outdatedQuote(state.anchor.snippet) : '';
   thread.comments = state.comments.map(
     (c, i) =>
       editing.get(c.id) ??
-      new LrComment(state.id, c, ctx, i === 0 ? quote : '', editedAfterAgentReplied(state.comments, c)),
+      new SlkComment(state.id, c, ctx, i === 0 ? quote : '', editedAfterAgentReplied(state.comments, c)),
   );
   thread.label = threadLabel(state, opts.outdated);
   thread.contextValue = threadContextValue(state);
