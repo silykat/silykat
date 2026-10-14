@@ -1,14 +1,15 @@
 {
   "name": "silykat",
-  "description": "silykat: a GitHub-style code review between you and your AI coding agent, 100% local.",
+  "description": "silykat: a GitHub-style code review between you and your AI coding agent, 100% local, and retros to improve its setup.",
   "owner": {
-    "name": "Lakhdar Benamer"
+    "name": "silykat",
+    "url": "https://github.com/silykat"
   },
   "plugins": [
     {
       "name": "silykat",
       "source": "./adapters/claude-code/plugin",
-      "description": "Address the review comments left in VS Code with the silykat extension, and reply in their threads."
+      "description": "Claude receives the review comments you leave in VS Code with the silykat extension, changes the code and replies in their threads; plus retros of your work with Claude."
     }
   ]
 }

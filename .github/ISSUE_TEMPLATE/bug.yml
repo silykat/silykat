@@ -1,0 +1,35 @@
+name: Bug
+description: Something does not work as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to reproduce
+      description: The steps, as short as possible.
+      placeholder: |
+        1. Open …
+        2. Comment on …
+        3. …
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: silykat (extension and plugin), VS Code or your editor, Claude Code, your OS.
+      placeholder: silykat 0.11.0, VS Code 1.141, Claude Code 2.1.296, macOS 15
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Optional. Remove anything private first.

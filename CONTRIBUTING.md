@@ -32,13 +32,14 @@ The repository is an npm workspaces monorepo: `packages/core`, `packages/cli`, `
 
 ## Continuous integration
 
-Every pull request to `main`, to an `epic/*` branch or to a `feat/*` branch (a story stacked on the previous one) runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml), on Linux:
+Every pull request to `main`, to an `epic/*` branch or to a `feat/*` branch (a story stacked on the previous one) runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
 
 - **Pull request title** ([`.github/workflows/pr-title.yml`](.github/workflows/pr-title.yml), checked again when the title is edited): Conventional Commits (commitlint);
 - **Checks, unit tests and package**: typecheck, lint, format, unit tests (with dependency boundaries and plugin bundles), coverage floors, and the `.vsix`, downloadable from the run's artifacts;
-- **Integration tests (Linux)**: in the image of `npm run test:linux`.
+- **Integration tests (Linux)**: in the image of `npm run test:linux`;
+- **Integration tests (macOS)**: on a macOS runner.
 
-The macOS integration tests run on the maintainer's machine for now; the macOS job only runs when started by hand (it costs ten times the minutes of Linux on a private repository). Actions are pinned by commit, and [Dependabot](.github/dependabot.yml) proposes updates every week, never of a version published less than 7 days ago.
+Actions are pinned by commit, and [Dependabot](.github/dependabot.yml) proposes updates every week, never of a version published less than 7 days ago.
 
 ## Testing on Linux
 
@@ -101,9 +102,17 @@ The extension and the plugin (with its `slk`) share **one version**. [release-pl
 
 - `feat` → minor, `fix` → patch, a breaking change → minor while in 0.x; `chore`, `ci`, `docs`, `test` and `build` alone make no release;
 - after each merge into `main`, the release pull request is opened or updated, with the next version and `CHANGELOG.md`;
-- merging it tags `vX.Y.Z` and creates the GitHub release. Nothing is published to a marketplace yet;
+- merging it tags `vX.Y.Z` and creates the GitHub release. Then the **Publish the extension** job builds the `.vsix`, waits for a maintainer to approve the `marketplace` environment, publishes it to the VS Code Marketplace and to Open VSX, and attaches it to the release. The plugin needs no publishing: Claude Code installs it from this repository, and its version is the release's;
 - the checks of the release pull request need an approval (**Approve and run workflows** on the pull request), as GitHub Actions opened it;
 - `npm run build:release` builds the deliverables of the current version: the plugin bundles and the `.vsix`.
+
+### Publishing the extension
+
+The `marketplace` environment (Settings → Environments) holds what the publish job needs, and only `main` and `publish/identity` can use it, after a maintainer's approval:
+
+- **The VS Code Marketplace**: no password. The job signs in to Azure with OpenID Connect (`azure/login`) as a **user-assigned managed identity**, which trusts this repository's `marketplace` environment through a federated credential (subject `repo:silykat@339345132/silykat@1388971403:environment:marketplace`: GitHub sends the ids of the organization and the repository). `vsce publish --azure-credential` then gets its token from the Azure CLI. The identity is a **Contributor** member of the `silykat` publisher. Secrets: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`.
+- **The id of the identity for the Marketplace**: run the **Marketplace identity** workflow (Actions tab, or push a branch named `publish/identity`), approve it, and add the id it shows to the publisher's members, as a Contributor. Once.
+- **Open VSX**: an access token of the `silykat` namespace. Secret: `OVSX_TOKEN`.
 
 Versions are never bumped by hand. The store format has its own version (`v` in each event): an extension or an `slk` that meets a newer format keeps those comments read-only and says to update silykat.
 

@@ -1,6 +1,8 @@
 # One product version for the extension and the plugin (with its `slk`). After each merge into main,
 # release-please opens or updates the release pull request (next version, CHANGELOG). Merging it
-# tags the version and creates the GitHub release. Nothing is published to a marketplace yet.
+# tags the version and creates the GitHub release, then the extension is published to the VS Code
+# Marketplace and to Open VSX (which Cursor reads), once a maintainer approves the `marketplace`
+# environment. The plugin needs no publishing: it installs from this repository.
 name: Release
 
 on:
@@ -15,11 +17,60 @@ concurrency:
   group: release
   cancel-in-progress: false
 
+env:
+  HUSKY: 0 # no git hooks in the CI
+
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
-      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+      - id: release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  publish:
+    name: Publish the extension
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    # Holds the Azure identity and the Open VSX token, and waits for a maintainer's approval.
+    environment: marketplace
+    permissions:
+      contents: write # attach the .vsix to the release
+      id-token: write # sign in to Azure with OpenID Connect, without a stored password
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run package # also checks that the extension makes no network call
+      # The managed identity added as a Contributor of the `silykat` publisher; see CONTRIBUTING.md.
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Publish to the VS Code Marketplace
+        working-directory: packages/vscode-extension
+        run: npx vsce publish --azure-credential --packagePath dist/silykat.vsix
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      - name: Publish to Open VSX
+        working-directory: packages/vscode-extension
+        run: npx ovsx publish dist/silykat.vsix --pat "$OVSX_PAT"
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_TOKEN }}
+      - name: Attach the extension to the release
+        run: gh release upload "$TAG" packages/vscode-extension/dist/silykat.vsix --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}

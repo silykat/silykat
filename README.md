@@ -1,5 +1,9 @@
 # silykat
 
+[![CI](https://github.com/silykat/silykat/actions/workflows/ci.yml/badge.svg)](https://github.com/silykat/silykat/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/silykat/silykat)](https://github.com/silykat/silykat/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 **A GitHub-style code review between you and your AI coding agent, 100% local.**
 
 Select lines in VS Code, leave comments like on a pull request, and your agent reads them, changes the code and answers in the threads. No pull request, no server, no account: comments live next to your code, and nothing leaves your machine (unless you opt in to an online classifier for your retros).
@@ -47,12 +51,16 @@ silykat is agent-agnostic by design; **Claude Code** is the first supported agen
 ## Requirements
 
 - **VS Code** 1.100 or later (or an editor based on it: see [Other editors based on VS Code](#other-editors-based-on-vs-code-cursor-vscodium-windsurf)).
-- **Node.js** 22.12 or later, with **npm** 11.10 or later, and **git**, to build the extension (it is not on the Marketplace yet).
+- **git**. To build the extension from source instead of installing it from a marketplace: **Node.js** 22.12 or later, with **npm** 11.10 or later.
 - For the agent integration: **Claude Code** in a terminal, logged in with a claude.ai account (Pro or Max) or a Console API key. Team and Enterprise organizations must enable channels (see [Known limitations](#known-limitations)).
 
 ## Installation
 
 ### 1. The VS Code extension
+
+From version 0.11.0, install **silykat** from the Extensions view: it is published on the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=silykat.silykat) and on [Open VSX](https://open-vsx.org/extension/silykat/silykat) (Cursor, VSCodium, Windsurf…). Each [release](https://github.com/silykat/silykat/releases) also has the `.vsix` file: **Extensions: Install from VSIX…**.
+
+To build it from source:
 
 ```sh
 git clone git@github.com:silykat/silykat.git
@@ -65,7 +73,7 @@ This builds `packages/vscode-extension/dist/silykat.vsix` and installs it with t
 
 #### Other editors based on VS Code (Cursor, VSCodium, Windsurf…)
 
-These editors are not tested yet. The editor must be based on VS Code 1.100 or later.
+These editors are not tested yet. The editor must be based on VS Code 1.100 or later. They install extensions from Open VSX. To install a build from source:
 
 1. Build the extension without installing it:
 
@@ -85,7 +93,7 @@ claude plugin marketplace add silykat/silykat
 claude plugin install silykat@silykat
 ```
 
-The repository is private for now: this needs git access to it. To update later:
+To update later:
 
 ```sh
 claude plugin marketplace update silykat

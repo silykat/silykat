@@ -1,11 +1,20 @@
 {
   "name": "silykat",
   "displayName": "silykat",
-  "description": "GitHub-style code review between you and your AI coding agent, 100% local.",
+  "description": "Comment your code like on a pull request, and let your AI coding agent (Claude Code) answer in the threads. Then look back with retros to improve its setup. 100% local.",
   "version": "0.10.0",
   "publisher": "silykat",
   "private": true,
   "license": "MIT",
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#14110F",
+    "theme": "dark"
+  },
+  "homepage": "https://github.com/silykat/silykat#readme",
+  "bugs": {
+    "url": "https://github.com/silykat/silykat/issues"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/silykat/silykat"
@@ -14,7 +23,23 @@
     "vscode": "^1.100.0"
   },
   "categories": [
+    "AI",
     "Other"
+  ],
+  "keywords": [
+    "code review",
+    "review",
+    "comments",
+    "pull request",
+    "claude",
+    "claude code",
+    "ai",
+    "agent",
+    "coding agent",
+    "retro",
+    "retrospective",
+    "local",
+    "threads"
   ],
   "extensionKind": [
     "workspace"
@@ -563,7 +588,7 @@
     "test": "vitest run",
     "test:integration": "node esbuild.mjs --tests && vscode-test",
     "test:integration:coverage": "node esbuild.mjs --tests && vscode-test --coverage --coverage-output ../../coverage/integration",
-    "package": "node esbuild.mjs --production && node scripts/check-local-only.mjs && vsce package --no-dependencies --skip-license -o dist/silykat.vsix"
+    "package": "node esbuild.mjs --production && node scripts/check-local-only.mjs && vsce package --no-dependencies -o dist/silykat.vsix"
   },
   "devDependencies": {
     "@silykat/core": "0.1.0",
@@ -571,6 +596,7 @@
     "@types/vscode": "1.100.0",
     "@vscode/test-cli": "0.0.15",
     "@vscode/test-electron": "3.1.0",
-    "@vscode/vsce": "4.0.0"
+    "@vscode/vsce": "4.0.0",
+    "ovsx": "1.2.0"
   }
 }
