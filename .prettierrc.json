@@ -5,5 +5,13 @@
   "semi": true,
   "tabWidth": 2,
   "arrowParens": "always",
-  "endOfLine": "lf"
+  "endOfLine": "lf",
+  "overrides": [
+    {
+      "files": "adapters/claude-code/plugin/.claude-plugin/plugin.json",
+      "options": {
+        "parser": "json-stringify"
+      }
+    }
+  ]
 }
