@@ -137,7 +137,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Silyka
     }),
   );
 
-  review.worktreeWarnings = rememberedSet(context.globalState, 'silykat.warnedWorktrees');
+  const warnedWorktrees = rememberedSet(context.globalState, 'silykat.warnedWorktrees');
+  review.worktreeWarnings = warnedWorktrees;
   const defaultConfirm = review.confirm;
   const defaultChoose = review.choose;
   const defaultSummaryPrompt = reviewUi.promptSummary;
@@ -203,7 +204,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Silyka
     },
     lastEraseOffer: () => history.offered,
     warnIfWorktree: (path) => review.warnIfWorktree(path),
-    forgetWorktreeWarnings: () => Promise.resolve(context.globalState.update('silykat.warnedWorktrees', undefined)),
+    forgetWorktreeWarnings: () => warnedWorktrees.clear(),
     shownSessions: () => sessions.sessions.relevant.map((s) => s.id),
     refreshSessions: async () => {
       await sessions.refresh();
@@ -216,12 +217,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<Silyka
   };
 }
 
-/** A set of strings kept in the extension's state, across restarts. */
-function rememberedSet(state: vscode.Memento, key: string): { has(v: string): boolean; add(v: string): void } {
+/**
+ * A set of strings kept in the extension's state, across restarts. What this window adds is kept in
+ * memory too: VS Code sends each write of the state back to the extension, and an echo that arrives
+ * after a newer write puts the older value back for a while, so an addition could be missed (seen in
+ * the integration tests), then lost by the next write.
+ */
+function rememberedSet(
+  state: vscode.Memento,
+  key: string,
+): { has(v: string): boolean; add(v: string): void; clear(): Promise<void> } {
+  const added = new Set<string>();
   const all = () => state.get<string[]>(key) ?? [];
   return {
-    has: (v) => all().includes(v),
-    add: (v) => void state.update(key, [...all().filter((x) => x !== v), v]),
+    has: (v) => added.has(v) || all().includes(v),
+    add: (v) => {
+      added.add(v);
+      void state.update(key, [...new Set([...all(), ...added])]);
+    },
+    clear: async () => {
+      added.clear();
+      await state.update(key, undefined);
+    },
   };
 }
 
