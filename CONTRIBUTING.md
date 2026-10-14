@@ -32,13 +32,14 @@ The repository is an npm workspaces monorepo: `packages/core`, `packages/cli`, `
 
 ## Continuous integration
 
-Every pull request to `main`, to an `epic/*` branch or to a `feat/*` branch (a story stacked on the previous one) runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml), on Linux:
+Every pull request to `main`, to an `epic/*` branch or to a `feat/*` branch (a story stacked on the previous one) runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
 
 - **Pull request title** ([`.github/workflows/pr-title.yml`](.github/workflows/pr-title.yml), checked again when the title is edited): Conventional Commits (commitlint);
 - **Checks, unit tests and package**: typecheck, lint, format, unit tests (with dependency boundaries and plugin bundles), coverage floors, and the `.vsix`, downloadable from the run's artifacts;
-- **Integration tests (Linux)**: in the image of `npm run test:linux`.
+- **Integration tests (Linux)**: in the image of `npm run test:linux`;
+- **Integration tests (macOS)**: on a macOS runner.
 
-The macOS integration tests run on the maintainer's machine for now; the macOS job only runs when started by hand (it costs ten times the minutes of Linux on a private repository). Actions are pinned by commit, and [Dependabot](.github/dependabot.yml) proposes updates every week, never of a version published less than 7 days ago.
+Actions are pinned by commit, and [Dependabot](.github/dependabot.yml) proposes updates every week, never of a version published less than 7 days ago.
 
 ## Testing on Linux
 
