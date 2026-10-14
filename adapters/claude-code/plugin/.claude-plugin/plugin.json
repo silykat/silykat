@@ -10,5 +10,14 @@
   "homepage": "https://github.com/silykat/silykat#readme",
   "repository": "https://github.com/silykat/silykat",
   "license": "MIT",
-  "keywords": ["code review", "review", "comments", "vscode", "retro", "retrospective", "local", "channel"]
+  "keywords": [
+    "code review",
+    "review",
+    "comments",
+    "vscode",
+    "retro",
+    "retrospective",
+    "local",
+    "channel"
+  ]
 }
