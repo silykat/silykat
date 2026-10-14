@@ -1,7 +1,7 @@
 {
   "name": "silykat",
   "displayName": "silykat",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Code review between you and Claude Code, 100% local: Claude receives the comments you leave in VS Code with the silykat extension, changes the code and replies in their threads. Plus retros of your work with Claude, to improve its setup.",
   "author": {
     "name": "Lakhdar Lawrence",
@@ -10,5 +10,14 @@
   "homepage": "https://github.com/silykat/silykat#readme",
   "repository": "https://github.com/silykat/silykat",
   "license": "MIT",
-  "keywords": ["code review", "review", "comments", "vscode", "retro", "retrospective", "local", "channel"]
+  "keywords": [
+    "code review",
+    "review",
+    "comments",
+    "vscode",
+    "retro",
+    "retrospective",
+    "local",
+    "channel"
+  ]
 }

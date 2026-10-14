@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.11.0](https://github.com/silykat/silykat/compare/v0.10.0...v0.11.0) (2026-10-14)
+
+
+### ⚠ BREAKING CHANGES
+
+* rename your .local-review folders to .silykat (and ~/.local-review to ~/.silykat), run slk review <command> instead of lr <command>, and install the silykat extension and the silykat@silykat plugin in place of the old ones
+
+### Features
+
+* rename the product to silykat, with the slk command line and its commands grouped by module ([c638277](https://github.com/silykat/silykat/commit/c638277f402d085c31255b57604f10a6139d56a4))
+* **vscode-extension:** install silykat from the VS Code Marketplace or Open VSX ([c638277](https://github.com/silykat/silykat/commit/c638277f402d085c31255b57604f10a6139d56a4))
+
 ## [0.10.0](https://github.com/lbenamer/local-review/compare/v0.9.0...v0.10.0) (2026-10-13)
 
 
