@@ -4,7 +4,7 @@
   "version": "0.10.0",
   "description": "Code review between you and Claude Code, 100% local: Claude receives the comments you leave in VS Code with the silykat extension, changes the code and replies in their threads. Plus retros of your work with Claude, to improve its setup.",
   "author": {
-    "name": "Lakhdar Benamer",
+    "name": "Lakhdar Lawrence",
     "url": "https://github.com/silykat"
   },
   "homepage": "https://github.com/silykat/silykat#readme",
