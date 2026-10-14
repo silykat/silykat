@@ -116,6 +116,11 @@ export class ReviewController implements vscode.Disposable {
    * other files): an older one that finishes after a newer one would show a stale state.
    */
   private readonly loads = new Map<string, number>();
+  /**
+   * The newest reload of each thread, while it runs. An older one gives way to it, and waits for it:
+   * whoever awaited the older one (a submitted review…) then sees the thread as it is now.
+   */
+  private readonly threadLoads = new Map<string, Promise<void>>();
   /** Folders already told that a newer version of silykat wrote some of their comments. */
   private readonly warnedNewer = new Set<string>();
   /** Which branch is checked out where, to show each thread on its branch only. */
@@ -350,6 +355,7 @@ export class ReviewController implements vscode.Disposable {
     const published = this.draftCount(review);
     const threadIds = this.pendingThreads(review).map((t) => t.id);
     await root.store.submitReview(review.id, summary);
+    this.startLoad(`reviews|${root.path}`, root); // a reload of the reviews read before would bring it back
     this.setActiveReview(root, review, null);
     this.updateReviewContext();
     await this.refreshRoot(root);
@@ -361,6 +367,7 @@ export class ReviewController implements vscode.Disposable {
   async discardReview(root: Root, review: ReviewState): Promise<number> {
     const dropped = this.draftCount(review);
     await root.store.discardReview(review.id);
+    this.startLoad(`reviews|${root.path}`, root); // a reload of the reviews read before would bring it back
     this.setActiveReview(root, review, null);
     this.updateReviewContext();
     await this.refreshRoot(root);
@@ -791,32 +798,46 @@ export class ReviewController implements vscode.Disposable {
 
   /** Re-reads one journal after it changed on disk, whoever wrote it. */
   async refreshThread(root: Root, threadId: string): Promise<void> {
-    const latest = this.startLoad(`thread|${root.path}|${threadId}`, root);
+    const key = `thread|${root.path}|${threadId}`;
+    const load: Promise<void> = this.reloadThread(root, threadId, this.startLoad(key, root)).then(async (overtaken) => {
+      const newer = this.threadLoads.get(key);
+      if (overtaken && newer && newer !== load) await newer;
+    });
+    this.threadLoads.set(key, load);
+    try {
+      await load;
+    } finally {
+      if (this.threadLoads.get(key) === load) this.threadLoads.delete(key);
+    }
+  }
+
+  /** Reads a thread again and shows it. Returns true when a newer reload overtook this one. */
+  private async reloadThread(root: Root, threadId: string, latest: () => boolean): Promise<boolean> {
     let state: ThreadState | null;
     try {
       const loaded = await root.store.loadThread(threadId);
-      if (!latest()) return;
+      if (!latest()) return true;
       loaded.warnings.forEach((w) => this.log.warn(`${root.path}: ${w}`));
       state = loaded.state;
     } catch (err) {
       this.log.error(`${root.path}: failed to reload thread ${threadId}`, err);
-      return;
+      return false;
     }
 
     const existing = this.managed.get(threadId);
     if (!state || state.deleted || state.archived) {
       this.forget(threadId);
-      return;
+      return false;
     }
     await this.branches.learn(this.fileOf(root, state));
-    if (!latest()) return;
+    if (!latest()) return true;
     if (!this.onItsBranch(root, state)) {
       this.hide(root, state);
-      return;
+      return false;
     }
     if (!existing) {
       this.render(root, state);
-      return;
+      return false;
     }
 
     const turnedToUser =
@@ -835,6 +856,7 @@ export class ReviewController implements vscode.Disposable {
     }
     // Bring the thread to the user's attention when the agent hands the ball back.
     if (turnedToUser) existing.thread.collapsibleState = vscode.CommentThreadCollapsibleState.Expanded;
+    return false;
   }
 
   cancelNewThread(reply: vscode.CommentReply | vscode.CommentThread): void {
