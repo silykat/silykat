@@ -168,7 +168,10 @@ describe('The comment follows the code when the file changes', () => {
     await edit(uri, (e) => e.insert(uri, new vscode.Position(0, 0), 'a\nb\nc\nd\ne\n'));
     await edit(uri, (e) => e.replace(uri, new vscode.Range(25, 0, 25, 16), 'const v21 = 2100;')); // edit inside
     await doc.save();
-    await waitFor('the saved position', () => (anchorUpdates(id).length === 1 ? true : undefined));
+    // Written to the journal first, then read back into the thread.
+    await waitFor('the saved position', () =>
+      anchorUpdates(id).length === 1 && managed(id).state.anchor.range?.startLine === 25 ? true : undefined,
+    );
     const saved = managed(id).state.anchor;
     assert.deepEqual(saved.range, { startLine: 25, endLine: 27 });
 
