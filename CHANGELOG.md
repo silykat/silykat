@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.1](https://github.com/silykat/silykat/compare/v0.11.0...v0.11.1) (2026-10-14)
+
+
+### Bug Fixes
+
+* **vscode-extension:** show submitted reviews and worktree warnings reliably ([#64](https://github.com/silykat/silykat/issues/64)) ([ae10f1c](https://github.com/silykat/silykat/commit/ae10f1c753b1e3395f13c50c1857211263488e36))
+
 ## [0.11.0](https://github.com/silykat/silykat/compare/v0.10.0...v0.11.0) (2026-10-14)
 
 
