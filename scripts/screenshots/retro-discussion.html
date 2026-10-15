@@ -1,0 +1,73 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="vscode.css">
+<style>
+  body { width: 1300px; height: 790px; position: relative; }
+  .status { position: absolute; left: 0; right: 0; bottom: 0; }
+  .term { height: 733px; position: relative; overflow: hidden; }
+  .bottom { position: absolute; left: 14px; right: 14px; bottom: 8px; }
+  .h { color: #fff; font-weight: 700; }
+  .quote { color: #999999; font-style: italic; }
+  .code-in { color: #b1b9f9; }
+  .hr { color: #555; display: block; overflow: hidden; white-space: nowrap; }
+</style>
+</head>
+<body>
+  <div class="tabs"><div class="tab"><i class="codicon codicon-terminal" style="margin:0"></i> ✳ Retro of the shop project <i class="codicon codicon-close"></i></div></div>
+  <div class="term"><span class="g">  The analysis read 2 sources: your review threads (14) and your sessions (9).</span>
+
+<span class="w">⏺</span> <span class="h">Proposal 2/4 (p3) · To improve · Keep amounts in cents</span>
+
+  <span class="b">Source</span>: 3 threads
+  - t_01M4X8K2Q9HZ3F7N6B5R2T1W0Y (src/cart.ts:14, resolved): "Round the total to cents here, so that the checkout
+    and the cart show the same amount."
+  - t_01M4XA3D7PJ2W9C4E8V1M6S5KQ (src/checkout.ts:22, resolved): "Keep the price in cents, a float drifts after a few
+    lines."
+  - t_01M4XC9F2LN7Q3T8B1Y5H4R6DZ (src/refunds.ts:9, addressed): "Same as in the cart: cents, not euros."
+
+  <span class="b">Numbers</span>: 3 threads, 1 reopened, 0 with a question from the agent, 2 round(s) of back-and-forth, from 2026-10-06
+  10:12 to 2026-10-13 16:40.
+
+  <span class="b">File</span>: <span class="code-in">CLAUDE.md</span> (rule)
+
+  <span class="b">Why</span>: You asked for amounts in cents in three files, and CLAUDE.md says nothing about money.
+
+  <span class="b">Proposed change</span>:
+  <span class="quote">▎ Amounts are integers in cents everywhere. Convert them to a decimal only to display them, with formatPrice.</span>
+
+  <span class="b">Target</span>: project, shared (committed, for the team).
+
+  <span class="b">Confidence</span>: 85% · recommended: accepted
+
+  The exact change, in <span class="code-in">CLAUDE.md</span>:
+
+  <span class="g">  ## Conventions</span>
+  <span class="g">  </span>
+  <span class="g">  - TypeScript strict, tests with vitest.</span>
+  <span class="dadd" style="display:inline">  + - Amounts are integers in cents everywhere. Convert them to a decimal only to display them, with `formatPrice`.          </span>
+
+<span class="g">⏺</span> User answered Claude's questions:
+<span class="g">  ⎿  · Keep amounts in cents: apply this change to CLAUDE.md? → Accept (Recommended)</span>
+
+<span class="w">⏺</span> Recorded. The change is being written to <span class="code-in">CLAUDE.md</span> in the background.
+
+<div class="bottom"><span class="rule">────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span><span class="w">❯</span>
+<span class="rule">────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>  <span class="warn">⏵⏵ auto mode on</span> <span class="g">(shift+tab to cycle)</span></div></div>
+
+  <div class="status">
+    <span class="item remote"><i class="codicon codicon-remote"></i></span>
+    <span class="item"><i class="codicon codicon-git-branch"></i> main</span>
+    <span class="item"><i class="codicon codicon-sync"></i></span>
+    <span class="item"><i class="codicon codicon-hubot"></i> Claude 9b41e07c</span>
+    <span class="item hover"><i class="codicon codicon-bell-dot"></i> Retro due: 8 d · 96.4 KB</span>
+    <span class="item"><i class="codicon codicon-error"></i> 0 <i class="codicon codicon-warning"></i> 0</span>
+    <span class="spacer"></span>
+    <span class="item">Spaces: 2</span>
+    <span class="item">UTF-8</span>
+    <span class="item">LF</span>
+    <span class="item"><i class="codicon codicon-bell"></i></span>
+  </div>
+</body>
+</html>

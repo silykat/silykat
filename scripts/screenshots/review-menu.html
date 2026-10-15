@@ -1,0 +1,93 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="vscode.css">
+<style>
+  body { width: 1100px; height: 520px; position: relative; }
+  .status { position: absolute; left: 0; right: 0; bottom: 0; }
+  .quickpick { top: 6px; }
+</style>
+</head>
+<body>
+  <div class="quickpick">
+    <div class="qp-title">silykat: review in progress</div>
+    <div class="qp-input"></div>
+    <div class="qp-item active"><div class="row"><i class="codicon codicon-check"></i> Submit Review</div></div>
+    <div class="qp-item"><div class="row"><i class="codicon codicon-list-unordered"></i> Show Pending Comments</div></div>
+    <div class="qp-item"><div class="row"><i class="codicon codicon-trash"></i> Discard Review</div></div>
+  </div>
+
+  <div class="tabs"><div class="tab"><span class="ts">TS</span> cart.ts <i class="codicon codicon-close"></i></div></div>
+  <div class="crumbs">src <i class="codicon codicon-chevron-right"></i> <span class="ts">TS</span> cart.ts <i class="codicon codicon-chevron-right"></i> <i class="codicon codicon-symbol-method" style="color:#b180d7"></i> cartTotal</div>
+
+  <div class="code pad">
+    <div class="line"><span class="n">7</span></div>
+    <div class="line"><span class="n">8</span><span class="c">export</span><span class="p"> </span><span class="k">function</span><span class="p"> </span><span class="f">cartTotal</span><span class="p">(</span><span class="v">lines</span><span class="p">: </span><span class="t">CartLine</span><span class="p">[], </span><span class="v">products</span><span class="p">: </span><span class="t">Product</span><span class="p">[]): </span><span class="t">number</span><span class="p"> {</span></div>
+    <div class="line"><span class="n">9</span><span class="p">  </span><span class="k">const</span><span class="p"> </span><span class="v">byId</span><span class="p"> = </span><span class="k">new</span><span class="p"> </span><span class="t">Map</span><span class="p">(</span><span class="v">products</span><span class="p">.</span><span class="f">map</span><span class="p">((</span><span class="v">p</span><span class="p">) </span><span class="k">=&gt;</span><span class="p"> [</span><span class="v">p</span><span class="p">.</span><span class="v">id</span><span class="p">, </span><span class="v">p</span><span class="p">]));</span></div>
+    <div class="line"><span class="n">10</span><span class="p">  </span><span class="c">return</span><span class="p"> </span><span class="v">lines</span><span class="p">.</span><span class="f">reduce</span><span class="p">((</span><span class="v">sum</span><span class="p">, </span><span class="v">line</span><span class="p">) </span><span class="k">=&gt;</span><span class="p"> {</span></div>
+    <div class="line"><span class="n">11</span><span class="p">    </span><span class="k">const</span><span class="p"> </span><span class="v">product</span><span class="p"> = </span><span class="v">byId</span><span class="p">.</span><span class="f">get</span><span class="p">(</span><span class="v">line</span><span class="p">.</span><span class="v">productId</span><span class="p">);</span></div>
+    <div class="line"><span class="n">12<i class="codicon codicon-comment-unresolved"></i></span><span class="p">    </span><span class="c">if</span><span class="p"> (!</span><span class="v">product</span><span class="p">) </span><span class="c">return</span><span class="p"> </span><span class="v">sum</span><span class="p">;</span></div>
+  </div>
+
+  <div class="thread">
+    <div class="thead">
+      <span>Pending</span>
+      <span class="actions"><i class="codicon codicon-trash"></i><i class="codicon codicon-chevron-up"></i></span>
+    </div>
+    <div class="comment" style="padding-bottom:12px">
+      <div class="avatar"></div>
+      <div class="cmain">
+        <div class="who"><b>Lakhdar Lawrence</b><span>1 minute ago</span><i>Pending</i></div>
+        <div class="body">An unknown product is skipped without a word. Is that what we want?</div>
+      </div>
+      <div class="tools"><i class="codicon codicon-edit"></i><i class="codicon codicon-trash"></i></div>
+    </div>
+  </div>
+
+  <div class="code">
+    <div class="line"><span class="n">13</span><span class="p">    </span><span class="c">return</span><span class="p"> </span><span class="v">sum</span><span class="p"> + </span><span class="v">product</span><span class="p">.</span><span class="v">price</span><span class="p"> * </span><span class="v">line</span><span class="p">.</span><span class="v">quantity</span><span class="p">;</span></div>
+    <div class="line"><span class="n">14<i class="codicon codicon-comment-unresolved"></i></span><span class="p">  }, </span><span class="num">0</span><span class="p">);</span></div>
+  </div>
+
+  <div class="thread">
+    <div class="thead">
+      <span>Pending</span>
+      <span class="actions"><i class="codicon codicon-trash"></i><i class="codicon codicon-chevron-up"></i></span>
+    </div>
+    <div class="comment" style="padding-bottom:12px">
+      <div class="avatar"></div>
+      <div class="cmain">
+        <div class="who"><b>Lakhdar Lawrence</b><span>now</span><i>Pending</i></div>
+        <div class="body">Round the total to cents here, so that the checkout and the cart show the same amount.</div>
+      </div>
+      <div class="tools"><i class="codicon codicon-edit"></i><i class="codicon codicon-trash"></i></div>
+    </div>
+  </div>
+
+
+  <div class="code" style="padding-top:2px">
+    <div class="line"><span class="n">15</span><span class="p">}</span></div>
+    <div class="line"><span class="n">16</span></div>
+    <div class="line"><span class="n">17</span><span class="c">export</span><span class="p"> </span><span class="k">function</span><span class="p"> </span><span class="f">formatPrice</span><span class="p">(</span><span class="v">cents</span><span class="p">: </span><span class="t">number</span><span class="p">): </span><span class="t">string</span><span class="p"> {</span></div>
+    <div class="line"><span class="n">18</span><span class="p">  </span><span class="c">return</span><span class="p"> </span><span class="s">`$${</span><span class="p">(</span><span class="v">cents</span><span class="p"> / </span><span class="num">100</span><span class="p">).</span><span class="f">toFixed</span><span class="p">(</span><span class="num">2</span><span class="p">)</span><span class="s">}`</span><span class="p">;</span></div>
+    <div class="line"><span class="n">19</span><span class="p">}</span></div>
+  </div>
+
+  <div class="status">
+    <span class="item remote"><i class="codicon codicon-remote"></i></span>
+    <span class="item"><i class="codicon codicon-git-branch"></i> feat/cart-total</span>
+    <span class="item"><i class="codicon codicon-sync"></i></span>
+    <span class="item hover"><i class="codicon codicon-comment-draft"></i> Review · 2</span>
+    <span class="item"><i class="codicon codicon-hubot"></i> Claude 3f9c2a71</span>
+    <span class="item"><i class="codicon codicon-error"></i> 0 <i class="codicon codicon-warning"></i> 0</span>
+    <span class="spacer"></span>
+    <span class="item">Ln 14, Col 9</span>
+    <span class="item">Spaces: 2</span>
+    <span class="item">UTF-8</span>
+    <span class="item">LF</span>
+    <span class="item">{} TypeScript</span>
+    <span class="item"><i class="codicon codicon-bell"></i></span>
+  </div>
+</body>
+</html>

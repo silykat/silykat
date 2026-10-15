@@ -1,0 +1,101 @@
+/* VS Code, Dark Modern theme, as far as the doc screenshots need it. */
+@import url('../../node_modules/@vscode/codicons/dist/codicon.css');
+
+:root {
+  --bg: #1f1f1f; --bg-dark: #181818; --fg: #cccccc; --muted: #9d9d9d; --ln: #6e7681;
+  --border: #2b2b2b; --blue: #0078d4; --range: rgba(38, 79, 120, 0.45); --sel: #264f78; --input: #313131;
+  --mono: Menlo, 'SF Mono', Monaco, monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--fg); font: 13px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; overflow: hidden; }
+
+/* Tabs and breadcrumbs */
+.tabs { display: flex; height: 35px; background: var(--bg-dark); border-bottom: 1px solid var(--border); }
+.tab { display: flex; align-items: center; gap: 6px; padding: 0 12px; background: var(--bg); border-top: 1px solid var(--blue); color: #fff; white-space: nowrap; }
+.tab.inactive { background: var(--bg-dark); border-top-color: transparent; color: var(--muted); border-right: 1px solid var(--border); }
+.tab .codicon { font-size: 14px; color: var(--fg); margin-left: 6px; }
+.ts { color: #3178c6; font-weight: 700; font-size: 10px; }
+.crumbs { height: 22px; padding: 0 14px; display: flex; align-items: center; gap: 4px; color: var(--muted); white-space: nowrap; }
+.crumbs .codicon { font-size: 12px; }
+
+/* Code */
+.code { font: 13px/19px var(--mono); }
+.code.pad { padding-bottom: 6px; }
+.line { display: flex; white-space: pre; }
+.line .n { width: 58px; flex: none; text-align: right; padding-right: 26px; color: var(--ln); position: relative; }
+.line .n.cur { color: var(--fg); }
+.line .n .codicon { position: absolute; right: 4px; top: 2px; font-size: 14px; color: var(--fg); }
+.line.hl { background: var(--range); }
+.sel { background: var(--sel); }
+.cursor { border-left: 2px solid #aeafad; margin-left: -1px; }
+.k { color: #569cd6; } .c { color: #c586c0; } .s { color: #ce9178; } .f { color: #dcdcaa; }
+.v { color: #9cdcfe; } .t { color: #4ec9b0; } .num { color: #b5cea8; } .p { color: #d4d4d4; } .cm { color: #6a9955; }
+
+/* Comment threads */
+.thread { border-top: 2px solid var(--blue); border-bottom: 2px solid var(--blue); margin: 2px 0 4px 0; }
+.thead { display: flex; align-items: center; justify-content: space-between; height: 24px; padding: 0 10px 0 18px; border-bottom: 1px solid var(--blue); background: var(--bg); white-space: nowrap; }
+.thead .actions { display: flex; gap: 10px; color: var(--fg); }
+.thead .actions .codicon { font-size: 15px; }
+.comment { display: flex; gap: 12px; padding: 10px 20px 4px 20px; }
+.avatar { width: 28px; height: 28px; flex: none; }
+.who { display: flex; align-items: baseline; gap: 8px; }
+.who b { color: #fff; font-weight: 600; }
+.who span { color: var(--muted); font-size: 12px; }
+.who i { color: var(--fg); font-size: 13px; }
+.body { margin-top: 4px; line-height: 19px; }
+.body code, .md code { font: 12px var(--mono); background: rgba(255, 255, 255, 0.08); padding: 1px 4px; border-radius: 3px; }
+.body pre { font: 12px/17px var(--mono); background: rgba(255, 255, 255, 0.06); padding: 8px 10px; border-radius: 3px; margin: 6px 0; }
+.body hr { border: none; border-top: 1px solid #3c3c3c; margin: 8px 0; }
+.cmain { flex: 1; }
+.tools { display: flex; gap: 10px; color: var(--fg); }
+.reply { margin: 10px 20px 12px 60px; border: 1px solid #3c3c3c; background: var(--input); height: 30px; padding: 6px 10px; color: var(--muted); }
+.editbox { margin: 12px 20px 8px 20px; border: 1px solid var(--blue); background: var(--input); min-height: 74px; padding: 8px 10px; color: var(--fg); }
+.buttons { display: flex; justify-content: flex-end; gap: 8px; margin: 0 20px 12px 20px; }
+.btn { padding: 4px 12px; border-radius: 2px; background: #313131; color: #cccccc; border: 1px solid #3c3c3c; font-size: 13px; }
+.btn.primary { background: var(--blue); color: #fff; border-color: var(--blue); }
+
+/* Diff editor */
+.del { background: rgba(255, 0, 0, 0.18); }
+.ins { background: rgba(156, 204, 44, 0.16); }
+.del .x { background: rgba(255, 0, 0, 0.35); }
+.ins .x { background: rgba(156, 204, 44, 0.32); }
+.empty { background: repeating-linear-gradient(-45deg, transparent 0 4px, rgba(204, 204, 204, 0.06) 4px 6px); }
+
+/* Status bar */
+.status { display: flex; align-items: center; height: 22px; background: var(--bg-dark); border-top: 1px solid var(--border); font-size: 12px; color: var(--fg); white-space: nowrap; }
+.status .item { display: flex; align-items: center; gap: 4px; padding: 0 7px; height: 100%; }
+.status .item .codicon { font-size: 14px; }
+.status .remote { background: var(--blue); color: #fff; padding: 0 9px; }
+.status .hover { background: rgba(255, 255, 255, 0.12); }
+.status .spacer { flex: 1; }
+
+/* Quick pick */
+.quickpick { position: absolute; left: 50%; transform: translateX(-50%); width: 600px; background: #222222; border: 1px solid #313131; border-radius: 6px; box-shadow: 0 0 12px rgba(0, 0, 0, 0.6); padding: 6px 6px 6px 6px; z-index: 5; }
+.qp-title { text-align: center; color: var(--fg); padding: 2px 0 6px 0; }
+.qp-input { border: 1px solid var(--blue); background: var(--input); height: 26px; border-radius: 2px; padding: 4px 8px; color: var(--muted); margin-bottom: 4px; }
+.qp-item { padding: 3px 8px; border-radius: 3px; display: flex; flex-direction: column; }
+.qp-item .row { display: flex; align-items: center; gap: 6px; }
+.qp-item .codicon { font-size: 15px; }
+.qp-item .desc { color: var(--muted); font-size: 12px; margin-left: 6px; }
+.qp-item .detail { color: var(--muted); font-size: 12px; padding-left: 21px; }
+.qp-item.active { background: #04395e; outline: 1px solid var(--blue); color: #fff; }
+.qp-item.active .desc, .qp-item.active .detail { color: #cccccc; }
+
+/* Claude Code in a terminal */
+.term { font: 12.5px/17px var(--mono); color: #e6e6e6; padding: 10px 14px; white-space: pre-wrap; }
+.term .g { color: #999999; }
+.term .w { color: #ffffff; }
+.term .b { font-weight: 700; }
+.term .it { font-style: italic; }
+.term .lav { color: #b1b9f9; }
+.term .ok { color: #4eba65; }
+.term .warn { color: #ffc107; }
+.term .red { color: #ff6b80; }
+.term .orange { color: #d77757; }
+.term .prompt { background: #373737; color: #fff; display: block; }
+.term .rule { color: #888888; overflow: hidden; white-space: nowrap; display: block; }
+.term .chip { background: #b1b9f9; color: #000; }
+.term .dadd { color: #e6e6e6; background: rgba(78, 186, 101, 0.22); display: block; }
+.term .ddel { color: #e6e6e6; background: rgba(255, 107, 128, 0.22); display: block; }
+.term .head { display: flex; gap: 14px; align-items: center; }
+.logo { display: block; }

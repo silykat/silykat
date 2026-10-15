@@ -14,6 +14,8 @@ Your code keeps changing, and so do your branches. silykat threads follow along:
 - **The file changes outside the editor** (`git stash`, another tool, or while VS Code was closed): the thread finds its code again.
 - **The code is gone**: the thread turns **⚠️ Outdated**. It moves to line 1 and quotes the code it was about. If the code comes back, the thread attaches to it again on its own.
 
+![An outdated thread at line 1, quoting the code it was about](./images/outdated-thread.webp)
+
 ## Threads belong to their branch
 
 A thread belongs to the git branch of its file.

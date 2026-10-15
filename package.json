@@ -31,6 +31,7 @@
     "@commitlint/config-conventional": "21.2.3",
     "@types/node": "22.20.5",
     "@vitest/coverage-v8": "5.0.3",
+    "@vscode/codicons": "0.0.36",
     "esbuild": "0.28.2",
     "husky": "9.1.7",
     "oxlint": "1.87.0",

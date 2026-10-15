@@ -45,6 +45,8 @@ Then, for each proposal, you see the exact change (a diff of the file, or the wh
 
 You can also just talk it through.
 
+![A retro proposal in Claude Code: the evidence, the exact change to CLAUDE.md, and the user's answer, Accept](./images/retro-discussion.webp)
+
 When the audit finds a skill, command or sub-agent that nobody used, Claude asks whether to remove it, fix it, or keep it as is.
 
 ## The next retro checks the last one

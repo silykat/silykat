@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="vscode.css">
+<style> body { width: 1000px; } </style>
+</head>
+<body>
+  <div class="tabs"><div class="tab"><span class="ts">TS</span> cart.ts <i class="codicon codicon-close"></i></div></div>
+  <div class="crumbs">src <i class="codicon codicon-chevron-right"></i> <span class="ts">TS</span> cart.ts <i class="codicon codicon-chevron-right"></i> <i class="codicon codicon-symbol-method" style="color:#b180d7"></i> cartTotal</div>
+
+  <div class="code pad">
+    <div class="line"><span class="n">6</span><span class="p">}</span></div>
+    <div class="line"><span class="n">7</span></div>
+    <div class="line"><span class="n cur">8</span><span class="sel"><span class="c">export</span><span class="p"> </span><span class="k">function</span><span class="p"> </span><span class="f">cartTotal</span><span class="p">(</span><span class="v">lines</span><span class="p">: </span><span class="t">CartLine</span><span class="p">[], </span><span class="v">products</span><span class="p">: </span><span class="t">Product</span><span class="p">[]): </span><span class="t">number</span><span class="p"> {</span> </span></div>
+    <div class="line"><span class="n cur">9</span><span class="sel"><span class="p">  </span><span class="k">const</span><span class="p"> </span><span class="v">byId</span><span class="p"> = </span><span class="k">new</span><span class="p"> </span><span class="t">Map</span><span class="p">(</span><span class="v">products</span><span class="p">.</span><span class="f">map</span><span class="p">((</span><span class="v">p</span><span class="p">) </span><span class="k">=&gt;</span><span class="p"> [</span><span class="v">p</span><span class="p">.</span><span class="v">id</span><span class="p">, </span><span class="v">p</span><span class="p">]));</span></span></div>
+  </div>
+
+  <div class="thread">
+    <div class="thead">
+      <span>Start discussion</span>
+      <span class="actions"><i class="codicon codicon-chevron-up"></i></span>
+    </div>
+    <div class="editbox">Add a comment that explains this function<span class="cursor" style="border-color:#fff"></span></div>
+    <div class="buttons">
+      <span class="btn primary">Comment</span>
+      <span class="btn">Start Review</span>
+      <span class="btn">Cancel</span>
+    </div>
+  </div>
+
+  <div class="code">
+    <div class="line"><span class="n">10</span><span class="p">  </span><span class="c">return</span><span class="p"> </span><span class="v">lines</span><span class="p">.</span><span class="f">reduce</span><span class="p">((</span><span class="v">sum</span><span class="p">, </span><span class="v">line</span><span class="p">) </span><span class="k">=&gt;</span><span class="p"> {</span></div>
+    <div class="line"><span class="n">11</span><span class="p">    </span><span class="k">const</span><span class="p"> </span><span class="v">product</span><span class="p"> = </span><span class="v">byId</span><span class="p">.</span><span class="f">get</span><span class="p">(</span><span class="v">line</span><span class="p">.</span><span class="v">productId</span><span class="p">);</span></div>
+    <div class="line"><span class="n">12</span><span class="p">    </span><span class="c">if</span><span class="p"> (!</span><span class="v">product</span><span class="p">) </span><span class="c">return</span><span class="p"> </span><span class="v">sum</span><span class="p">;</span></div>
+  </div>
+</body>
+</html>

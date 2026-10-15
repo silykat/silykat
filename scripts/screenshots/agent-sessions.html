@@ -1,0 +1,58 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="vscode.css">
+<style>
+  body { width: 1000px; height: 330px; position: relative; }
+  .status { position: absolute; left: 0; right: 0; bottom: 0; }
+  .quickpick { top: 6px; width: 680px; }
+</style>
+</head>
+<body>
+  <div class="quickpick">
+    <div class="qp-title">Running agent sessions</div>
+    <div class="qp-input">Sessions registered with silykat, and what they are subscribed to</div>
+    <div class="qp-item active">
+      <div class="row"><i class="codicon codicon-hubot"></i> Claude 3f9c2a71 <span class="desc">shop · feat/cart-total</span></div>
+      <div class="detail">/home/lakhdar/code/shop · session 3f9c2a71-5b0e-4c1d-9a7e-2d6f81c4b390</div>
+    </div>
+    <div class="qp-item">
+      <div class="row"><i class="codicon codicon-hubot"></i> Claude 81d0e4b2 <span class="desc">shop · feat/checkout-tax</span></div>
+      <div class="detail">/home/lakhdar/code/shop-checkout-tax · session 81d0e4b2-77c1-4f3a-b6d2-0e9a5c13f8d7</div>
+    </div>
+  </div>
+
+  <div class="tabs"><div class="tab"><span class="ts">TS</span> cart.ts <i class="codicon codicon-close"></i></div></div>
+  <div class="crumbs">src <i class="codicon codicon-chevron-right"></i> <span class="ts">TS</span> cart.ts <i class="codicon codicon-chevron-right"></i> <i class="codicon codicon-symbol-method" style="color:#b180d7"></i> cartTotal</div>
+  <div class="code">
+    <div class="line"><span class="n">8</span><span class="c">export</span><span class="p"> </span><span class="k">function</span><span class="p"> </span><span class="f">cartTotal</span><span class="p">(</span><span class="v">lines</span><span class="p">: </span><span class="t">CartLine</span><span class="p">[], </span><span class="v">products</span><span class="p">: </span><span class="t">Product</span><span class="p">[]): </span><span class="t">number</span><span class="p"> {</span></div>
+    <div class="line"><span class="n">9</span><span class="p">  </span><span class="k">const</span><span class="p"> </span><span class="v">byId</span><span class="p"> = </span><span class="k">new</span><span class="p"> </span><span class="t">Map</span><span class="p">(</span><span class="v">products</span><span class="p">.</span><span class="f">map</span><span class="p">((</span><span class="v">p</span><span class="p">) </span><span class="k">=&gt;</span><span class="p"> [</span><span class="v">p</span><span class="p">.</span><span class="v">id</span><span class="p">, </span><span class="v">p</span><span class="p">]));</span></div>
+    <div class="line"><span class="n">10</span><span class="p">  </span><span class="c">return</span><span class="p"> </span><span class="v">lines</span><span class="p">.</span><span class="f">reduce</span><span class="p">((</span><span class="v">sum</span><span class="p">, </span><span class="v">line</span><span class="p">) </span><span class="k">=&gt;</span><span class="p"> {</span></div>
+    <div class="line"><span class="n">11</span><span class="p">    </span><span class="k">const</span><span class="p"> </span><span class="v">product</span><span class="p"> = </span><span class="v">byId</span><span class="p">.</span><span class="f">get</span><span class="p">(</span><span class="v">line</span><span class="p">.</span><span class="v">productId</span><span class="p">);</span></div>
+    <div class="line"><span class="n">12</span><span class="p">    </span><span class="c">if</span><span class="p"> (!</span><span class="v">product</span><span class="p">) </span><span class="c">return</span><span class="p"> </span><span class="v">sum</span><span class="p">;</span></div>
+    <div class="line"><span class="n">13</span><span class="p">    </span><span class="c">return</span><span class="p"> </span><span class="v">sum</span><span class="p"> + </span><span class="v">product</span><span class="p">.</span><span class="v">price</span><span class="p"> * </span><span class="v">line</span><span class="p">.</span><span class="v">quantity</span><span class="p">;</span></div>
+    <div class="line"><span class="n">14</span><span class="p">  }, </span><span class="num">0</span><span class="p">);</span></div>
+    <div class="line"><span class="n">15</span><span class="p">}</span></div>
+    <div class="line"><span class="n">16</span></div>
+    <div class="line"><span class="n">17</span><span class="c">export</span><span class="p"> </span><span class="k">function</span><span class="p"> </span><span class="f">formatPrice</span><span class="p">(</span><span class="v">cents</span><span class="p">: </span><span class="t">number</span><span class="p">): </span><span class="t">string</span><span class="p"> {</span></div>
+    <div class="line"><span class="n">18</span><span class="p">  </span><span class="c">return</span><span class="p"> </span><span class="s">`$${</span><span class="p">(</span><span class="v">cents</span><span class="p"> / </span><span class="num">100</span><span class="p">).</span><span class="f">toFixed</span><span class="p">(</span><span class="num">2</span><span class="p">)</span><span class="s">}`</span><span class="p">;</span></div>
+  </div>
+
+  <div class="status">
+    <span class="item remote"><i class="codicon codicon-remote"></i></span>
+    <span class="item"><i class="codicon codicon-git-branch"></i> feat/cart-total</span>
+    <span class="item"><i class="codicon codicon-sync"></i></span>
+    <span class="item hover"><i class="codicon codicon-hubot"></i> Claude 3f9c2a71</span>
+    <span class="item"><i class="codicon codicon-history"></i> Retro: 3 d · 214.6 KB</span>
+    <span class="item"><i class="codicon codicon-error"></i> 0 <i class="codicon codicon-warning"></i> 0</span>
+    <span class="spacer"></span>
+    <span class="item">Ln 9, Col 3</span>
+    <span class="item">Spaces: 2</span>
+    <span class="item">UTF-8</span>
+    <span class="item">LF</span>
+    <span class="item">{} TypeScript</span>
+    <span class="item"><i class="codicon codicon-bell"></i></span>
+  </div>
+</body>
+</html>

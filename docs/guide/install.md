@@ -51,6 +51,8 @@ Open a new terminal, then start Claude Code with `claude-slk` instead of `claude
 
 At each launch, Claude Code warns you about development channels. Choose **I am using this for local development**.
 
+![The Claude Code warning about development channels, with I am using this for local development selected](./images/channels-warning.webp)
+
 You are ready: go to the [Quick start](./quick-start.md).
 
 ## Update

@@ -1,0 +1,68 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="vscode.css">
+<style>
+  body { width: 1300px; }
+  .panes { display: flex; }
+  .pane { width: 50%; overflow: hidden; }
+  .pane + .pane { border-left: 1px solid var(--border); }
+  .line .n { width: 56px; padding-right: 24px; } .line .n .codicon { right: 2px; }
+  .pane .reply { margin-left: 60px; }
+</style>
+</head>
+<body>
+  <div class="tabs"><div class="tab"><span class="ts">TS</span> cart.ts (Working Tree) <i class="codicon codicon-close"></i></div></div>
+  <div class="panes" style="padding-top:6px">
+    <div class="pane">
+      <div class="code">
+        <div class="line"><span class="n">8</span><span class="c">export</span><span class="p"> </span><span class="k">function</span><span class="p"> </span><span class="f">cartTotal</span><span class="p">(</span><span class="v">lines</span><span class="p">: </span><span class="t">CartLine</span><span class="p">[], </span><span class="v">products</span><span class="p">: </span><span class="t">Product</span><span class="p">[]): </span><span class="t">number</span><span class="p"> {</span></div>
+        <div class="line empty"><span class="n"> </span> </div>
+        <div class="line"><span class="n">9</span><span class="p">  </span><span class="c">return</span><span class="p"> </span><span class="v">lines</span><span class="p">.</span><span class="f">reduce</span><span class="p">((</span><span class="v">sum</span><span class="p">, </span><span class="v">line</span><span class="p">) </span><span class="k">=&gt;</span><span class="p"> {</span></div>
+        <div class="line del"><span class="n">10</span><span class="p">    </span><span class="k">const</span><span class="p"> </span><span class="v">product</span><span class="p"> = </span><span class="x"><span class="v">products</span><span class="p">.</span><span class="f">find</span><span class="p">((</span><span class="v">p</span><span class="p">) </span><span class="k">=&gt;</span><span class="p"> </span><span class="v">p</span><span class="p">.</span><span class="v">id</span><span class="p"> === </span></span><span class="v">line</span><span class="p">.</span><span class="v">productId</span><span class="p">);</span></div>
+        <div class="line"><span class="n">11</span><span class="p">    </span><span class="c">if</span><span class="p"> (!</span><span class="v">product</span><span class="p">) </span><span class="c">return</span><span class="p"> </span><span class="v">sum</span><span class="p">;</span></div>
+        <div class="line del"><span class="n">12<i class="codicon codicon-comment-unresolved"></i></span><span class="x"><span class="p">    </span><span class="k">const</span><span class="p"> </span><span class="v">discount</span><span class="p"> = </span><span class="v">product</span><span class="p">.</span><span class="v">onSale</span><span class="p"> ? </span><span class="num">0.9</span><span class="p"> : </span><span class="num">1</span><span class="p">;</span></span></div>
+      </div>
+      <div class="thread">
+        <div class="thead">
+          <span>HEAD a92bf1e · Waiting for Claude</span>
+          <span class="actions"><i class="codicon codicon-diff"></i><i class="codicon codicon-check"></i><i class="codicon codicon-archive"></i><i class="codicon codicon-trash"></i><i class="codicon codicon-chevron-up"></i></span>
+        </div>
+        <div class="comment">
+          <div class="avatar"></div>
+          <div class="cmain">
+            <div class="who"><b>Lakhdar Lawrence</b><span>now</span></div>
+            <div class="body">Why did the sale discount go? The checkout still applies it, so the cart now shows a higher total.</div>
+          </div>
+          <div class="tools"><i class="codicon codicon-edit"></i><i class="codicon codicon-trash"></i></div>
+        </div>
+        <div class="reply">Reply</div>
+      </div>
+      <div class="code">
+        <div class="line del"><span class="n">13</span><span class="p">    </span><span class="c">return</span><span class="p"> </span><span class="v">sum</span><span class="p"> + </span><span class="v">product</span><span class="p">.</span><span class="v">price</span><span class="p"> * </span><span class="v">line</span><span class="p">.</span><span class="v">quantity</span><span class="x"><span class="p"> * </span><span class="v">discount</span></span><span class="p">;</span></div>
+        <div class="line"><span class="n">14</span><span class="p">  }, </span><span class="num">0</span><span class="p">);</span></div>
+        <div class="line"><span class="n">15</span><span class="p">}</span></div>
+      </div>
+    </div>
+
+    <div class="pane">
+      <div class="code">
+        <div class="line"><span class="n">8</span><span class="c">export</span><span class="p"> </span><span class="k">function</span><span class="p"> </span><span class="f">cartTotal</span><span class="p">(</span><span class="v">lines</span><span class="p">: </span><span class="t">CartLine</span><span class="p">[], </span><span class="v">products</span><span class="p">: </span><span class="t">Product</span><span class="p">[]): </span><span class="t">number</span><span class="p"> {</span></div>
+        <div class="line ins"><span class="n">9</span><span class="x"><span class="p">  </span><span class="k">const</span><span class="p"> </span><span class="v">byId</span><span class="p"> = </span><span class="k">new</span><span class="p"> </span><span class="t">Map</span><span class="p">(</span><span class="v">products</span><span class="p">.</span><span class="f">map</span><span class="p">((</span><span class="v">p</span><span class="p">) </span><span class="k">=&gt;</span><span class="p"> [</span><span class="v">p</span><span class="p">.</span><span class="v">id</span><span class="p">, </span><span class="v">p</span><span class="p">]));</span></span></div>
+        <div class="line"><span class="n">10</span><span class="p">  </span><span class="c">return</span><span class="p"> </span><span class="v">lines</span><span class="p">.</span><span class="f">reduce</span><span class="p">((</span><span class="v">sum</span><span class="p">, </span><span class="v">line</span><span class="p">) </span><span class="k">=&gt;</span><span class="p"> {</span></div>
+        <div class="line ins"><span class="n">11</span><span class="p">    </span><span class="k">const</span><span class="p"> </span><span class="v">product</span><span class="p"> = </span><span class="x"><span class="v">byId</span><span class="p">.</span><span class="f">get</span><span class="p">(</span></span><span class="v">line</span><span class="p">.</span><span class="v">productId</span><span class="p">);</span></div>
+        <div class="line"><span class="n">12</span><span class="p">    </span><span class="c">if</span><span class="p"> (!</span><span class="v">product</span><span class="p">) </span><span class="c">return</span><span class="p"> </span><span class="v">sum</span><span class="p">;</span></div>
+        <div class="line empty"><span class="n"> </span> </div>
+        <div class="line ins"><span class="n">13</span><span class="p">    </span><span class="c">return</span><span class="p"> </span><span class="v">sum</span><span class="p"> + </span><span class="v">product</span><span class="p">.</span><span class="v">price</span><span class="p"> * </span><span class="v">line</span><span class="p">.</span><span class="v">quantity</span><span class="p">;</span></div>
+        <div class="line"><span class="n">14</span><span class="p">  }, </span><span class="num">0</span><span class="p">);</span></div>
+        <div class="line"><span class="n">15</span><span class="p">}</span></div>
+        <div class="line"><span class="n">16</span></div>
+        <div class="line"><span class="n">17</span><span class="c">export</span><span class="p"> </span><span class="k">function</span><span class="p"> </span><span class="f">formatPrice</span><span class="p">(</span><span class="v">cents</span><span class="p">: </span><span class="t">number</span><span class="p">): </span><span class="t">string</span><span class="p"> {</span></div>
+        <div class="line"><span class="n">18</span><span class="p">  </span><span class="c">return</span><span class="p"> </span><span class="s">`$${</span><span class="p">(</span><span class="v">cents</span><span class="p"> / </span><span class="num">100</span><span class="p">).</span><span class="f">toFixed</span><span class="p">(</span><span class="num">2</span><span class="p">)</span><span class="s">}`</span><span class="p">;</span></div>
+        <div class="line"><span class="n">19</span><span class="p">}</span></div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

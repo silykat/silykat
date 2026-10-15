@@ -13,3 +13,5 @@ adapters/claude-code/plugin/channel/
 # Written by release-please, in its own format
 CHANGELOG.md
 .release-please-manifest.json
+# Mockups of the user guide screenshots: whitespace matters to the rendering
+scripts/screenshots/

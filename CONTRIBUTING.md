@@ -108,6 +108,7 @@ Verify technical assumptions (what a hook receives, when a channel message arriv
   - one `#` title, right after the front matter, then `##` and below without skipping a level;
   - links between pages are relative (`./retros.md#running-a-retro`), with GitHub's anchors; links to other files of the repository are full GitHub URLs;
   - images in `docs/guide/images/` (dark theme, cropped to what matters), always with an alternative text;
+  - the screenshots are HTML mockups of VS Code and Claude Code in [`scripts/screenshots/`](scripts/screenshots/), one page per image, with the interface's exact texts. When the interface changes, fix the page and run `scripts/screenshots/render.sh [name…]` (Google Chrome and `cwebp` needed): it writes `docs/guide/images/<name>.webp`;
   - code blocks always name their language (`sh`, `json`, `text`), and commands have no `$` before them;
   - no em dash or en dash anywhere;
   - GitHub alerts (`> [!NOTE]`, `> [!TIP]`, `> [!WARNING]`), one or two per page at most.

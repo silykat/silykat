@@ -55,6 +55,8 @@ A review lets you write several comments first, then send them all at once with 
 
 The same menu has **Show Pending Comments**, to go through your drafts, and **Discard Review**, to drop them all.
 
+![The review menu opened from the status bar, with Submit Review, Show Pending Comments and Discard Review, over two pending comments](./images/review-menu.webp)
+
 Drafts survive a restart of VS Code.
 
 ### What a review covers
@@ -74,6 +76,8 @@ You can comment in any diff VS Code opens:
 - **Two files**: right-click one and choose **Select for Compare**, then right-click the other and choose **Compare with Selected**.
 
 A thread on an older version says which one in its header, for example **Index** or **HEAD a92bf1e**. Click **Open Original Diff** in its header to reopen that exact diff later.
+
+![A thread on a deleted line of a diff, with HEAD a92bf1e in its header and the Open Original Diff button](./images/diff-thread.webp)
 
 ## Good to know
 

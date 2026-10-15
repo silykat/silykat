@@ -17,6 +17,8 @@ Your first comment, and Claude's first answer, in a few minutes. You need the ex
 5. Press **`Ctrl+Cmd+C`** on macOS (**`Ctrl+Alt+C`** on Windows and Linux). You can also right-click and choose **Comment on Selection**.
 6. Type a request, for example `Add a comment that explains this function`, then click **Comment**.
 
+![Two selected lines in VS Code and the new comment box under them, with the Comment and Start Review buttons](./images/new-comment.webp)
+
 Within a few seconds, Claude receives your comment, changes the code and replies in the thread.
 
 The first time, Claude Code asks whether Claude may use the `silykat:review` skill. Allow it, and choose not to be asked again.
@@ -27,6 +29,8 @@ The thread header tells you where things stand:
 
 - **✅ Addressed by Claude**: Claude made the change. Check it.
 - **❓ Claude is waiting for your reply**: Claude asks you a question before it changes anything. Answer in the thread.
+
+![Two threads after Claude's answers: one addressed by Claude, one where Claude asks a question and waits for your reply](./images/agent-replies.webp)
 
 ## Close the thread
 

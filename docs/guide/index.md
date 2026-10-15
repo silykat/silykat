@@ -12,6 +12,8 @@ You comment on lines in VS Code, like on a pull request. Your agent (Claude Code
 
 There is no pull request, no server and no account. Comments live next to your code, and nothing leaves your machine.
 
+![Claude Code in a terminal next to VS Code: Claude received a review of two comments, fixed the code for one and asked a question in the other](./images/claude-and-vscode.webp)
+
 ## How it works
 
 ```text

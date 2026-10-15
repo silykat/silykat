@@ -37,6 +37,8 @@ Claude tells you whenever a subscription changes. Reading files does not subscri
 
 The status bar shows the Claude sessions of your workspace, each with a short id, for example **Claude a1b2c3d4**. Run **silykat: Show Agent Sessions** to list them all, with what each one is subscribed to.
 
+![The list of running agent sessions, each with what it is subscribed to, and the session in the status bar](./images/agent-sessions.webp)
+
 ### Several sessions
 
 You can run several sessions side by side, for example one per git worktree, or a reviewer next to a developer. Each comment goes to the sessions working on its branch. Two sessions on the same branch both get its comments.
