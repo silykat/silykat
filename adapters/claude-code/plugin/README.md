@@ -1,8 +1,8 @@
 # silykat for Claude Code
 
-**A GitHub-style code review between you and Claude Code, 100% local.**
+**The code review that makes your agent better.**
 
-You leave comments on your code in VS Code with the [silykat extension](https://github.com/silykat/silykat#readme), like on a pull request. This plugin lets Claude receive them on its own, change the code, and reply in each thread: done, or a precise question. It also runs **retros** of your work with Claude: it looks back at your review threads, your sessions with Claude and an audit of its setup, and you decide together what to keep, remove or improve in that setup (`CLAUDE.md`, skills, hooks…).
+You leave comments on your code in VS Code with the [silykat extension](https://marketplace.visualstudio.com/items?itemName=silykat.silykat), like on a pull request. This plugin lets Claude receive them on its own, change the code, and reply in each thread: done, or a precise question. It also runs **retros** of your work with Claude: it looks back at your review threads, your sessions with Claude and an audit of its setup, and you decide together what to keep, remove or improve in that setup (`CLAUDE.md`, skills, hooks…).
 
 ## Install
 
@@ -34,7 +34,7 @@ The bundled files (`bin/`, `hooks/`, `channel/`) are built from the TypeScript s
 
 ## Learn more
 
-The full guide: [github.com/silykat/silykat](https://github.com/silykat/silykat#readme). Issues and ideas: [github.com/silykat/silykat/issues](https://github.com/silykat/silykat/issues).
+The full guide: [silykat.com/docs](https://silykat.com/docs). Issues and ideas: [github.com/silykat/silykat/issues](https://github.com/silykat/silykat/issues).
 
 ## License
 

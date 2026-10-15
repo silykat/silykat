@@ -1,5 +1,5 @@
 // Keeps the architecture honest: neutral packages never depend on agent adapters, and each
-// package only depends on what it is allowed to (see the "architecture" section of the README).
+// package only depends on what it is allowed to (see docs/architecture.md).
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 

@@ -1,7 +1,7 @@
 {
   "name": "silykat",
   "displayName": "silykat",
-  "description": "Comment your code like on a pull request, and let your AI coding agent (Claude Code) answer in the threads. Then look back with retros to improve its setup. 100% local.",
+  "description": "The code review that makes your agent better. Comment in VS Code like on a pull request: Claude Code fixes the code, answers in the thread and learns from your feedback. 100% local.",
   "version": "0.11.1",
   "publisher": "silykat",
   "private": true,
@@ -11,7 +11,7 @@
     "color": "#14110F",
     "theme": "dark"
   },
-  "homepage": "https://github.com/silykat/silykat#readme",
+  "homepage": "https://silykat.com",
   "bugs": {
     "url": "https://github.com/silykat/silykat/issues"
   },

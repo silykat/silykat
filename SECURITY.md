@@ -16,4 +16,4 @@ Only the latest release is supported: fixes are not backported.
 
 ## What silykat does with your data
 
-silykat keeps everything on your machine, in plain files (`.silykat/` in your repositories, `~/.silykat/`). It makes no network call and collects no telemetry, except one opt-in: the classification of a retro by Jev, only if you set up its key. See the [README](README.md#where-your-data-lives).
+silykat keeps everything on your machine, in plain files (`.silykat/` in your repositories, `~/.silykat/`). It makes no network call and collects no telemetry, except one opt-in: the classification of a retro by Jev, only if you set up its key. See [Data and privacy](https://silykat.com/docs/data-and-privacy).

@@ -21,7 +21,8 @@ The repository is an npm workspaces monorepo: `packages/core`, `packages/cli`, `
 | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
 | `npm run typecheck`            | TypeScript checks, all packages                                                                                               |
 | `npm run lint`                 | oxlint, with type information, on the whole repository                                                                        |
-| `npm test`                     | Unit tests (vitest), dependency boundaries, and the freshness of the committed plugin bundles                                 |
+| `npm test`                     | Unit tests (vitest), dependency boundaries, the freshness of the committed plugin bundles, and the user guide's format        |
+| `npm run check:docs`           | Only the format of the user guide (`docs/guide/`): front matter, titles, links, anchors, images, dashes                       |
 | `npm run test:integration`     | Integration tests in a dedicated VS Code instance (downloaded into `.vscode-test/`), on a temporary git workspace             |
 | `npm run test:linux`           | The whole suite (checks, unit and integration tests) on Linux, in a Docker container: see below                               |
 | `npm run coverage`             | Coverage of the unit tests (report in `coverage/unit/`); fails below the floors of `vitest.config.mjs`                        |
@@ -96,6 +97,22 @@ Verify technical assumptions (what a hook receives, when a channel message arriv
 - **No test depends on the day it runs.** The unit tests run on a clock that starts at a fixed date (2026-10-03T12:00:00Z), then moves on in real time (`test/fixed-clock.mjs`, the setup file of every vitest project): a date written in a test never becomes past or future. File and git dates stay real: a test that compares to them starts from them (the mtime of a file it just wrote), never from the clock. The integration tests run on the real clock, and only compare relative dates.
 - Integration tests drive the extension through the API returned by `activate()`. A test that needs its own git history (commits, worktrees) uses a throwaway repository rather than the test workspace, whose state the other test files share. A test file that registers sessions or leaves comments waiting cleans up after itself, and no test relies on the window having the system focus.
 
+## Documentation
+
+- **The user guide** lives in [`docs/guide/`](docs/guide/), one page per subject. The website publishes it on [silykat.com/docs](https://silykat.com/docs), from the **latest release tag**: a page never describes a feature that is not released yet. Write the documentation of a feature **in the pull request of the feature**; a fix of the docs reaches the site with the next release.
+- **`README.md`** stays short and points to the site. [`docs/architecture.md`](docs/architecture.md) is for contributors: the site does not read it.
+- **Write for the user**: what to do and what to expect, the common case first, short sentences, procedures as numbered steps, interface elements in bold exactly as on screen. What happens inside (sub-agents, models, journals) goes in a final "Under the hood" section, or in `docs/architecture.md`.
+- **The format is a contract with the site**, checked by `npm run check:docs` (part of `npm test`):
+  - plain Markdown (CommonMark and GitHub extensions), no MDX, no raw HTML, no Mermaid;
+  - a front matter on every page: `description` (one sentence, about 150 characters), `section` (`getting-started`, `guide`, `agents` or `reference`) and `order` (its place in the section's menu);
+  - one `#` title, right after the front matter, then `##` and below without skipping a level;
+  - links between pages are relative (`./retros.md#running-a-retro`), with GitHub's anchors; links to other files of the repository are full GitHub URLs;
+  - images in `docs/guide/images/` (dark theme, cropped to what matters), always with an alternative text;
+  - code blocks always name their language (`sh`, `json`, `text`), and commands have no `$` before them;
+  - no em dash or en dash anywhere;
+  - GitHub alerts (`> [!NOTE]`, `> [!TIP]`, `> [!WARNING]`), one or two per page at most.
+- **A page's file name is its URL** (`docs/guide/retros.md` is `silykat.com/docs/retros`): once released, never rename it.
+
 ## Releases
 
 The extension and the plugin (with its `slk`) share **one version**. [release-please](https://github.com/googleapis/release-please) derives it from the Conventional Commits of `main` (`.github/workflows/release.yml`, `release-please-config.json`):
@@ -128,5 +145,5 @@ Versions are never bumped by hand. The store format has its own version (`v` in 
   - Types: `feat`, `fix`, `docs`, `refactor`, `test`, `build`, `ci`, `perf`, `chore`.
   - Scopes: `core`, `cli`, `vscode-extension`, `claude-code`, `deps`, or none when the change touches several parts.
   - A breaking change (the `.silykat/` format, the `slk` commands, the settings): `!` after the scope and a `BREAKING CHANGE: …` footer.
-- Before opening the PR: `npm run typecheck`, `npm run lint`, `npm test` and `npm run test:integration` pass, `npm run format:check` reports nothing, and the plugin bundles are rebuilt and committed if needed.
+- Before opening the PR: `npm run typecheck`, `npm run lint`, `npm test` and `npm run test:integration` pass, `npm run format:check` reports nothing, and the plugin bundles are rebuilt and committed if needed, and the user guide (`docs/guide/`) describes any change users can see.
 - Describe what changes for the user, how, and how it was tested (including with a real Claude Code when relevant).

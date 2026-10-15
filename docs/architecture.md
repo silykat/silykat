@@ -1,6 +1,6 @@
 # Architecture
 
-How silykat works, for maintainers and contributors. For using it, see the [README](../README.md).
+How silykat works, for maintainers and contributors. For using it, see the [user guide](guide/index.md), published on [silykat.com/docs](https://silykat.com/docs).
 
 ## Overview
 

@@ -10,4 +10,4 @@
 
 - [ ] The title follows [Conventional Commits](https://www.conventionalcommits.org/) (`feat: …`, `fix(cli): …`).
 - [ ] `npm run typecheck`, `npm run lint`, `npm run format:check` and `npm test` pass.
-- [ ] The docs are up to date (`README.md`, `CONTRIBUTING.md`, `docs/architecture.md`) if behavior, settings or commands changed.
+- [ ] The docs are up to date (the user guide in `docs/guide/`, `CONTRIBUTING.md`, `docs/architecture.md`) if behavior, settings or commands changed.
