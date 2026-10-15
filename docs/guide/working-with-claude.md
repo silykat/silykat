@@ -18,8 +18,6 @@ For each thread, Claude does one of three things:
 
 At the end, Claude sums up in its session what it did on each thread.
 
-![Claude Code after a review: it answered two threads and sums up what it did](./images/claude-handles-review.webp)
-
 You can also ask Claude to handle your comments at any time: type **`/silykat:review`**.
 
 ## Which sessions get your comments

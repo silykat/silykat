@@ -53,11 +53,7 @@ A review lets you write several comments first, then send them all at once with 
 2. Add more comments with **Add to Review**. To publish one right away instead, click **Comment Now**. Replies work the same way: **Add to Review**, or **Reply Now**.
 3. When you are done, click **Review · N** in the status bar, then **Submit Review**. You can add a summary.
 
-![Two pending comments of a review in progress](./images/review-pending-comments.webp)
-
 The same menu has **Show Pending Comments**, to go through your drafts, and **Discard Review**, to drop them all.
-
-![The review menu: Submit Review, Show Pending Comments, Discard Review](./images/review-menu.webp)
 
 Drafts survive a restart of VS Code.
 

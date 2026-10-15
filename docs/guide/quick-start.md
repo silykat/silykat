@@ -28,8 +28,6 @@ The thread header tells you where things stand:
 - **✅ Addressed by Claude**: Claude made the change. Check it.
 - **❓ Claude is waiting for your reply**: Claude asks you a question before it changes anything. Answer in the thread.
 
-![Two threads after Claude's answers: one addressed, one where Claude waits for a reply](./images/agent-replies.webp)
-
 ## Close the thread
 
 1. Check the change in the file.
