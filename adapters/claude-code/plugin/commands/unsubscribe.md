@@ -1,6 +1,6 @@
 ---
 description: Unsubscribe this session from a branch, a path, or everything, for silykat
-argument-hint: '[folder or file] [--path] [--all]'
+argument-hint: '[branch, folder or file] [--path] [--all]'
 allowed-tools: Bash(slk:*)
 ---
 

@@ -36,7 +36,9 @@ import {
   topicOf,
   gitWorktreeOf,
   localBranches,
+  worktreeInfo,
   worktreesOf,
+  type Topic,
   Store,
   type AgentSessionRef,
   type AgentThreadView,
@@ -124,8 +126,8 @@ ${Object.entries(CONFIG_KEYS)
 Subscriptions (comments are published to the sessions subscribed to their branch or path):
   slk subscribe [<dir-or-file>] [--path]  Subscribe this session to the branch of that folder
                                           (default: the current one), or to the path itself
-                                          (--path, and always outside git). A folder or file,
-                                          not a branch name: it must exist
+                                          (--path, and always outside git), or to a branch
+                                          of the current repository by its name
   slk unsubscribe [<dir-or-file>] [--path] [--all]
   slk subscriptions [--format md|json]    What this session is subscribed to
   (the session is found from the processes running slk; --session <id> or $SLK_SESSION to name it)
@@ -649,28 +651,34 @@ async function currentSession(values: Values, io: Io): Promise<{ registry: Sessi
 async function subscribe(rest: string[], io: Io): Promise<number> {
   const { values, positionals } = parse(rest, subscriptionOptions);
   const { registry, id } = await currentSession(values, io);
-  const target = resolve(io.cwd, positionals[0] ?? '.');
-  if (!(await stat(target).catch(() => null)))
-    throw new Error(await missingTarget(positionals[0] ?? '.', target, io.cwd));
-  const topic = await topicOf(target, { asPath: values.path === true });
-  const added = await registry.subscribe(id, topic, 'user');
-  io.out(`${added ? 'Subscribed to' : 'Already subscribed to'} ${topicLabel(topic)}.`);
+  const target = await subscriptionTarget(positionals[0], values, io);
+  if (!target) throw new Error(`${resolve(io.cwd, positionals[0] ?? '.')}: file, folder or branch not found.`);
+  const added = await registry.subscribe(id, target.topic, 'user');
+  io.out(`${added ? 'Subscribed to' : 'Already subscribed to'} ${topicLabel(target.topic)}.`);
+  if (target.checkedOutNowhere)
+    io.out(`${positionals[0]} is not checked out in any folder yet: its comments will come once it is.`);
   return EXIT.OK;
 }
 
 /**
- * Why `slk subscribe <arg>` refuses a path that does not exist. A branch name is a common mistake
- * (`slk subscribe main`): say which folder to subscribe to instead.
+ * What `slk subscribe <arg>` / `slk unsubscribe <arg>` is about: the branch or path of a folder or file
+ * that exists, else a branch of the current repository by its name (`slk subscribe main`). `null`
+ * when it is neither.
  */
-async function missingTarget(arg: string, target: string, cwd: string): Promise<string> {
-  if (!(await localBranches(cwd)).has(arg)) return `${target}: file or folder not found.`;
-  const onBranch: string[] = [];
-  for (const wt of await worktreesOf(cwd)) if ((await gitWorktreeOf(wt))?.branch === arg) onBranch.push(wt);
-  return onBranch.length > 0
-    ? `"${arg}" is a branch, not a file or folder. To get the comments of ${arg}, subscribe to the folder ` +
-        `where it is checked out: ${onBranch.map((wt) => `slk subscribe ${wt}`).join(', or ')}.`
-    : `"${arg}" is a branch, not a file or folder, and no folder has it checked out. Check it out in a ` +
-        `worktree (git worktree add <folder> ${arg}), then subscribe to that folder.`;
+async function subscriptionTarget(
+  arg: string | undefined,
+  values: Values,
+  io: Io,
+): Promise<{ topic: Topic; checkedOutNowhere?: boolean } | null> {
+  const path = resolve(io.cwd, arg ?? '.');
+  if (arg === undefined || values.path === true || (await stat(path).catch(() => null)))
+    return { topic: await topicOf(path, { asPath: values.path === true }) };
+  const repo = (await worktreeInfo(io.cwd))?.repo;
+  if (!repo || !(await localBranches(io.cwd)).has(arg)) return null;
+  for (const wt of await worktreesOf(io.cwd))
+    if ((await gitWorktreeOf(wt))?.branch === arg)
+      return { topic: { kind: 'branch', repo, branch: arg, worktree: wt } };
+  return { topic: { kind: 'branch', repo, branch: arg }, checkedOutNowhere: true };
 }
 
 async function unsubscribe(rest: string[], io: Io): Promise<number> {
@@ -680,7 +688,8 @@ async function unsubscribe(rest: string[], io: Io): Promise<number> {
     id,
     values.all === true
       ? 'all'
-      : await topicOf(resolve(io.cwd, positionals[0] ?? '.'), { asPath: values.path === true }),
+      : ((await subscriptionTarget(positionals[0], values, io))?.topic ??
+          (await topicOf(resolve(io.cwd, positionals[0] ?? '.')))),
   );
   io.out(
     gone.length === 0

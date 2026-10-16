@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -370,7 +370,7 @@ describe('slk sessions', () => {
     expect((await slk(['subscribe', '--path'], { env: { ...env, SLK_SESSION: 's-1' } })).code).toBe(EXIT.OK);
   });
 
-  it('refuses to subscribe to a path that does not exist, and explains a branch name', async () => {
+  it('subscribes to a branch by its name, and refuses what is neither a path nor a branch', async () => {
     const env = { SILYKAT_HOME: join(root, 'home') };
     await slk(['session', 'register', '--id', 's-1', '--agent', 'Claude', '--cwd', '.', '--pid', String(process.pid)], {
       env,
@@ -378,7 +378,7 @@ describe('slk sessions', () => {
     const inSession = { env, ancestors: [100, process.pid, 1] };
     const missing = await slk(['subscribe', 'nowhere'], inSession);
     expect(missing.code).toBe(EXIT.NOT_FOUND);
-    expect(missing.err).toContain(`${join(root, 'nowhere')}: file or folder not found`);
+    expect(missing.err).toContain(`${join(root, 'nowhere')}: file, folder or branch not found`);
 
     const repo = join(root, 'repo');
     await mkdir(repo);
@@ -388,23 +388,33 @@ describe('slk sessions', () => {
     git('commit', '-q', '--allow-empty', '-m', 'init');
     git('branch', 'feature');
     const inRepo = { ...inSession, cwd: repo };
-    const inGit = await slk(['subscribe', 'nowhere'], inRepo);
-    expect(inGit.err).toContain(`${join(repo, 'nowhere')}: file or folder not found`);
+    expect((await slk(['subscribe', 'nowhere'], inRepo)).err).toContain(
+      `${join(repo, 'nowhere')}: file, folder or branch not found`,
+    );
 
-    const noWorktree = await slk(['subscribe', 'feature'], inRepo);
-    expect(noWorktree.code).toBe(EXIT.ERROR);
-    expect(noWorktree.err).toContain('"feature" is a branch, not a file or folder, and no folder has it checked out');
-    expect(noWorktree.err).toContain('git worktree add <folder> feature');
+    // Checked out nowhere: subscribed all the same, and told so.
+    const byName = await slk(['subscribe', 'feature'], inRepo);
+    expect(byName.code).toBe(EXIT.OK);
+    expect(byName.out).toContain('Subscribed to repo · feature.');
+    expect(byName.out).toContain('feature is not checked out in any folder yet');
 
+    // The same subscription as through the folder where it is checked out, once it is.
     const wt = join(root, 'feature-wt');
     git('worktree', 'add', '-q', wt, 'feature');
-    const withWorktree = await slk(['subscribe', 'feature'], inRepo);
-    expect(withWorktree.err).toContain(
-      `subscribe to the folder where it is checked out: slk subscribe ${await realpath(wt)}`,
-    );
-    expect((await slk(['subscriptions'], inSession)).out).toContain('subscribed to nothing');
+    expect((await slk(['subscribe', wt], inRepo)).out).toContain('Already subscribed to repo · feature.');
+    const again = await slk(['subscribe', 'feature'], inRepo);
+    expect(again.out).toContain('Already subscribed to repo · feature.');
+    expect(again.out).not.toContain('not checked out');
 
-    expect((await slk(['subscribe', wt], inRepo)).out).toContain('Subscribed to repo · feature.');
+    // The branch checked out here, by its name; and unsubscribing by name.
+    expect((await slk(['subscribe', 'main'], inRepo)).out).toContain('Subscribed to repo · main.');
+    expect((await slk(['unsubscribe', 'feature'], inRepo)).out).toContain('Unsubscribed from repo · feature.');
+    expect((await slk(['subscriptions'], inRepo)).out).not.toContain('feature');
+
+    // A folder that exists wins over a branch of the same name: the branch of that folder.
+    await slk(['unsubscribe', '--all'], inRepo);
+    await mkdir(join(repo, 'feature'));
+    expect((await slk(['subscribe', 'feature'], inRepo)).out).toContain('Subscribed to repo · main.');
   });
 
   it('lists, in an agent session, only the threads of what it is subscribed to', async () => {
