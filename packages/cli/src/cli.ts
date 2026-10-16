@@ -1,4 +1,4 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, stat, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import {
   agentView,
@@ -34,6 +34,9 @@ import {
   isWithin,
   topicLabel,
   topicOf,
+  gitWorktreeOf,
+  localBranches,
+  worktreesOf,
   Store,
   type AgentSessionRef,
   type AgentThreadView,
@@ -121,7 +124,8 @@ ${Object.entries(CONFIG_KEYS)
 Subscriptions (comments are published to the sessions subscribed to their branch or path):
   slk subscribe [<dir-or-file>] [--path]  Subscribe this session to the branch of that folder
                                           (default: the current one), or to the path itself
-                                          (--path, and always outside git)
+                                          (--path, and always outside git). A folder or file,
+                                          not a branch name: it must exist
   slk unsubscribe [<dir-or-file>] [--path] [--all]
   slk subscriptions [--format md|json]    What this session is subscribed to
   (the session is found from the processes running slk; --session <id> or $SLK_SESSION to name it)
@@ -645,10 +649,28 @@ async function currentSession(values: Values, io: Io): Promise<{ registry: Sessi
 async function subscribe(rest: string[], io: Io): Promise<number> {
   const { values, positionals } = parse(rest, subscriptionOptions);
   const { registry, id } = await currentSession(values, io);
-  const topic = await topicOf(resolve(io.cwd, positionals[0] ?? '.'), { asPath: values.path === true });
+  const target = resolve(io.cwd, positionals[0] ?? '.');
+  if (!(await stat(target).catch(() => null)))
+    throw new Error(await missingTarget(positionals[0] ?? '.', target, io.cwd));
+  const topic = await topicOf(target, { asPath: values.path === true });
   const added = await registry.subscribe(id, topic, 'user');
   io.out(`${added ? 'Subscribed to' : 'Already subscribed to'} ${topicLabel(topic)}.`);
   return EXIT.OK;
+}
+
+/**
+ * Why `slk subscribe <arg>` refuses a path that does not exist. A branch name is a common mistake
+ * (`slk subscribe main`): say which folder to subscribe to instead.
+ */
+async function missingTarget(arg: string, target: string, cwd: string): Promise<string> {
+  if (!(await localBranches(cwd)).has(arg)) return `${target}: file or folder not found.`;
+  const onBranch: string[] = [];
+  for (const wt of await worktreesOf(cwd)) if ((await gitWorktreeOf(wt))?.branch === arg) onBranch.push(wt);
+  return onBranch.length > 0
+    ? `"${arg}" is a branch, not a file or folder. To get the comments of ${arg}, subscribe to the folder ` +
+        `where it is checked out: ${onBranch.map((wt) => `slk subscribe ${wt}`).join(', or ')}.`
+    : `"${arg}" is a branch, not a file or folder, and no folder has it checked out. Check it out in a ` +
+        `worktree (git worktree add <folder> ${arg}), then subscribe to that folder.`;
 }
 
 async function unsubscribe(rest: string[], io: Io): Promise<number> {

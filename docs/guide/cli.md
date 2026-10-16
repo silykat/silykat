@@ -44,11 +44,11 @@ Dates are `2026-10-01`, or a number of days ago (`30d`). See [History, archive a
 
 ## Subscriptions and sessions
 
-| Command                                                | What it does                                                       |
-| ------------------------------------------------------ | ------------------------------------------------------------------ |
-| `slk subscribe [<folder>] [--path]`, `slk unsubscribe` | Subscribe the session `slk` runs in to a branch or a path, or stop |
-| `slk subscriptions`                                    | What this session is subscribed to                                 |
-| `slk sessions`                                         | The running agent sessions                                         |
+| Command                                                | What it does                                                                         |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| `slk subscribe [<folder>] [--path]`, `slk unsubscribe` | Subscribe the session `slk` runs in to the branch of a folder, or to a path, or stop |
+| `slk subscriptions`                                    | What this session is subscribed to                                                   |
+| `slk sessions`                                         | The running agent sessions                                                           |
 
 See [Working with Claude](./working-with-claude.md#which-sessions-get-your-comments).
 

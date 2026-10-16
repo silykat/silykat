@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -367,6 +368,43 @@ describe('slk sessions', () => {
     expect(outside.code).toBe(EXIT.ERROR);
     expect(outside.err).toContain('does not run in a registered agent session');
     expect((await slk(['subscribe', '--path'], { env: { ...env, SLK_SESSION: 's-1' } })).code).toBe(EXIT.OK);
+  });
+
+  it('refuses to subscribe to a path that does not exist, and explains a branch name', async () => {
+    const env = { SILYKAT_HOME: join(root, 'home') };
+    await slk(['session', 'register', '--id', 's-1', '--agent', 'Claude', '--cwd', '.', '--pid', String(process.pid)], {
+      env,
+    });
+    const inSession = { env, ancestors: [100, process.pid, 1] };
+    const missing = await slk(['subscribe', 'nowhere'], inSession);
+    expect(missing.code).toBe(EXIT.NOT_FOUND);
+    expect(missing.err).toContain(`${join(root, 'nowhere')}: file or folder not found`);
+
+    const repo = join(root, 'repo');
+    await mkdir(repo);
+    const git = (...args: string[]) =>
+      execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@e', ...args], { cwd: repo, stdio: 'pipe' });
+    git('init', '-q', '-b', 'main');
+    git('commit', '-q', '--allow-empty', '-m', 'init');
+    git('branch', 'feature');
+    const inRepo = { ...inSession, cwd: repo };
+    const inGit = await slk(['subscribe', 'nowhere'], inRepo);
+    expect(inGit.err).toContain(`${join(repo, 'nowhere')}: file or folder not found`);
+
+    const noWorktree = await slk(['subscribe', 'feature'], inRepo);
+    expect(noWorktree.code).toBe(EXIT.ERROR);
+    expect(noWorktree.err).toContain('"feature" is a branch, not a file or folder, and no folder has it checked out');
+    expect(noWorktree.err).toContain('git worktree add <folder> feature');
+
+    const wt = join(root, 'feature-wt');
+    git('worktree', 'add', '-q', wt, 'feature');
+    const withWorktree = await slk(['subscribe', 'feature'], inRepo);
+    expect(withWorktree.err).toContain(
+      `subscribe to the folder where it is checked out: slk subscribe ${await realpath(wt)}`,
+    );
+    expect((await slk(['subscriptions'], inSession)).out).toContain('subscribed to nothing');
+
+    expect((await slk(['subscribe', wt], inRepo)).out).toContain('Subscribed to repo · feature.');
   });
 
   it('lists, in an agent session, only the threads of what it is subscribed to', async () => {
