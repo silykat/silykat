@@ -1,7 +1,7 @@
 {
   "name": "silykat",
   "displayName": "silykat",
-  "version": "0.11.1",
+  "version": "0.11.2",
   "description": "The code review that makes your agent better: Claude receives the comments you leave in VS Code with the silykat extension, fixes the code, answers in the threads, and learns from your feedback through retros. 100% local.",
   "author": {
     "name": "Lakhdar Lawrence",
