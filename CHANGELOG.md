@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.2](https://github.com/silykat/silykat/compare/v0.11.1...v0.11.2) (2026-10-16)
+
+
+### Bug Fixes
+
+* **cli:** subscribe to a branch by its name, refuse a missing path ([#69](https://github.com/silykat/silykat/issues/69)) ([589e4ba](https://github.com/silykat/silykat/commit/589e4bad497e36d5e5d5b85614ae9c727ede5739))
+
 ## [0.11.1](https://github.com/silykat/silykat/compare/v0.11.0...v0.11.1) (2026-10-14)
 
 

@@ -2,7 +2,7 @@
   "name": "silykat",
   "displayName": "silykat",
   "description": "The code review that makes your agent better. Comment in VS Code like on a pull request: Claude Code fixes the code, answers in the thread and learns from your feedback. 100% local.",
-  "version": "0.11.1",
+  "version": "0.11.2",
   "publisher": "silykat",
   "private": true,
   "license": "MIT",
