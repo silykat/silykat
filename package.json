@@ -30,15 +30,15 @@
     "@commitlint/cli": "21.2.3",
     "@commitlint/config-conventional": "21.2.3",
     "@types/node": "22.20.5",
-    "@vitest/coverage-v8": "5.0.3",
-    "@vscode/codicons": "0.0.36",
+    "@vitest/coverage-v8": "5.0.4",
+    "@vscode/codicons": "0.0.45",
     "esbuild": "0.28.2",
     "husky": "9.1.7",
-    "oxlint": "1.87.0",
-    "oxlint-tsgolint": "7.0.2003",
-    "prettier": "3.9.9",
+    "oxlint": "1.88.0",
+    "oxlint-tsgolint": "7.0.2004",
+    "prettier": "3.9.10",
     "typescript": "7.0.2",
-    "vitest": "5.0.3"
+    "vitest": "5.0.4"
   },
   "engines": {
     "node": ">=22.12.0",
